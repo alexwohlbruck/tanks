@@ -61,6 +61,7 @@ export class App implements AppContext {
   private musicVol: GainNode
   private sfxVol: GainNode
   private pauseBtn: HTMLElement | null
+  private syncFailed = false
 
   constructor(
     private stage: HTMLElement,
@@ -159,15 +160,22 @@ export class App implements AppContext {
     let acc = 0
     let last = performance.now()
     const dt = 1000 / FPS
+    let errors = 0
     const loop = (now: number) => {
-      acc += Math.min(250, now - last)
-      last = now
-      while (acc >= dt) {
-        acc -= dt
-        this.step()
-      }
-      this.render()
+      // one failing frame must not stop the loop (and with it every screen)
       requestAnimationFrame(loop)
+      try {
+        acc += Math.min(250, now - last)
+        last = now
+        while (acc >= dt) {
+          acc -= dt
+          this.step()
+        }
+        this.render()
+      } catch (e) {
+        acc = 0
+        if (errors++ < 5) console.error(e)
+      }
     }
     requestAnimationFrame(loop)
     if (this.params.has('mission')) this.playClassic(this.params.get('p2') ? 2 : 1, Number(this.params.get('mission')) - 1)
@@ -285,7 +293,7 @@ export class App implements AppContext {
       const demo = this.session.kind === 'demo'
       if (this.router.modal && !demo) return hideCursors()
       // + / Esc / P opens the pause menu while the game manager allows it
-      if (!demo && merged.pause && !this.router.id && PAUSABLE(game.state) && this.presenter.pauseEnabled && !game.paused) {
+      if (this.session.kind === 'local' && merged.pause && !this.router.id && PAUSABLE(game.state) && this.presenter.pauseEnabled && !game.paused) {
         this.pause()
         return hideCursors()
       }
@@ -316,7 +324,13 @@ export class App implements AppContext {
 
   private render() {
     if (!this.router.opaque) {
-      this.view.sync()
+      try {
+        this.view.sync()
+      } catch (e) {
+        // a scene object that fails to build should not take the picture and the UI down
+        if (!this.syncFailed) console.error(e)
+        this.syncFailed = true
+      }
       this.view.render()
     }
     const ctx = this.uiCanvas.getContext('2d')!
@@ -337,8 +351,9 @@ export class App implements AppContext {
     this.router.update()
     this.debug.update()
     const playing = !this.router.id && PAUSABLE(this.game.state) && !demo
+    const local = this.session.kind === 'local'
     this.gl.style.cursor = this.hud?.wantsPointer || this.router.modal || !playing ? 'default' : 'none'
-    if (this.pauseBtn) this.pauseBtn.hidden = this.classic || !playing || !this.presenter.pauseEnabled
+    if (this.pauseBtn) this.pauseBtn.hidden = this.classic || !playing || !local || !this.presenter.pauseEnabled
   }
 
   // ---- modern front end ------------------------------------------------------------
