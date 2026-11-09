@@ -39,3 +39,11 @@ export const QUALITY_PRESETS: Record<Quality, RenderOptions> = {
 }
 
 export const QUALITIES: Quality[] = ['classic', 'high', 'ultra']
+
+/** phones (coarse pointer, short side <= 600 CSS px): a 3x screen would fill 9x the pixels of
+ * a desktop window per frame, so the backing store is capped lower there. Text and the 2D
+ * layouts stay sharp (they draw separately, at up to 2x). */
+export const PHONE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) <= 600
+
+/** max device pixel ratio of the 3D view on phones, per preset */
+export const PHONE_MAX_PIXEL_RATIO: Record<Quality, number> = { classic: 1.75, high: 1.75, ultra: 2 }

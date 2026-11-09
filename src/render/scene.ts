@@ -9,7 +9,7 @@ import * as THREE from 'three/webgpu'
 import { Cell, type SimEvent, type Tank, type World } from '../sim/world'
 import { Effects, TANK_PIECE_COLORS, type EffectHandle } from './effects'
 import { Models, type TankLook, type TankObj } from './models'
-import { QUALITY_PRESETS, type Quality, type RenderOptions } from './quality'
+import { PHONE, PHONE_MAX_PIXEL_RATIO, QUALITY_PRESETS, type Quality, type RenderOptions } from './quality'
 import { defaultTankVisual, registryVersion, tankVisual, tileFactory, type BaseModel, type TileResult } from './registry'
 import { TilesView } from './tiles'
 import { TreadCapture } from './tread'
@@ -278,7 +278,7 @@ export class SceneView {
 
   private applyPixelRatio() {
     const o = this.options
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio * o.pixelRatioScale, o.maxPixelRatio))
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio * o.pixelRatioScale, o.maxPixelRatio, PHONE ? PHONE_MAX_PIXEL_RATIO[this.quality] : Infinity))
   }
 
   /** browser zoom / moving the window to another monitor changes devicePixelRatio */

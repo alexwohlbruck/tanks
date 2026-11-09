@@ -163,3 +163,7 @@
 .net-hud .nh-panel p { margin: 0 0 12px; color: var(--muted); font-weight: 500; }
 .net-hud .nh-end { top: auto; bottom: 8%; transform: translateX(-50%); }
 .net-hud .nh-buttons { display: flex; gap: 10px; justify-content: center; }
+
+/* touch screens (src/ui/touch.ts): the pause and fullscreen buttons own the top-right corner */
+body.touch-play .net-hud .nh-bar { top: max(14px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + clamp(40px, 6vmin, 56px) + clamp(34px, 5vmin, 46px) + 22px); }
+body.touch-play .net-hud .nh-players { top: calc(max(12px, env(safe-area-inset-top)) + clamp(40px, 6vmin, 56px) + 10px); }

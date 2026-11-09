@@ -1,7 +1,7 @@
 // LocalSession: the game runs here, driven by local input devices (1-4 players).
 
 import type { Game } from '../game'
-import { padToIntent, pointerToScreen, screenToField } from '../game'
+import { padToIntent, pointerToScreen, projectToScreen, screenToField } from '../game'
 import { Input, type PadState } from '../input'
 import type { Tank } from '../sim/world'
 import type { Pads, Session } from './types'
@@ -17,6 +17,14 @@ export type Cursor = { x: number; y: number; clamped: boolean; far: boolean; vis
  * Without one, the Wii pointer rules for the 16:9 picture apply (pointerToScreen/screenToField).
  */
 export type AimFn = (pointer: { x: number; y: number }, tank: Tank | null) => { cursor: Omit<Cursor, 'visible'>; world: { x: number; z: number } }
+
+/** world point -> layout units (the app's camera; the Wii camera's projectToScreen without one) */
+export type ProjectFn = (x: number, y: number, z: number) => { x: number; y: number }
+
+/** RPTnkCursor: the cursor line to the tank appears this far (layout units) from it */
+const CURSOR_FAR = 480
+/** turret height: the aim plane */
+const AIM_Y = 17.6
 
 /** stage pointer [0,1]^2 -> Wii pointer units (x right, y down, both in half screen widths) */
 export function wiiPointer(p: { x: number; y: number }) {
@@ -59,6 +67,7 @@ export class LocalSession implements Session {
   constructor(
     private game: Game,
     private aim?: AimFn,
+    private project: ProjectFn = (x, y, z) => projectToScreen({ x, y, z }),
   ) {}
 
   step(pads: Pads) {
@@ -86,6 +95,13 @@ export class LocalSession implements Session {
           const s = pointerToScreen(ptr.x, ptr.y, game.aspect, t.lives ? t : null)
           Object.assign(cur, s, { visible: true })
           aim = screenToField(s.x, s.y)
+        } else if (pd.aimStick) {
+          // touch aim stick: the cursor where the stick points around the tank (padToIntent's
+          // 200 units), so the classic cursor follows the aim like it follows the pointer
+          aim = { x: t.pos.x + pd.aimStick.x * 200, z: t.pos.z + pd.aimStick.y * 200 }
+          const c = this.project(aim.x, AIM_Y, aim.z)
+          const tp = this.project(t.pos.x, t.pos.y + AIM_Y, t.pos.z)
+          Object.assign(cur, c, { clamped: false, far: !!t.lives && Math.hypot(c.x - tp.x, c.y - tp.y) >= CURSOR_FAR, visible: true })
         } else cur.visible = false
         padToIntent(t, pd, aim)
       }

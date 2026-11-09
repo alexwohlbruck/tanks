@@ -14,6 +14,7 @@ import { Game } from '../game'
 import { Input, type PadState } from '../input'
 import type { LevelPack } from '../levels/format'
 import { Models } from '../render/models'
+import { PHONE } from '../render/quality'
 import { SceneView } from '../render/scene'
 import { FPS } from '../sim/consts'
 import type { Tank } from '../sim/world'
@@ -27,6 +28,7 @@ import { applyModernMessages } from '../ui/web/messages'
 import { feedMenuPad } from '../ui/web/nav'
 import { classicUi, onSettings, settings, type Settings } from '../ui/web/settings'
 import { loadVectorFont } from '../ui/web/vectorText'
+import { TouchControls } from '../ui/touch'
 import '../ui/web/screens'
 import { hasScreen, Router } from './router'
 import { LocalSession, type AimFn, type Cursor } from './session'
@@ -63,6 +65,8 @@ export class App implements AppContext {
   private musicVol: GainNode
   private sfxVol: GainNode
   private pauseBtn: HTMLElement | null
+  /** on-screen sticks for phones and tablets (src/ui/touch.ts) */
+  touch: TouchControls
   private syncFailed = false
 
   constructor(
@@ -76,6 +80,8 @@ export class App implements AppContext {
     lytOptions.vectorText = lytOptions.hiresTextures = lytOptions.coverScreen = !this.classic
     this.input = new Input(stage)
     this.input.keyBindings = settings.keys
+    this.touch = new TouchControls(stage, screens)
+    this.input.touch = this.touch
     this.pad = Input.merge(this.input.pollAll().kbm)
     this.view = new SceneView(gl, this.models)
     this.router = new Router(screens, () => this)
@@ -118,11 +124,12 @@ export class App implements AppContext {
           this.stopHeld()
         },
       })
-    this.session = new LocalSession(game, this.aim)
+    this.session = new LocalSession(game, this.aim, this.project)
     this.setupFpv()
     this.pauseBtn = document.getElementById('pause-btn')
     this.pauseBtn?.addEventListener('pointerdown', (e) => e.stopPropagation())
-    this.pauseBtn?.addEventListener('click', () => this.pause())
+    // online and arena sessions and the classic UI handle + themselves (their own menus)
+    this.pauseBtn?.addEventListener('click', () => (this.session.hudInput || this.classic ? this.input.queuePause() : this.pause()))
   }
 
   async start() {
@@ -138,8 +145,9 @@ export class App implements AppContext {
     this.presenter.bind(game)
     game.presenter = this.presenter
     if (!this.classic) {
-      applyModernMessages(settings)
-      onSettings((s) => applyModernMessages(s))
+      applyModernMessages(settings, this.touch.enabled)
+      onSettings((s) => applyModernMessages(s, this.touch.enabled))
+      this.touch.onEnabled = (on) => applyModernMessages(settings, on)
     }
     game.options.goldMedal = loadPlayerData().medal >= 3 || this.params.has('gold')
     this.wireGameAudio()
@@ -245,8 +253,10 @@ export class App implements AppContext {
   resize() {
     const r = this.stage.getBoundingClientRect()
     this.view.resize(r.width, r.height, !this.classic)
-    this.uiCanvas.width = Math.round(r.width * devicePixelRatio)
-    this.uiCanvas.height = Math.round(r.height * devicePixelRatio)
+    // the 2D layouts are redrawn every frame: 2x is sharp enough on 3x phone screens
+    const dpr = PHONE ? Math.min(2, devicePixelRatio) : devicePixelRatio
+    this.uiCanvas.width = Math.round(r.width * dpr)
+    this.uiCanvas.height = Math.round(r.height * dpr)
     setLytResolution(this.uiCanvas.width / (2 * this.view.layoutHalf.x))
   }
 
@@ -272,6 +282,9 @@ export class App implements AppContext {
         }
         return { cursor, world: { x: o.x + d.x * k, z: o.z + d.z * k } }
       }
+
+  /** world point -> layout units through the current camera (touch aiming cursor) */
+  private project = (x: number, y: number, z: number) => this.view.projectToLayout(x, y, z)
 
   /** one 60 Hz frame */
   private step() {
@@ -365,7 +378,14 @@ export class App implements AppContext {
     const playing = !this.router.id && PAUSABLE(this.game.state) && !demo
     const local = this.session.kind === 'local'
     this.gl.style.cursor = this.hud?.wantsPointer || this.router.modal || !playing ? 'default' : 'none'
-    if (this.pauseBtn) this.pauseBtn.hidden = this.classic || !playing || !local || !this.presenter.pauseEnabled
+    // touch controls: while a game takes input (local play, or an online / arena session whose
+    // menus are closed)
+    const own = this.session as Session & { inputBlocked?: boolean }
+    const touchPlay = own.hudInput
+      ? !this.router.modal && !own.inputBlocked && !demo
+      : playing && local && !this.game.paused && !this.router.modal && !this.hud?.wantsPointer && !this.hud?.preGame.active
+    this.touch.setActive(touchPlay)
+    if (this.pauseBtn) this.pauseBtn.hidden = own.hudInput || this.classic ? !this.touch.visible : !playing || !local || !this.presenter.pauseEnabled
   }
 
   // ---- modern front end ------------------------------------------------------------
@@ -455,7 +475,8 @@ export class App implements AppContext {
     const look = this.input.takeLook()
     L.yaw += look.x * 0.0028
     L.pitch = Math.max(-0.7, Math.min(0.25, L.pitch - look.y * 0.002))
-    if (pad.aimStick) L.yaw += pad.aimStick.x * 0.06
+    // (the touch aim stick turns the view only while a thumb is on it)
+    if (pad.aimStick && (!this.touch.visible || this.touch.aimHeld)) L.yaw += pad.aimStick.x * 0.06
     ;(own ?? (s as LocalSession)).fpv = { player: 0, yaw: L.yaw }
     this.view.fpv = { player: 0, yaw: L.yaw, pitch: L.pitch }
     this.crosshair.classList.toggle('on', t.alive)
@@ -486,7 +507,7 @@ export class App implements AppContext {
     this.stopHeld()
     this.audio.stopMusic()
     this.show(null)
-    this.setSession(new LocalSession(g, this.aim))
+    this.setSession(new LocalSession(g, this.aim, this.project))
     g.newGame(g.players, 0)
   }
 
@@ -517,12 +538,13 @@ export class App implements AppContext {
   setSession(s: Session) {
     this.session.dispose?.()
     this.session = s
+    this.touch.reset()
   }
   playClassic(players: number, mission = 0) {
     this.show(null)
     this.stopHeld()
     this.audio.stopMusic()
-    this.setSession(new LocalSession(this.game, this.aim))
+    this.setSession(new LocalSession(this.game, this.aim, this.project))
     this.game.paused = false
     this.pauseAudio(false)
     this.game.newGame(players, mission, undefined, null)
@@ -531,7 +553,7 @@ export class App implements AppContext {
     this.show(null)
     this.stopHeld()
     this.audio.stopMusic()
-    this.setSession(new LocalSession(this.game, this.aim))
+    this.setSession(new LocalSession(this.game, this.aim, this.project))
     this.game.paused = false
     this.pauseAudio(false)
     this.game.newGame(players, level, undefined, pack)
@@ -540,7 +562,7 @@ export class App implements AppContext {
     this.game.paused = false
     this.pauseAudio(false)
     if (this.classic) {
-      this.setSession(new LocalSession(this.game, this.aim))
+      this.setSession(new LocalSession(this.game, this.aim, this.project))
       this.game.quitToTitle()
       this.show(null)
       return
