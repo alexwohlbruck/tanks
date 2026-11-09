@@ -215,7 +215,7 @@ export function quantizeInput(i: NetInput): NetInput {
   }
 }
 
-export function encodeInput(i: NetInput): Uint8Array {
+export function encodeInput(i: NetInput): Uint8Array<ArrayBuffer> {
   const b = new Uint8Array(12)
   const v = new DataView(b.buffer)
   v.setUint8(0, BIN_INPUT)
@@ -312,7 +312,7 @@ const F_KEY = 32
 const F_EVONLY = 64
 
 class Writer {
-  buf = new Uint8Array(512)
+  buf: Uint8Array<ArrayBuffer> = new Uint8Array(512)
   v = new DataView(this.buf.buffer)
   n = 0
   private room(k: number) {
@@ -357,7 +357,7 @@ class Writer {
     this.buf.set(b, this.n)
     this.n += b.length
   }
-  done() {
+  done(): Uint8Array<ArrayBuffer> {
     return this.buf.slice(0, this.n)
   }
 }
@@ -410,7 +410,7 @@ export function quantTank(t: TankRec): TankRec {
 }
 
 /** `tanks` must already be quantized (quantTank) */
-export function encodeSnapshot(s: Snapshot): Uint8Array {
+export function encodeSnapshot(s: Snapshot): Uint8Array<ArrayBuffer> {
   const w = new Writer()
   w.u8(BIN_SNAPSHOT)
   w.u32(s.tick)
