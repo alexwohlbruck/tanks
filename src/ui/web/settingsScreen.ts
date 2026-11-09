@@ -102,7 +102,7 @@ class SettingsScreen extends WebScreen {
               this.sound('move')
             }),
             h('h3', null, 'Display'),
-            seg<Quality>('Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], s.quality, (v) => updateSettings({ quality: v })),
+            seg<Quality>('Graphics quality', [['classic', 'Classic'], ['high', 'High'], ['ultra', 'Ultra']], s.quality, (v) => updateSettings({ quality: v })),
             fsSupported ? toggle('Fullscreen', 'Fill the whole screen', !!document.fullscreenElement, (v) => this.fullscreen(v)) : null,
             toggle('Classic Wii UI', "Wii Play's own menus and fonts in a 16:9 picture. Reloads the game.", s.classicUi, (v) => {
               updateSettings({ classicUi: v })

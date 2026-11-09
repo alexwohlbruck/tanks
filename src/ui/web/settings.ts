@@ -1,7 +1,8 @@
 // User settings (localStorage 'tanks.settings'): volumes, graphics quality, key bindings and
 // the "Classic Wii UI" switch. Read once at boot; screens change them through `updateSettings`.
 
-export type Quality = 'low' | 'medium' | 'high'
+/** render quality presets of SceneView.setQuality (src/render/quality.ts) */
+export type Quality = 'classic' | 'high' | 'ultra'
 
 /** keyboard actions that can be rebound (mouse buttons stay fixed) */
 export type KeyAction = 'up' | 'down' | 'left' | 'right' | 'fire' | 'mine' | 'pause'
@@ -40,7 +41,8 @@ function load(): Settings {
       const num = (v: unknown, f: number) => (typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(1, v)) : f)
       d.music = num(s.music, d.music)
       d.sfx = num(s.sfx, d.sfx)
-      if (['low', 'medium', 'high'].includes(s.quality)) d.quality = s.quality
+      if (['classic', 'high', 'ultra'].includes(s.quality)) d.quality = s.quality
+      else if (s.quality === 'low') d.quality = 'classic'
       d.classicUi = !!s.classicUi
       if (s.keys && typeof s.keys === 'object')
         for (const k of Object.keys(d.keys) as KeyAction[]) if (Array.isArray(s.keys[k]) && s.keys[k].every((c: unknown) => typeof c === 'string')) d.keys[k] = s.keys[k]

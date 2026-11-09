@@ -11,7 +11,7 @@ import { tankMeta, tankTypes } from '../sim/stats'
 import type { Tile } from '../sim/tiles'
 import type { SimEvent, Tank, World } from '../sim/world'
 import type { Effects } from './effects'
-import { registerTankVisual } from './registry'
+import { registerTankVisual, type BaseModel } from './registry'
 
 // ---- liveries of the added tank types (base model: 8 = White, the plainest texture) -------
 
@@ -33,7 +33,14 @@ const LIVERY: Record<number, { accent?: string; scale?: number; emissive?: strin
 for (const t of tankTypes())
   if (!t.original) {
     const l = LIVERY[t.id] ?? {}
-    registerTankVisual(t.id, { baseModel: l.base ?? 8, livery: t.colour, accent: l.accent ?? t.colour, scale: l.scale ?? 1, emissive: l.emissive ?? null })
+    registerTankVisual(t.id, {
+      baseModel: `e_${l.base ?? 8}` as BaseModel,
+      livery: t.colour,
+      accent: l.accent ?? t.colour,
+      scale: l.scale ?? 1,
+      emissive: l.emissive ?? undefined,
+      pieceColor: t.colour,
+    })
   }
 
 /** CSS colour of the explosion pieces of an added type */

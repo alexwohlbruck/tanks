@@ -128,6 +128,7 @@ export class App implements AppContext {
     const { game, audio } = this
     await Promise.all([game.load(), this.models.load(), audio.load(), this.presenter.load(), this.hud?.load(), this.classic ? null : loadVectorFont()])
     await this.view.init()
+    this.applySettings(settings)
     // beyond the field's own floor model, the stage's CSS backdrop shows through
     if (!this.classic) {
       this.view.scene.background = null
@@ -194,9 +195,8 @@ export class App implements AppContext {
     this.musicVol.gain.setTargetAtTime(s.music, t, 0.02)
     this.sfxVol.gain.setTargetAtTime(s.sfx, t, 0.02)
     this.input.keyBindings = s.keys
-    const dpr = devicePixelRatio || 1
-    this.view?.renderer.setPixelRatio(s.quality === 'low' ? Math.min(dpr, 1) * 0.75 : s.quality === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2))
-    if (this.view) this.resize()
+    // ?quality= in the URL (render testing) wins over the saved setting
+    if (this.view && !this.params.has('quality')) void this.view.setQuality(s.quality).then(() => this.resize())
   }
 
   private wireGameAudio() {

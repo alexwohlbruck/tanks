@@ -107,7 +107,11 @@ export class Audio {
     if (volume <= 0) {
       if (cur) {
         cur.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.03)
-        cur.src.stop(this.ctx.currentTime + 0.2)
+        try {
+          cur.src.stop(this.ctx.currentTime + 0.2)
+        } catch {
+          // still loading: never started
+        }
         this.loops.delete(key)
       }
       return
