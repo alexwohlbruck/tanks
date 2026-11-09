@@ -14,7 +14,7 @@ import { PLAYER_COLOR_NAMES, PLAYER_COLORS, type RoomInfo, type RoomSettings } f
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const MODES: { id: RoomSettings['mode']; name: string; desc: string }[] = [
-  { id: 'coop', name: 'Co-op', desc: 'The original missions together. One life each; the mission restarts when everyone is down.' },
+  { id: 'coop', name: 'Co-op', desc: 'The original missions together, on the 2-player rules: a destroyed tank sits out until the next mission.' },
   { id: 'pack', name: 'Level pack', desc: 'A custom level pack from the level store (or a .json file), played co-op.' },
   { id: 'versus', name: 'Versus', desc: 'Free-for-all: last tank standing wins the round. Optional AI tanks join the fight.' },
 ]
@@ -221,7 +221,12 @@ class Lobby implements Screen {
     switch (btn.dataset.act) {
       case 'back':
         if (n.room) n.send({ t: 'leave' })
-        this.app.toMenu()
+        try {
+          this.app.toMenu()
+        } catch {
+          // no main menu registered (yet): the original pre-game screens
+          this.app.show(null)
+        }
         return
       case 'retry':
         n.connect().then(() => this.render(), (er) => this.toast(er.message))

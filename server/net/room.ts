@@ -243,8 +243,15 @@ export class Room {
     return { code: this.code, name: this.name, mode: this.settings.mode, players: this.members.length, maxPlayers: this.maxPlayers, state: this.state }
   }
 
+  private pingKey = ''
   broadcastRoom() {
+    this.pingKey = this.members.map((m) => Math.round(m.ping / 10)).join()
     for (const m of this.members) m.send({ t: 'room', room: this.info(m) })
+  }
+
+  /** once a second: the players' pings, when they moved */
+  refreshPings() {
+    if (this.members.map((m) => Math.round(m.ping / 10)).join() !== this.pingKey) this.broadcastRoom()
   }
 
   // ---- settings / game control -------------------------------------------------------------

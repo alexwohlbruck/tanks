@@ -365,6 +365,7 @@ setInterval(() => {
   const now = Date.now()
   for (const r of [...rooms.values()]) {
     r.expire(now)
+    r.refreshPings()
     // idle lobbies go away after an hour
     if (r.state === 'lobby' && now - r.lastActive > 3600_000) for (const m of [...r.members]) r.remove(m)
   }
