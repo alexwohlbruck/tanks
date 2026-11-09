@@ -1,0 +1,135 @@
+/* Shared UI kit for the level editor and the store: toy-box wood and cork, red mission band. */
+
+.tk-root {
+  --tk-red: #c8282e;
+  --tk-red-dark: #8f1a1f;
+  --tk-wood: #f0d9a6;
+  --tk-wood-dark: #9c7440;
+  --tk-cork: #c0814a;
+  --tk-cork-dark: #8d5528;
+  --tk-paper: #fdf6e7;
+  --tk-paper-2: #f6ead0;
+  --tk-ink: #3b2a1c;
+  --tk-ink-soft: #7a634c;
+  --tk-line: rgba(90, 60, 30, 0.22);
+  --tk-blue: #3d79c9;
+  --tk-green: #3c9a4e;
+  --tk-shadow: 0 2px 0 rgba(60, 35, 15, 0.25), 0 8px 24px rgba(40, 20, 5, 0.18);
+  position: fixed;
+  inset: 0;
+  font: 500 14px/1.35 ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--tk-ink);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* the router's screens sit inside the 16:9 stage; these cover the whole window instead */
+#screens > .tk-root { position: fixed; inset: 0; }
+/* undo style.css's `#stage canvas` (full-stage game canvases) for canvases in these screens;
+   their sizes are set inline */
+#stage :where(.tk-root) canvas { position: static; inset: auto; width: auto; height: auto; display: block; }
+.tk-root * { box-sizing: border-box; }
+.tk-root h1, .tk-root h2, .tk-root h3 { margin: 0; font-weight: 800; letter-spacing: 0.01em; }
+
+.tk-btn {
+  appearance: none;
+  border: 2px solid var(--tk-wood-dark);
+  border-bottom-width: 4px;
+  background: linear-gradient(#fff9ec, var(--tk-wood));
+  color: var(--tk-ink);
+  font: inherit;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 7px 14px;
+  min-height: 38px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: transform 0.06s, filter 0.1s;
+}
+.tk-btn:hover { filter: brightness(1.05); }
+.tk-btn:active { transform: translateY(2px); border-bottom-width: 2px; margin-bottom: 2px; }
+.tk-btn:disabled { opacity: 0.45; cursor: default; transform: none; }
+.tk-btn.tk-primary { background: linear-gradient(#e24a4f, var(--tk-red)); border-color: var(--tk-red-dark); color: #fff; }
+.tk-btn.tk-danger { background: linear-gradient(#fff, #f3d6d2); border-color: #a33; color: #8a1b1b; }
+.tk-btn.tk-ghost { background: transparent; border-color: transparent; }
+.tk-btn.tk-small { min-height: 30px; padding: 3px 10px; font-size: 13px; border-radius: 8px; border-bottom-width: 3px; }
+.tk-btn.tk-on { background: linear-gradient(#4f8ee0, var(--tk-blue)); border-color: #22508f; color: #fff; }
+
+.tk-root input[type='text'], .tk-root input[type='number'], .tk-root input[type='search'], .tk-root textarea, .tk-root select {
+  font: inherit;
+  color: var(--tk-ink);
+  background: #fff;
+  border: 2px solid var(--tk-line);
+  border-radius: 8px;
+  padding: 6px 9px;
+  min-height: 36px;
+  width: 100%;
+  user-select: text;
+}
+.tk-root textarea { resize: vertical; min-height: 60px; }
+.tk-root input:focus, .tk-root textarea:focus, .tk-root select:focus { outline: none; border-color: var(--tk-blue); }
+.tk-root label.tk-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: var(--tk-ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+.tk-root label.tk-check { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.tk-root label.tk-check input { width: 20px; height: 20px; accent-color: var(--tk-red); }
+
+.tk-band {
+  background: linear-gradient(var(--tk-red), #b02025);
+  color: #fff;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.tk-modal-wrap {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 15, 5, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+  animation: tk-fade 0.12s ease-out;
+}
+.tk-modal {
+  background: var(--tk-paper);
+  border: 3px solid var(--tk-wood-dark);
+  border-radius: 16px;
+  box-shadow: var(--tk-shadow);
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: tk-pop 0.14s ease-out;
+}
+.tk-modal.tk-wide { width: min(1180px, 100%); }
+.tk-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: linear-gradient(var(--tk-red), #b02025); color: #fff; }
+.tk-modal-head h2 { font-size: 18px; }
+.tk-x { appearance: none; border: 0; background: rgba(255, 255, 255, 0.18); color: #fff; width: 32px; height: 32px; border-radius: 50%; font-size: 22px; line-height: 1; cursor: pointer; }
+.tk-modal-body { padding: 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.tk-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 2px solid var(--tk-line); background: var(--tk-paper-2); flex-wrap: wrap; }
+
+.tk-toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 60; align-items: center; pointer-events: none; }
+.tk-toast { pointer-events: auto; display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-radius: 12px; background: #2e2117; color: #fff; font-weight: 600; box-shadow: var(--tk-shadow); animation: tk-pop 0.15s ease-out; transition: opacity 0.4s; }
+.tk-toast-ok { background: #2f7a3d; }
+.tk-toast-error { background: #a3232a; }
+.tk-toast.tk-out { opacity: 0; }
+
+.tk-msgs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.tk-msgs li { padding: 5px 8px 5px 26px; border-radius: 6px; position: relative; }
+.tk-msgs li::before { position: absolute; left: 8px; font-weight: 900; }
+.tk-msgs li.tk-err { background: #fbe1de; color: #8a1b1b; }
+.tk-msgs li.tk-err::before { content: '!'; }
+.tk-msgs li.tk-warn { background: #fbf0cf; color: #6d5206; }
+.tk-msgs li.tk-warn::before { content: '·'; }
+.tk-msgs li.tk-good { background: #dff2dc; color: #245c2c; }
+.tk-msgs li.tk-good::before { content: '✓'; left: 7px; }
+
+.tk-stars { display: inline-flex; gap: 2px; color: #e3a21a; letter-spacing: -1px; }
+.tk-stars button { appearance: none; border: 0; background: none; font-size: 28px; line-height: 1; cursor: pointer; color: #d8c8a8; padding: 0 2px; }
+.tk-stars button.tk-lit { color: #f0a81c; text-shadow: 0 1px 0 #a86b00; }
+
+@keyframes tk-fade { from { opacity: 0; } }
+@keyframes tk-pop { from { transform: scale(0.96); opacity: 0; } }
