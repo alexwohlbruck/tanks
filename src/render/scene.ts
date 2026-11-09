@@ -364,7 +364,7 @@ function shellMatrix(b: { pos: { x: number; y: number; z: number }; vel: { x: nu
 
 /** model index: 0 = 1p, 1 = 2p, 2-10 = enemy type 1-9 */
 function modelIndex(t: Tank) {
-  return t.team === 2 ? 1 + t.type : t.team
+  return t.isEnemy ? 1 + t.type : t.team > 1 ? 0 : t.team
 }
 
 /**

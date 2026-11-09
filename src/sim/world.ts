@@ -17,7 +17,7 @@
 //   cellCenter(c, r)         {x, y: 0, z}
 //   field                    Field (width, depth, cellW, cellD, walls)
 //   tanks: Tank[]            tanks spawned by the current stage load, players first
-//                            (id, type 0..9, team 0/1 players 2 enemy, slot, pos {x,y,z},
+//                            (id, type 0..9, team 0-3 players / TEAM_ENEMY, slot, pos {x,y,z},
 //                            body, turret, rot, turretRot, alive, invisible, odometer,
 //                            moving, speed, intent, state, stealth)
 //   bullets: Shell[]         active shells (id, pos {x,y,z} (y = 17.6), vel, fast, type
@@ -39,7 +39,7 @@
 // =========================================================================================
 
 import { Actor, ActorPool, nextId } from './actor'
-import { POOL, TANK } from './consts'
+import { POOL, TANK, MAX_PLAYERS, HIT_ENEMY, TEAM_ENEMY } from './consts'
 import { BlockPool, Field } from './field'
 import { Mine, MinePool } from './mine'
 import { RPRandom } from './rng'
@@ -73,7 +73,7 @@ export type SimEvent =
   | { t: 'shoot'; tank: Tank; bullet: Shell | null }
   | { t: 'ricochet'; bullet: Shell; pos: V3; super: boolean }
   | { t: 'bulletDie'; bullet: Shell; pos: V3; reason: ShellDeath }
-  | { t: 'tankDie'; tank: Tank; by: number; cause: 'shell' | 'mine'; killer: 0 | 1 | null }
+  | { t: 'tankDie'; tank: Tank; by: number; cause: 'shell' | 'mine'; killer: number | null }
   | { t: 'mineSet'; mine: Mine }
   | { t: 'mineFuse'; mine: Mine; near: boolean }
   | { t: 'mineExplode'; mine: Mine }
@@ -109,7 +109,7 @@ export class CheckMark extends Actor {
 /** callbacks into the game manager / stats (RPTnkGameStats, RPTnkStageMap::SetEnemyActive) */
 export type WorldHooks = {
   /** RPTnkGameStats::AddKill (player 0/1, enemy type 1-9) */
-  addKill(player: 0 | 1, type: number, pos: V3): void
+  addKill(player: number, type: number, pos: V3): void
   /** RPTnkGameStats::AddKilledType (type 1-9); RPTnkTank::SetExGuideTarget on mission 1 */
   enemySpawned(type: number, tank: Tank): void
   /** RPTnkStageMap::SetEnemyActive(slot, false) */
@@ -126,7 +126,8 @@ export class World {
   playerTanks: Tank[]
   enemyTanks: Tank[]
   /** RPTnkTankManager::mActivePlayerNum */
-  players: 1 | 2
+  /** 1-4 (the original: 1 or 2) */
+  players: number
   enemyAliveNum = 0
   private enemyNext = 0
 
@@ -146,9 +147,9 @@ export class World {
   /** 1P: enemy-on-enemy kills are credited to P1 (RPTnkTank::Explode hitId 3) */
   twoPlayerMode: boolean
 
-  constructor(players: 1 | 2, opts: { aspect?: '16_9' | '4_3'; rng?: RPRandom } = {}) {
+  constructor(players: number, opts: { aspect?: '16_9' | '4_3'; rng?: RPRandom } = {}) {
     this.players = players
-    this.twoPlayerMode = players === 2
+    this.twoPlayerMode = players >= 2
     this.rng = opts.rng ?? new RPRandom(1)
     this.field = new Field(opts.aspect ?? '16_9')
     this.width = this.field.cols
@@ -157,7 +158,7 @@ export class World {
     this.shellPool = new ShellPool(this, POOL.shells)
     this.minePool = new MinePool(this, POOL.mines)
     this.marks = new ActorPool(POOL.checkMarks, () => new CheckMark())
-    this.playerTanks = [0, 1].map((i) => new Tank(this, false, i))
+    this.playerTanks = Array.from({ length: MAX_PLAYERS }, (_, i) => new Tank(this, false, i))
     this.enemyTanks = Array.from({ length: POOL.enemies }, (_, i) => new Tank(this, true, i))
     this.reset()
   }
@@ -222,7 +223,7 @@ export class World {
    */
   loadStage(map: StageMapData, slots: number[], opts: { swap: boolean; active?: boolean[]; chooseType?: (v: number) => number }) {
     const f = this.field
-    const playerPos: V3[] = [v3(), v3()]
+    const playerPos: (V3 | null)[] = [null, null, null, null]
     const enemyPos: V3[] = Array.from({ length: 8 }, () => v3())
     this.grid = []
     for (let y = 0; y < f.rows; y++) {
@@ -230,8 +231,7 @@ export class World {
       for (let x = 0; x < f.cols; x++) {
         const code = map.cells[y]?.[x] ?? 0
         row.push({ kind: cellKind(code), code, height: cellHeight(code) })
-        if (code === 300) playerPos[0] = f.cellPos(x, y)
-        else if (code === 301) playerPos[1] = f.cellPos(x, y)
+        if (code >= 300 && code < 300 + MAX_PLAYERS) playerPos[code - 300] = f.cellPos(x, y)
         else if (code >= 400 && code <= 407) enemyPos[code - 400] = f.cellPos(x, y)
       }
       this.grid.push(row)
@@ -249,12 +249,13 @@ export class World {
         else if (code >= 200 && code <= 207) this.blocks.spawnAt(x, y, ((code - 200) << 4) | 1)
       }
     // players
-    const two = this.players === 2
-    const p0 = opts.swap ? playerPos[1] : playerPos[0]
-    const p1 = opts.swap ? playerPos[0] : playerPos[1]
-    if (opts.swap) this.playerFacing = [this.playerFacing[1], this.playerFacing[0]]
-    this.playerTanks[0].spawnPlayer(p0, 0, true)
-    if (two) this.playerTanks[1].spawnPlayer(p1, 0, true)
+    // spawns the map lacks (3-4 players on original maps) go to the nearest free cell
+    const spawns = this.fillPlayerSpawns(playerPos)
+    if (opts.swap) {
+      ;[spawns[0], spawns[1]] = [spawns[1], spawns[0]]
+      this.playerFacing = [this.playerFacing[1], this.playerFacing[0]]
+    }
+    for (let i = 0; i < this.players; i++) this.playerTanks[i].spawnPlayer(spawns[i], 0, true)
     // enemies
     const types: number[] = []
     for (let i = 0; i < 8; i++) {
@@ -377,11 +378,57 @@ export class World {
     return type
   }
 
+  /** player spawn positions for every player: map codes 300-303, then free cells next to them */
+  private fillPlayerSpawns(given: (V3 | null)[]): V3[] {
+    const f = this.field
+    const taken = new Set<string>()
+    const out: V3[] = []
+    const cellOf = (p: V3) => [Math.round(p.x / 35 + (f.cols - 1) / 2), Math.round(p.z / 35 + (f.rows - 1) / 2)]
+    for (const p of given) if (p) taken.add(cellOf(p).join(','))
+    const free = (x: number, y: number) =>
+      x >= 0 && y >= 0 && x < f.cols && y < f.rows && this.grid[y][x].kind === Cell.Empty && !this.grid[y][x].code && !taken.has(`${x},${y}`)
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      const g = given[i]
+      if (g) {
+        out.push(g)
+        continue
+      }
+      // breadth-first from the nearest given spawn (P1's for odd players, P2's for even)
+      const from = given[i % 2] ?? given[0] ?? f.cellPos(1, f.rows - 2)
+      const [sx, sy] = cellOf(from)
+      const seen = new Set<string>([`${sx},${sy}`])
+      const queue: [number, number][] = [[sx, sy]]
+      let found: V3 | null = null
+      while (queue.length && !found) {
+        const [x, y] = queue.shift()!
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+          const nx = x + dx
+          const ny = y + dy
+          const k = `${nx},${ny}`
+          if (seen.has(k) || nx < 0 || ny < 0 || nx >= f.cols || ny >= f.rows) continue
+          seen.add(k)
+          if (free(nx, ny)) {
+            found = f.cellPos(nx, ny)
+            taken.add(k)
+            break
+          }
+          if (this.grid[ny][nx].kind === Cell.Empty) queue.push([nx, ny])
+        }
+      }
+      out.push(found ?? from)
+    }
+    return out
+  }
+
   /** RPTnkTankManager::GetPlayersDeadState: bit 0 P2 dead, bit 1 P1 dead; 1P: 3 dead, 1 alive */
   playersDeadState(): number {
     const p0 = this.playerTanks[0]
     const p1 = this.playerTanks[1]
     if (this.players === 1) return p0.lives === 0 ? 3 : 1
+    if (this.players > 2) {
+      for (let i = 0; i < this.players; i++) if (this.playerTanks[i].lives !== 0) return 0
+      return 3
+    }
     if (p0.lives === 0) return (p1.lives === 0 ? 1 : 0) + 2
     return p1.lives === 0 ? 1 : 0
   }
@@ -522,17 +569,16 @@ export class World {
 
   /** RPTnkTank::Explode bookkeeping */
   onTankExplode(t: Tank, hitId: number, cause: 'shell' | 'mine') {
-    let killer: 0 | 1 | null = null
+    let killer: number | null = null
     if (t.isEnemy) {
-      if (hitId === 1) killer = 0
-      else if (hitId === 2) killer = 1
-      else if (hitId === 3 && !this.twoPlayerMode) killer = 0
+      if (hitId >= 1 && hitId <= MAX_PLAYERS) killer = hitId - 1
+      else if (hitId === HIT_ENEMY && !this.twoPlayerMode) killer = 0
       if (killer !== null) {
         this.hooks.addKill(killer, t.enemyType, vcopy(t.pos))
         if (!this.twoPlayerMode) {
           this.sound('RP_TNK_SE_GET_HIT')
           this.sound('RP_TNK_SE_GET_HIT_CSPK')
-        } else if (killer === 0) {
+        } else if (killer % 2 === 0) {
           this.sound('RP_TNK_SE_GET_HIT_01')
           this.sound('RP_TNK_SE_GET_HIT_01_CSPK')
         } else {
@@ -540,7 +586,7 @@ export class World {
           this.sound('RP_TNK_SE_GET_HIT_02_CSPK')
         }
       }
-      this.marks.spawn(t.pos, 2)
+      this.marks.spawn(t.pos, TEAM_ENEMY)
       this.hooks.enemyDestroyed(t.spawnParam)
     } else {
       this.marks.spawn(t.pos, t.index)

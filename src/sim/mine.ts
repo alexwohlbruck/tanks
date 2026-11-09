@@ -7,7 +7,7 @@
 
 import { Actor, ActorPool } from './actor'
 import type { AiMove } from './ai'
-import { MINE } from './consts'
+import { MINE, ENEMY_SLOT0, TEAM_ENEMY, HIT_ENEMY, POOL } from './consts'
 import { collideActor } from './field'
 import type { Tank } from './tank'
 import { type V3, accumulate, dot, normalize, v3, vcopy, vset, ZERO } from './vec'
@@ -41,7 +41,7 @@ export class Mine extends Actor {
     return this.hitFlags[5]
   }
   get team() {
-    return this.slot >= 2 ? 2 : this.slot
+    return this.slot >= ENEMY_SLOT0 ? TEAM_ENEMY : this.slot
   }
 
   override ownerSlot() {
@@ -99,7 +99,7 @@ export class Mine extends Actor {
         this.hitRadius = this.blastRadius
         const r = this.w.findMineHit(this)
         if (r) {
-          const kind = this.slot === 0 ? 1 : this.slot === 1 ? 2 : 3
+          const kind = this.slot < ENEMY_SLOT0 ? this.slot + 1 : HIT_ENEMY
           r.tank.keepNearestMineHit(kind, r.dist)
         }
       }
@@ -153,7 +153,7 @@ export class Mine extends Actor {
     } else {
       if (--this.timer <= 0) this.explode()
       // RPTnkTank::HoldMineFuseSe: only player-owned mines beep
-      if (this.slot === 0 || this.slot === 1) this.w.soundHold('RP_TNK_SE_JIRAI_EXP_MAE', -1 - this.slot, this.pos)
+      if (this.slot < ENEMY_SLOT0) this.w.soundHold('RP_TNK_SE_JIRAI_EXP_MAE', -1 - this.slot, this.pos)
     }
   }
 
@@ -218,7 +218,7 @@ function circleAround(o: V3, cx: number, cz: number, radius: number): number | n
 
 export class MinePool extends ActorPool<Mine> {
   /** non-exploding mines per owner slot, recounted every frame */
-  mineNum = new Array(10).fill(0)
+  mineNum = new Array(ENEMY_SLOT0 + POOL.enemies).fill(0)
 
   constructor(w: World, n: number) {
     super(n, () => new Mine(w))

@@ -3,7 +3,7 @@
 // RPRandom exactly where the original advances RP_randSeedX/Y.
 
 import { Actor } from './actor'
-import { MINE, SHELL } from './consts'
+import { MINE, SHELL, ENEMY_SLOT0 } from './consts'
 import { collideActor } from './field'
 import { paramsFor } from './stats'
 import type { Tank } from './tank'
@@ -175,21 +175,27 @@ export class Probe extends Actor {
 export type ShellThreat = { pos: V3; dir: V3; dist: number; perpDist: number; perpDir: V3 }
 export type MineThreat = { pos: V3; dist: number; dir: V3 }
 
-/** Nearest living player (RPTnkAi_2.cpp AiMoveGetTargetDir / RPTnkAi_4.cpp PickAimTarget) */
+/** Nearest living player (RPTnkAi_2.cpp AiMoveGetTargetDir / RPTnkAi_4.cpp PickAimTarget).
+ * 1P: always P1. 2P (original): P1 if P2 is dead, P2 if only P2 lives, else the nearer
+ * (ties go to P1). Generalised to 4 players: the nearest living one, ties to the lower index,
+ * P1 when nobody is alive. */
 function targetPlayer(w: World, from: V3, alt: boolean): Tank {
   const p0 = w.playerTanks[0]
   if (w.players === 1) return p0
-  const p1 = w.playerTanks[1]
-  const a0 = p0.lives !== 0
-  const a1 = p1.lives !== 0
-  if (!a1) return p0
-  if (!a0 && a1) return p1
-  // the move AI compares plain positions, the attack AI the shell hit centres (pos + (0,0,9))
-  const c0 = alt ? p0.hitCenterAlt() : p0.pos
-  const c1 = alt ? p1.hitCenterAlt() : p1.pos
-  const d1 = Math.hypot(from.x - c1.x, from.z - c1.z)
-  const d0 = Math.hypot(from.x - c0.x, from.z - c0.z)
-  return d0 <= d1 ? p0 : p1
+  let best: Tank | null = null
+  let bestD = Infinity
+  for (let i = 0; i < w.players; i++) {
+    const p = w.playerTanks[i]
+    if (p.lives === 0) continue
+    // the move AI compares plain positions, the attack AI the shell hit centres (pos + (0,0,9))
+    const c = alt ? p.hitCenterAlt() : p.pos
+    const d = Math.hypot(from.x - c.x, from.z - c.z)
+    if (d < bestD) {
+      best = p
+      bestD = d
+    }
+  }
+  return best ?? p0
 }
 
 /** RPTnkAiMove: states 0 approach, 1 evade, 2 keep direction (after laying a mine). */
@@ -710,11 +716,9 @@ export class AiAttack {
       }
       return false
     }
-    const p0 = this.w.playerTanks[0]
-    if (p0.lives && test(p0)) return true
-    if (this.w.players === 2) {
-      const p1 = this.w.playerTanks[1]
-      if (p1.lives && test(p1)) return true
+    for (let i = 0; i < this.w.players; i++) {
+      const p = this.w.playerTanks[i]
+      if (p.lives && test(p)) return true
     }
     return false
   }
@@ -760,7 +764,7 @@ export class AiAttack {
   /** RPTnkAiAttack::DecideFire */
   private decideFire(muzzleDist: number) {
     this.fire = false
-    const slot = this.tank.index + 2
+    const slot = this.tank.index + ENEMY_SLOT0
     if (this.w.shellPool.shellNum[slot] < this.maxShells) {
       this.predictShotPath(muzzleDist)
       if (this.segments[0].endStep > 6 && !this.pathHitsSelf() && !this.pathHitsAlly() && this.pathHitsPlayer()) this.fire = true
@@ -770,7 +774,7 @@ export class AiAttack {
   /** RPTnkAiAttack::DecideLayMine */
   private decideLayMine() {
     this.layMine = false
-    const slot = this.tank.index + 2
+    const slot = this.tank.index + ENEMY_SLOT0
     if (this.w.minePool.mineNum[slot] < this.mineMax) {
       const distance = this.w.nearestEnemyDistance(this.tank)
       if (distance <= this.mineEnemyDist) return
@@ -793,7 +797,7 @@ export class AiAttack {
     const t = this.tank
     if (this.layMine) {
       const at = v3(this.pos.x, 0, this.pos.z)
-      const slot = t.index + 2
+      const slot = t.index + ENEMY_SLOT0
       this.w.layMine(0, t, at, at, slot)
       t.playLayMineSe()
       this.mineTimer = this.mineCooldown
@@ -804,7 +808,7 @@ export class AiAttack {
     }
     if (this.fire) {
       const muzzle = v3(muzzleDist * turret.z.x + this.pos.x, muzzleDist * turret.z.y + this.pos.y, muzzleDist * turret.z.z + this.pos.z)
-      const slot = t.index + 2
+      const slot = t.index + ENEMY_SLOT0
       let smoke = 0
       if (this.type === 3) smoke = 1
       else if (this.type === 7) smoke = 2

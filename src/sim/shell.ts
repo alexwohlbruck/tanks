@@ -2,7 +2,7 @@
 
 import { Actor, ActorPool } from './actor'
 import type { AiMove } from './ai'
-import { SHELL } from './consts'
+import { SHELL, ENEMY_SLOT0, TEAM_ENEMY, HIT_ENEMY, POOL } from './consts'
 import { collideActor } from './field'
 import type { Tank } from './tank'
 import { type V3, EY, accumulate, cross, dot, mag, normalize, perpendicularDir, perpendicularDistance, v3, vcopy } from './vec'
@@ -42,7 +42,7 @@ export class Shell extends Actor {
     return this.shooterType
   }
   get team() {
-    return this.slot >= 2 ? 2 : this.slot
+    return this.slot >= ENEMY_SLOT0 ? TEAM_ENEMY : this.slot
   }
 
   override ownerSlot() {
@@ -86,7 +86,7 @@ export class Shell extends Actor {
     const r = this.w.findShellHit(this)
     if (r && (this.age >= SHELL.selfHitAge || this.owner !== r.tank)) {
       this.hitTank = true
-      const kind = this.slot === 0 ? 1 : this.slot === 1 ? 2 : 3
+      const kind = this.slot < ENEMY_SLOT0 ? this.slot + 1 : HIT_ENEMY
       r.tank.keepNearestShellHit(kind, r.dist)
     }
     this.hitRadius = SHELL.radius
@@ -170,7 +170,7 @@ export class Shell extends Actor {
 
 export class ShellPool extends ActorPool<Shell> {
   /** active shells per owner slot, recounted at the start of every frame */
-  shellNum = new Array(10).fill(0)
+  shellNum = new Array(ENEMY_SLOT0 + POOL.enemies).fill(0)
 
   constructor(private w: World, n: number) {
     super(n, () => new Shell(w))

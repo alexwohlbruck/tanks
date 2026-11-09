@@ -1,6 +1,15 @@
 // Constants compiled into the Tanks! code (decomp: build/decomp/src/Pack/RPParty/RPTnkScene).
 // All lengths are original world units (1 cell = 35), all times are 60 Hz frames.
 
+/** Online play allows up to 4 players; the original has 1-2. Weapon owner slots are
+ * players 0..MAX_PLAYERS-1, then enemies from ENEMY_SLOT0 (the original used 2 + index). */
+export const MAX_PLAYERS = 4
+export const ENEMY_SLOT0 = MAX_PLAYERS
+/** team of enemy tanks (players use their index) and the hit id of enemy weapons
+ * (players' weapons hit with index + 1; the original used 3 for enemies) */
+export const TEAM_ENEMY = 9
+export const HIT_ENEMY = 9
+
 /** RPTnkScene::Calculate runs once per 60 Hz frame. */
 export const FPS = 60
 

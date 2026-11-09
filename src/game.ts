@@ -26,6 +26,9 @@ import { loadGameData, mapKey, normalizeData, type Aspect, type GameData, type M
 import type { PadState } from './input'
 import { type AudioSink, BgmMix } from './sim/bgm'
 import { CAMERA, C, TANK as TANKC } from './sim/consts'
+
+/** stats arrays are indexed by enemy type (1-9 original, 10+ added types) */
+const TYPE_SLOTS = 32
 import { HeadlessPresenter, type Presenter } from './sim/presenter'
 import { RPRandom } from './sim/rng'
 import { setTankRecords } from './sim/stats'
@@ -70,31 +73,31 @@ export type Listener = {
 /** RPTnkGameStats */
 export class GameStats {
   players = 2
-  kills = [0, 0]
-  /** [player][enemy type 1-9] */
-  killsByType = [new Array(10).fill(0), new Array(10).fill(0)]
-  typeSeen = new Array(10).fill(false)
+  kills = [0, 0, 0, 0]
+  /** [player][enemy type] */
+  killsByType = [0, 1, 2, 3].map(() => new Array(TYPE_SLOTS).fill(0))
+  typeSeen = new Array(TYPE_SLOTS).fill(false)
   /** enemy types in order of first appearance (AddKilledType at spawn) */
   typeOrder: number[] = []
-  lives = [1, 1]
+  lives = [1, 1, 1, 1]
 
   /** RPTnkGameStats::Setup */
   setup(players: number) {
     this.players = players
     this.clearCounts()
-    this.lives = [1, 1]
+    this.lives = [1, 1, 1, 1]
   }
   /** RPTnkGameStats::ClearCounts */
   clearCounts() {
-    this.kills = [0, 0]
-    this.killsByType = [new Array(10).fill(0), new Array(10).fill(0)]
-    this.typeSeen = new Array(10).fill(false)
+    this.kills = [0, 0, 0, 0]
+    this.killsByType = [0, 1, 2, 3].map(() => new Array(TYPE_SLOTS).fill(0))
+    this.typeSeen = new Array(TYPE_SLOTS).fill(false)
     this.typeOrder = []
   }
   setAllLives(n: number) {
     for (let i = 0; i < this.players; i++) this.lives[i] = n
   }
-  addKill(player: 0 | 1, type: number, n = 1) {
+  addKill(player: number, type: number, n = 1) {
     this.kills[player] += n
     this.killsByType[player][type] += n
   }
@@ -108,11 +111,19 @@ export class GameStats {
     this.typeSeen[type] = true
     this.typeOrder.push(type)
   }
-  /** RPTnkGameStats::GetWinner: 0 / 1, -1 on a draw */
-  winner(): -1 | 0 | 1 {
-    if (this.kills[0] > this.kills[1]) return 0
-    if (this.kills[0] < this.kills[1]) return 1
-    return -1
+  /** RPTnkGameStats::GetWinner: the player with the most kills, -1 on a draw */
+  winner(): number {
+    let best = -1
+    let bestK = -1
+    let tie = false
+    for (let i = 0; i < this.players; i++) {
+      if (this.kills[i] > bestK) {
+        best = i
+        bestK = this.kills[i]
+        tie = false
+      } else if (this.kills[i] === bestK) tie = true
+    }
+    return tie ? -1 : best
   }
 }
 
@@ -195,7 +206,7 @@ class ExGuide {
   start(w: World) {
     const p = w.playerTanks
     this.startPos[0] = { x: p[0].pos.x, z: p[0].pos.z }
-    if (w.players === 2) this.startPos[1] = { x: p[1].pos.x, z: p[1].pos.z }
+    if (w.players >= 2) this.startPos[1] = { x: p[1].pos.x, z: p[1].pos.z }
     this.done = false
     this.state = 0
     this.moved = [0, 0]
@@ -283,7 +294,8 @@ export class Game {
   state = 0
   phaseTime = 0
   paused = false
-  players: 1 | 2 = 1
+  /** 1-4 (the original: 1 or 2; 3-4 follow the 2P rules) */
+  players = 1
   aspect: Aspect = '16_9'
   options: GameOptions = { goldMedal: false }
   rng = new RPRandom((Math.random() * 2 ** 32) >>> 0)
@@ -343,7 +355,7 @@ export class Game {
   get lives() {
     return this.stats.lives[0]
   }
-  livesOf(p: 0 | 1) {
+  livesOf(p: number) {
     return this.stats.lives[p]
   }
 
@@ -391,7 +403,7 @@ export class Game {
 
   // ---- RPTnkScene::Reset + RPTnkGameManager::ResetForMode / Start --------------------------
 
-  newGame(players: 1 | 2, startMission = 0, seed = this.options.seed) {
+  newGame(players: number, startMission = 0, seed = this.options.seed) {
     this.players = players
     // RP_seedRandomTicks
     this.rng.seed(seed ?? (Math.random() * 2 ** 32) >>> 0)
@@ -489,10 +501,11 @@ export class Game {
   private loadStage(stage: number, variant: number, two: boolean) {
     const w = this.world!
     const m = this.data.params.missions[stage]
-    const key = mapKey(this.players, variant, this.aspect)
+    const key = mapKey(this.players === 1 ? 1 : 2, variant, this.aspect)
     const map = this.data.maps[key]
     if (!map) throw new Error(`missing map ${key}`)
-    this.swapPlayers = two ? ((this.rng.next() >>> 4) & 1) === 1 : false
+    // the original swaps P1/P2 at random in 2P (the draw is kept for 3-4 players, the swap is not)
+    this.swapPlayers = two ? ((this.rng.next() >>> 4) & 1) === 1 && this.players === 2 : false
     const raw = two ? m.slots2P : m.slots1P
     const types = w.loadStage(map, raw, { swap: this.swapPlayers, chooseType: (v) => this.chooseEnemyType(v) })
     this.mission = {
@@ -539,7 +552,7 @@ export class Game {
     if (this.presenter.fadeBonusLife()) {
       // RPTnkFade::Calculate at timer 120 of the bonus card
       this.stats.addLives(0, 1)
-      if (this.players === 2) this.stats.addLives(1, 1)
+      for (let i = 1; i < this.players; i++) this.stats.addLives(i, 1)
     }
     if (this.presenter.fadeJingle()) this.startBgm()
     if (this.presenter.fadeStageBgm()) this.startStageBgm()
@@ -678,7 +691,7 @@ export class Game {
     this.freeze = true
     const lose = this.options.infiniteLives ? 0 : -1
     const failed = this.stats.addLives(0, lose)
-    if (this.players === 2) this.stats.addLives(1, lose)
+    for (let i = 1; i < this.players; i++) this.stats.addLives(i, lose)
     if (failed) {
       this.presenter.failedMsgShow()
       this.presenter.hudOut()
@@ -727,7 +740,7 @@ export class Game {
       if (this.nextAction === 1) {
         ++this.stage
         this.pickStageVariant(this.stage)
-        this.loadStage(this.stage, this.variant, this.players === 2)
+        this.loadStage(this.stage, this.variant, this.players >= 2)
       } else this.reloadStage()
       this.nextAction = 0
       this.stageReady = false
@@ -804,7 +817,7 @@ export class Game {
    * 2 reticle + tail + line to the tank, 3 dimmed reticle (dead player in 2P).
    * `farOrClamped`: the pointer is >= 480 units from the tank or pinned to the screen edge.
    */
-  cursorMode(player: 0 | 1, farOrClamped: boolean): 0 | 1 | 2 | 3 {
+  cursorMode(player: number, farOrClamped: boolean): 0 | 1 | 2 | 3 {
     switch (this.state) {
       case 2:
       case 3:
@@ -819,7 +832,7 @@ export class Game {
     }
     const t = this.world?.playerTanks[player]
     if (t && t.lives) return farOrClamped ? 2 : 1
-    return this.players === 2 ? 3 : 1
+    return this.players >= 2 ? 3 : 1
   }
 
   // ---- debug -----------------------------------------------------------------------------

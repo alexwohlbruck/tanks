@@ -237,7 +237,7 @@ export class UiPresenter implements Presenter {
     return this.winner.closing
   }
   menuStart(players: 1 | 2) {
-    this.menu.start(players, players === 2 ? (this.game?.winner() ?? -1) : -1)
+    this.menu.start(players === 1 ? 1 : 2, players === 2 ? ((this.game?.winner() ?? -1) as -1 | 0 | 1) : -1)
   }
   /** RPResultMenu::GetChoice, held back until the scene change has faded to black */
   menuChoice() {

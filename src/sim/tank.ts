@@ -6,7 +6,7 @@
 
 import { Actor } from './actor'
 import { AiController } from './ai'
-import { TANK } from './consts'
+import { TANK, TEAM_ENEMY } from './consts'
 import { collideActor } from './field'
 import { PlayerController } from './player'
 import type { Shell } from './shell'
@@ -14,7 +14,8 @@ import { paramsFor } from './stats'
 import { type Axes, type V3, EY, accumulate, copyAxes, cross, dot, heading, identityAxes, mag, normalize, setAxes, v3, vcopy, vset } from './vec'
 import type { World } from './world'
 
-export type Team = 0 | 1 | 2 // 0 = player 1, 1 = player 2, 2 = enemy
+/** player index 0-3, or TEAM_ENEMY (9) */
+export type Team = number
 
 /**
  * Per-frame player input (filled by padToIntent). Enemy tanks ignore it.
@@ -153,7 +154,7 @@ export class Tank extends Actor {
     return this.isEnemy ? this.enemyType : 0
   }
   get team(): Team {
-    return this.isEnemy ? 2 : (this.index as 0 | 1)
+    return this.isEnemy ? TEAM_ENEMY : this.index
   }
   /** enemy spawn slot 0-7 (-1 for players) */
   get slot() {

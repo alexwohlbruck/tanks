@@ -83,7 +83,7 @@ export class Hud {
     // Tanks card, everything else (boot, pause menu "Quit") to the player count
     if (g.state === 0) {
       if (!this.preGame.active && !fader.closing) {
-        this.preGame.open(this.prevState === 12 ? 'info' : this.entry, g.players)
+        this.preGame.open(this.prevState === 12 ? 'info' : this.entry, g.players === 1 ? 1 : 2)
         this.entry = 'num'
         this.prevState = 0
       }

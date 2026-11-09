@@ -27,7 +27,7 @@ export interface Presenter {
   hudIn(): void
   hudOut(): void
   /** RPTnkHud::PlayScoreAnim */
-  hudScore(player: 0 | 1): void
+  hudScore(player: number): void
   /** RPTnkHud::SetShowBalloons (P1/P2 start balloons) */
   setBalloons(on: boolean): void
   /** "Start!" (RPTnkStartMsg::Play) */
@@ -55,16 +55,16 @@ export interface Presenter {
   resultDone(): boolean
   resultShowTotals(): void
   /** RPTnkLayoutManager::SpawnHitPopup at a destroyed enemy, credited to `player` */
-  hitPopup(worldPos: { x: number; z: number }, player: 0 | 1): void
+  hitPopup(worldPos: { x: number; z: number }, player: number): void
   /** 1P: RPMedalResult::Start(kills) / state 4 */
   medalStart(kills: number): void
   medalDone(): boolean
   /** 2P: RPVsWinner::Start(winner) / state 5; winnerTotals() = IsStateEntered(3) */
-  winnerStart(winner: -1 | 0 | 1): void
+  winnerStart(winner: number): void
   winnerDone(): boolean
   winnerTotals(): boolean
   /** RPResultMenu::Start(players, winner) / GetChoice when state 4: 0 retry, 1 quit, -1 waiting */
-  menuStart(players: 1 | 2): void
+  menuStart(players: number): void
   menuChoice(): -1 | 0 | 1
 
   /** RPTnkLayoutManager::Calculate */
