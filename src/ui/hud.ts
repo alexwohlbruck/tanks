@@ -127,6 +127,18 @@ export class Hud {
     return false
   }
 
+  /** debug: start a mission from any screen (closes the pause menu and pre-game screens) */
+  debugStart(players: 1 | 2, mission: number) {
+    if (this.pause.open) {
+      this.pause.open = false
+      this.game.paused = false
+      this.env.pauseAudio(false)
+    }
+    this.env.stopSounds()
+    this.preGame.close()
+    this.game.newGame(players, mission)
+  }
+
   /** the OS pointer is shown while a menu takes pointer input */
   get wantsPointer() {
     const m = this.presenter.menu.state

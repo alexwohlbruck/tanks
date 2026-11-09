@@ -4,6 +4,7 @@ import { Input, type PadState } from './input'
 import { Models } from './render/models'
 import { SceneView } from './render/scene'
 import { FPS } from './sim/consts'
+import { DebugPanel } from './ui/debug'
 import { Hud } from './ui/hud'
 import { screenFilter, UiPresenter } from './ui/presenter'
 import { loadPlayerData } from './ui/shared/save'
@@ -175,9 +176,11 @@ async function main() {
     ctx.setTransform(W / LAYOUT_W, 0, 0, -H / LAYOUT_H, W / 2, H / 2)
     presenter.draw(ctx, LAYOUT_W / 608)
     hud.draw(ctx)
+    debug.update()
     gl.style.cursor = hud.wantsPointer ? 'default' : 'none'
     requestAnimationFrame(render)
   }
+  const debug = new DebugPanel(game, hud, document.body)
   requestAnimationFrame(render)
 
   if (params.has('mission')) game.newGame(params.get('p2') ? 2 : 1, Number(params.get('mission')) - 1)

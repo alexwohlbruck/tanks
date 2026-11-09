@@ -269,6 +269,10 @@ export type GameOptions = {
   goldMedal: boolean
   /** fixed RNG seed (default: random, like OSGetTick) */
   seed?: number
+  /** debug: losing a life never happens (the mission still restarts after a death) */
+  infiniteLives?: boolean
+  /** debug: all 100 missions are playable in 1P and 2P (no mission-20 stop) */
+  unlockAll?: boolean
 }
 
 export class Game {
@@ -446,11 +450,11 @@ export class Game {
     this.stageReady = false
     this.stage = Math.max(0, Math.min(STAGE_NUM - 1, startMission))
     if (this.players === 1) {
-      this.lastStage = this.options.goldMedal ? STAGE_NUM - 1 : FLOW.lastStageNoGold
+      this.lastStage = this.options.goldMedal || this.options.unlockAll ? STAGE_NUM - 1 : FLOW.lastStageNoGold
       this.pickStageVariant(this.stage)
       this.loadStage(this.stage, this.variant, false)
     } else {
-      this.lastStage = FLOW.lastStageNoGold
+      this.lastStage = this.options.unlockAll ? STAGE_NUM - 1 : FLOW.lastStageNoGold
       this.pickStageVariant(this.stage)
       this.loadStage(this.stage, this.variant, true)
       this.stats.setAllLives(1)
@@ -672,8 +676,9 @@ export class Game {
     }
     w.shellPool.stopAllEffects()
     this.freeze = true
-    const failed = this.stats.addLives(0, -1)
-    if (this.players === 2) this.stats.addLives(1, -1)
+    const lose = this.options.infiniteLives ? 0 : -1
+    const failed = this.stats.addLives(0, lose)
+    if (this.players === 2) this.stats.addLives(1, lose)
     if (failed) {
       this.presenter.failedMsgShow()
       this.presenter.hudOut()
