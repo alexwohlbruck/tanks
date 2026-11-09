@@ -54,14 +54,14 @@ export class Input {
   order: (string | number)[] = []
 
   constructor(private el: HTMLElement) {
-    addEventListener('keydown', (e) => {
+    addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.repeat) return
       this.keys.add(e.code)
       this.pressed.add(e.code)
       this.use('kbm')
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault()
     })
-    addEventListener('keyup', (e) => this.keys.delete(e.code))
+    addEventListener('keyup', (e: KeyboardEvent) => this.keys.delete(e.code))
     addEventListener('blur', () => this.keys.clear())
     el.addEventListener('contextmenu', (e) => e.preventDefault())
     el.addEventListener('pointerdown', (e) => {

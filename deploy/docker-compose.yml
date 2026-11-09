@@ -1,5 +1,6 @@
-# Static hosting for the built game (dist/), behind a reverse proxy that shares the
-# external Docker network named by PROXY_NETWORK (the proxy routes to "tanks:80").
+# Production on the host: the static site (dist/) and the game server (server/), both behind a
+# reverse proxy that shares the external Docker network PROXY_NETWORK and routes
+#   /api/*, /ws/*  -> tanks-api:3001      everything else -> tanks:80
 services:
   tanks:
     image: nginx:1.27-alpine
@@ -8,6 +9,18 @@ services:
     volumes:
       - ./dist:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [proxy]
+  tanks-api:
+    build:
+      context: ./src
+      dockerfile: server/Dockerfile
+    container_name: tanks-api
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - DATA_DIR=/data
+    volumes:
+      - ./data:/data
     networks: [proxy]
 networks:
   proxy:
