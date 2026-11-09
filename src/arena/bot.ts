@@ -5,7 +5,6 @@
 //   - dodge shells heading its way, back away from armed mines, now and then lay one when close
 
 import { MINE, TANK } from '../sim/consts'
-import { paramsFor } from '../sim/stats'
 import { cellOf, cellPos } from './map'
 import type { ArenaSim, ATank, Player } from './sim'
 
@@ -89,9 +88,9 @@ export function botThink(sim: ArenaSim, p: Player) {
     return
   }
   const b = brain(p)
-  const prm = paramsFor(0)
   const now = sim.tick
-  const enemies = sim.tanks.filter((o) => o.alive && sim.enemies(p, o.player))
+  // a White enemy is only seen up close or right after it fires
+  const enemies = sim.tanks.filter((o) => o.alive && sim.enemies(p, o.player) && (o.power !== 'white' || now - o.firedAt < 40 || Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z) < 110))
   const friends = sim.tanks.filter((o) => o.alive && o !== t && !sim.enemies(p, o.player))
   // ---- pick a target (every 10 frames) and bank shots (every 20)
   if (now >= b.thinkAt) {
@@ -127,7 +126,7 @@ export function botThink(sim: ArenaSim, p: Player) {
   let fire = false
   if (e) {
     const d = Math.hypot(e.pos.x - t.pos.x, e.pos.z - t.pos.z)
-    const lead = d / prm.shellSpeed
+    const lead = d / sim.stats(t).shellSpeed
     const ax = e.pos.x + e.vel.x * lead
     const az = e.pos.z + e.vel.z * lead
     const a = Math.atan2(az - t.pos.z, ax - t.pos.x) + b.jitter

@@ -104,7 +104,7 @@ export class SceneView {
   followZoom = 1
   private camBase = new THREE.Vector3()
   /** [arena] per-tank livery: the 1p / 2p model, or the 1p model recoloured */
-  tankLook: ((t: Tank) => { base: '1p' | '2p'; color?: string } | null) | null = null
+  tankLook: ((t: Tank) => { base: BaseModel; color?: string } | null) | null = null
   private lookVersion = -1
   private frame = 0
 
@@ -334,10 +334,11 @@ export class SceneView {
       const id = `a${custom.base}${custom.color ?? ''}`
       let l = this.lookCache.get(id)
       if (!l) {
-        const p = custom.base === '2p' ? 1 : 0
+        // 1p / 2p, a disc enemy model (e_N), or the 1p model recoloured
+        const idx = custom.base === '1p' ? 0 : custom.base === '2p' ? 1 : 1 + Number(custom.base.slice(2))
         l = custom.color
           ? { look: { key: id, base: '1p', livery: custom.color }, tread: '1p', piece: rgb(custom.color) }
-          : { look: { key: `p${p}`, base: custom.base }, tread: custom.base, piece: TANK_PIECE_COLORS[p] }
+          : { look: { key: idx < 2 ? `p${idx}` : custom.base, base: custom.base }, tread: custom.base, piece: TANK_PIECE_COLORS[idx] }
         this.lookCache.set(id, l)
       }
       return l

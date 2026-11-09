@@ -4,7 +4,7 @@
 
 import type { ArenaMode, PickupKind } from './rules'
 
-export const ARENA_PROTO = 1
+export const ARENA_PROTO = 2
 
 export type C2S =
   | { t: 'join'; v: number; name: string; mode: ArenaMode }
@@ -12,6 +12,8 @@ export type C2S =
   | { t: 'i'; s: number; mx: number; mz: number; an: number; ax: number; az: number; f: number; m: number }
   | { t: 'ping'; c: number }
   | { t: 'leave' }
+  /** development servers only (ARENA_DEV=1): become a special tank */
+  | { t: 'dev'; power: string }
 
 /** [id, x, z, body, turret, flags, pid] */
 export type TankRec = [number, number, number, number, number, number, number]
@@ -24,7 +26,8 @@ export type PickupRec = [number, number, number, PickupKind]
 
 export const TF_ALIVE = 1
 export const TF_PROTECT = 2
-export const TF_SHIELD = 4
+/** a White tank this client cannot see (only its tracks show) */
+export const TF_STEALTH = 4
 /** power index + 1 in bits 3-5 (rules PICKUP_KINDS order) */
 export const TF_POWER_SHIFT = 3
 
@@ -49,16 +52,18 @@ export type YouRec = {
   /** ticks until respawn / protection / power end */
   respawn: number
   protect: number
-  shield: number
   power: PickupKind | null
   powerLeft: number
+  /** shells / mines ready, and the most the tank may have out */
   shells: number
   mines: number
+  maxShells: number
+  maxMines: number
 }
 
 /** compact events: kind first (see sim ArenaEvent) */
 export type NetEv =
-  | ['shot', number, number, number, number] // tank, x, z, rocket
+  | ['shot', number, number, number, number, number] // tank, x, z, smoke, type
   | ['ric', number, number]
   | ['die', number, number, number] // x, z, wall
   | ['clash', number, number]
@@ -68,7 +73,6 @@ export type NetEv =
   | ['boom', number, number]
   | ['brk', number, number, number]
   | ['pick', number, string, number, number]
-  | ['shit', number, number, number]
   | ['spawn', number, number, number]
   | ['match', string]
 

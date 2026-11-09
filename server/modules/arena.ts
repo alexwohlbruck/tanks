@@ -7,14 +7,13 @@
 import type { ServerWebSocket } from 'bun'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
-import { ARENA_TPS, BOT_FILL, MAX_HUMANS, PICKUP_KINDS, SNAPSHOT_EVERY, type ArenaMode } from '../../src/arena/rules'
+import { ARENA_TPS, BOT_FILL, MAX_HUMANS, PICKUP_KINDS, SNAPSHOT_EVERY, WHITE_REVEAL, type ArenaMode } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
 import { cleanName } from '../../src/net/protocol'
-import { paramsFor } from '../../src/sim/stats'
 import { register } from '../index'
 import { json, type WsData } from '../module'
 import { ipOf, loadGameData } from './rooms'
-import { TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD } from '../../src/arena/protocol'
+import { TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_STEALTH } from '../../src/arena/protocol'
 
 const MAX_ARENAS = Number(process.env.ARENAS_MAX ?? 16)
 const MAX_QUEUE = 6
@@ -170,7 +169,9 @@ class Arena {
       .map((t) => {
         const [b, tu] = ArenaSim.headings(t)
         const pw = t.power ? PICKUP_KINDS.indexOf(t.power) + 1 : 0
-        const flags = (t.alive ? TF_ALIVE : 0) | (s.tick < t.protectUntil ? TF_PROTECT : 0) | (t.shield ? TF_SHIELD : 0) | (pw << TF_POWER_SHIFT)
+        // White: enemies only see its tracks, except right after it fires
+        const hidden = t.power === 'white' && s.enemies(p, t.player) && s.tick - t.firedAt > WHITE_REVEAL
+        const flags = (t.alive ? TF_ALIVE : 0) | (s.tick < t.protectUntil ? TF_PROTECT : 0) | (hidden ? TF_STEALTH : 0) | (pw << TF_POWER_SHIFT)
         return [t.id, r1(t.pos.x), r1(t.pos.z), Math.round(b * 1000) / 1000, Math.round(tu * 1000) / 1000, flags, t.player.pid] as [number, number, number, number, number, number, number]
       })
     const S = s.shells.filter((x) => near(x.pos.x, x.pos.z)).map((x) => [x.id, r1(x.pos.x), r1(x.pos.z), r1(x.vel.x * 10) / 10, r1(x.vel.z * 10) / 10, x.smoke] as [number, number, number, number, number, number])
@@ -178,6 +179,7 @@ class Arena {
     const K = s.pickups.map((k) => [k.id, k.x, k.z, k.kind] as [number, number, number, (typeof k)['kind']])
     const t = p.tank
     const pc = t.pc
+    const st = s.stats(t)
     const you: YouRec = {
       a: c.ack,
       x: t.pos.x,
@@ -194,11 +196,12 @@ class Arena {
       alive: t.alive ? 1 : 0,
       respawn: t.alive ? 0 : Math.max(0, t.respawnAt - s.tick),
       protect: Math.max(0, t.protectUntil - s.tick),
-      shield: t.shield ? 1 : 0,
       power: t.power,
       powerLeft: t.power ? t.powerUntil - s.tick : 0,
-      shells: paramsFor(0).maxShells - s.shells.filter((x) => x.owner === t).length,
-      mines: paramsFor(0).maxMines - s.mines.filter((m) => m.owner === t && m.state !== 2).length,
+      shells: st.maxShells - s.shells.filter((x) => x.owner === t).length,
+      mines: st.maxMines - s.mines.filter((m) => m.owner === t && m.state !== 2).length,
+      maxShells: st.maxShells,
+      maxMines: st.maxMines,
     }
     send(c, { t: 's', k: s.tick, T, S, M, K, E: c.pending, you })
     c.pending = []
@@ -241,7 +244,7 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
   if (!near(e.x, e.z)) return null
   switch (e.t) {
     case 'shot':
-      return ['shot', e.tank, r1(e.x), r1(e.z), e.rocket ? 1 : 0]
+      return ['shot', e.tank, r1(e.x), r1(e.z), e.smoke, e.type]
     case 'ricochet':
       return ['ric', r1(e.x), r1(e.z)]
     case 'shellDie':
@@ -254,8 +257,6 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
       return ['fuse', e.id, r1(e.x), r1(e.z)]
     case 'boom':
       return ['boom', r1(e.x), r1(e.z)]
-    case 'shieldHit':
-      return ['shit', e.tank, r1(e.x), r1(e.z)]
     case 'spawn':
       return ['spawn', e.tank, r1(e.x), r1(e.z)]
   }
@@ -344,6 +345,13 @@ function onMessage(c: Client, raw: string | Buffer) {
     }
     case 'leave':
       return c.arena?.leave(c)
+    case 'dev': {
+      const t = c.player?.tank
+      if (!process.env.ARENA_DEV || !t || !(PICKUP_KINDS as string[]).includes(m.power)) return
+      t.power = m.power as (typeof PICKUP_KINDS)[number]
+      t.powerUntil = c.arena!.sim.tick + 60 * 60
+      return
+    }
     case 'i': {
       if (!c.player) return
       const seq = num(m.s, 0, 2 ** 31)

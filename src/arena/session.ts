@@ -16,8 +16,11 @@ import { axesFromForward, v3 } from '../sim/vec'
 import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank } from '../sim/world'
 import * as THREE from 'three/webgpu'
 import { generateMap, type ArenaMap } from './map'
-import { ARENA_PROTO, TF_ALIVE, TF_PROTECT, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
-import { TEAM_COLORS, TURBO_SPEED, type ArenaMode, type PickupKind } from './rules'
+import { ARENA_PROTO, TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
+import { PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, type ArenaMode, type PickupKind } from './rules'
+import { paramsFor } from '../sim/stats'
+import type { BaseModel } from '../render/registry'
+import { tankIcon } from '../ui/web/art'
 import { ArenaField, collideTank, driveTank, newBody, type ArenaInput, type TankBody } from './sim'
 
 type Snap = Extract<S2C, { t: 's' }>
@@ -112,6 +115,11 @@ export class ArenaSession implements Session {
     }
   }
 
+  /** development servers only */
+  dev(power: string) {
+    this.send({ t: 'dev', power })
+  }
+
   private send(m: C2S) {
     if (this.ws.readyState === 1) this.ws.send(JSON.stringify(m))
   }
@@ -124,6 +132,7 @@ export class ArenaSession implements Session {
     this.view.tankLook = null
     this.view.fpv = null
     this.audio.stopMusic(0.5)
+    for (const k of this.loops) void this.audio.loop(k, '', 0)
   }
 
   // ---- messages ---------------------------------------------------------------------------
@@ -271,7 +280,7 @@ export class ArenaSession implements Session {
     b.pos.z += b.acc.p[0].z + b.acc.p[1].z
     b.vel.x += b.acc.v[0].x + b.acc.v[1].x
     b.vel.z += b.acc.v[0].z + b.acc.v[1].z
-    driveTank(b, inp, this.you?.power === 'speed' ? TURBO_SPEED : 1)
+    driveTank(b, inp, powerStats(this.you?.power ?? null, paramsFor(0)).speedMul)
   }
 
   /** server state of the own tank after input `you.a`: replay what came after */
@@ -324,9 +333,22 @@ export class ArenaSession implements Session {
     return t
   }
 
-  private lookOf(t: Tank): { base: '1p' | '2p'; color?: string } {
+  /** an enemy White this client cannot see */
+  hidden(t: Tank) {
+    return !!(((t.ai?.flags as number) ?? 0) & TF_STEALTH)
+  }
+
+  /** the special tank a tank has turned into (from its snapshot flags) */
+  powerOf(t: Tank): PickupKind | null {
+    const pw = (((t.ai?.flags as number) ?? 0) >> TF_POWER_SHIFT) & 7
+    return pw ? PICKUP_KINDS[pw - 1] : null
+  }
+
+  private lookOf(t: Tank): { base: BaseModel; color?: string } {
     const pid = t === this.world?.playerTanks[0] ? this.pid : (t.ai?.pid as number | undefined)
     const p = pid !== undefined ? this.names.get(pid) : undefined
+    const power = this.powerOf(t)
+    if (power) return { base: `e_${PICKUP_TYPE[power]}` as BaseModel }
     if (!p) return { base: '1p', color: '#8a8a8a' }
     if (this.mode === 'teams') return { base: p.team === 1 ? '2p' : '1p' }
     if (p.color === TEAM_COLORS[0]) return { base: '1p' }
@@ -383,9 +405,11 @@ export class ArenaSession implements Session {
         axesFromForward(t.turretRot, v3(Math.cos(turret), 0, Math.sin(turret)))
       }
       // spawn protection blinks
+      // spawn protection blinks; an enemy White is hidden (its tracks still show)
       const prot = ra[5] & TF_PROTECT
-      t.state = prot && Math.floor(this.localTick / 4) % 4 === 0 ? 2 : 1
-      t.stealth = !!prot
+      const hidden = !!(ra[5] & TF_STEALTH)
+      t.state = hidden || (prot && Math.floor(this.localTick / 4) % 4 === 0) ? 2 : 1
+      t.stealth = hidden || !!prot
       this.tread(t)
       tanks.push(t)
     }
@@ -426,6 +450,31 @@ export class ArenaSession implements Session {
     this.pickups = A.K.map((k) => ({ id: k[0], x: k[1], z: k[2], kind: k[3] }))
     // mine fuse beeps
     for (const m of A.M) if (m[3] && Math.floor(this.localTick / 8) % 4 === 0) this.sound('RP_TNK_SE_JIRAI_TIMER', m[1], m[2], 0.6)
+    this.rocketLoops(w.bullets)
+  }
+
+  private loops = new Set<string>()
+  /** rockets' flight loops (RP_TNK_SE_SHOOT_ENEMY3/7_LV), the nearest few */
+  private rocketLoops(shells: Shell[]) {
+    const f = this.view.follow ?? { x: 0, z: 0 }
+    const near = shells
+      .filter((s) => s.smokeType > 0)
+      .map((s) => ({ s, d: Math.hypot(s.pos.x - f.x, s.pos.z - f.z) }))
+      .filter((x) => x.d < 1000)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 3)
+    const keep = new Set<string>()
+    for (const { s, d } of near) {
+      const key = `rk${s.id}`
+      keep.add(key)
+      this.loops.add(key)
+      void this.audio.loop(key, s.smokeType === 2 ? 'RP_TNK_SE_SHOOT_ENEMY7_LV' : 'RP_TNK_SE_SHOOT_ENEMY3_LV', 0.6 * Math.max(0, 1 - d / 1000))
+    }
+    for (const k of this.loops)
+      if (!keep.has(k)) {
+        void this.audio.loop(k, '', 0)
+        this.loops.delete(k)
+      }
   }
 
   /** tread marks every 10 units of travel (RPTnkTank::DrawTreadMark) */
@@ -467,7 +516,10 @@ export class ArenaSession implements Session {
           const t = this.tankFor(e[1])
           const mine = e[1] === this.tankId
           if (t?.active) sim.push({ t: 'shoot', tank: t, bullet: {} as Shell })
-          this.sound(e[4] ? 'RP_TNK_SE_SHOOT_ENEMY8' : mine ? 'RP_TNK_SE_SHOOT_1P' : 'RP_TNK_SE_SHOOT_2P', e[2], e[3], mine ? 1 : 0.7)
+          // the special tanks' own shot sounds (rockets have a flight loop instead, see rocketLoops)
+          const type = e[5]
+          const se = SHOT_SE[type] ?? (type ? 'RP_TNK_SE_SHOOT' : mine ? 'RP_TNK_SE_SHOOT_1P' : 'RP_TNK_SE_SHOOT_2P')
+          this.sound(se, e[2], e[3], mine ? 1 : 0.7)
           break
         }
         case 'ric':
@@ -527,13 +579,11 @@ export class ArenaSession implements Session {
           const [, id, kind, x, z] = e
           if (id === this.tankId) {
             this.audio.play('RP_TNK_SE_TNK1UP')
-            this.banner = { text: `${PICKUP_LABEL[kind as PickupKind] ?? kind}!`, until: performance.now() + 1500 }
+            const info = PICKUP_INFO[kind as PickupKind]
+            if (info) this.banner = { text: `${info.name} tank: ${info.trick}!`, until: performance.now() + 1800 }
           } else this.sound('RP_TNK_SE_GET_TNKNUM', x, z, 0.6)
           break
         }
-        case 'shit':
-          this.sound('RP_TNK_SE_REFLECT_SUPER', e[2], e[3])
-          break
         case 'spawn':
           if (e[1] === this.tankId) {
             this.view.follow = { x: e[2], z: e[3] }
@@ -555,13 +605,17 @@ export class ArenaSession implements Session {
     const v = this.names.get(victim)
     const k = this.names.get(killer)
     const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-    const tag = (p: { name: string; color: string } | undefined, pid: number) =>
-      p ? `<b style="color:${p.color}" class="${pid === this.pid ? 'me' : ''}">${esc(p.name)}</b>` : '<b>?</b>'
-    const how = cause === 'mine' ? '💥' : '•'
+    const tag = (p: { name: string; color: string; team: number } | undefined, pid: number) => {
+      if (!p) return '<b>?</b>'
+      const c = this.mode === 'teams' ? TEAM_COLORS[p.team] : p.color
+      const dark = `#${new THREE.Color(c).multiplyScalar(0.55).getHexString()}`
+      return `<span class="who ${pid === this.pid ? 'me' : ''}">${tankIcon(c, dark).outerHTML}<b>${esc(p.name)}</b></span>`
+    }
+    const how = cause === 'mine' ? MINE_ICON : SHELL_ICON
     let html: string
     let text: string
     if (killer === victim) {
-      html = `${tag(v, victim)} <i>${cause === 'mine' ? 'stepped on their own mine' : 'hit their own shell'}</i>`
+      html = `${tag(v, victim)} <i>${cause === 'mine' ? 'stepped on their own mine' : 'hit by their own shell'}</i>`
       text = `${v?.name} self-destructed`
     } else if (!killer) {
       html = `${tag(v, victim)} <i>was destroyed</i>`
@@ -583,5 +637,8 @@ export class ArenaSession implements Session {
 }
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000
+const SHELL_ICON = '<svg class="how" viewBox="0 0 24 10"><path d="M1 5c3-3 7-4 10-4h12v8H11C8 9 4 8 1 5z" fill="#f6f3ea" stroke="#5b3a19" stroke-width="1.4"/></svg>'
+const MINE_ICON = '<svg class="how" viewBox="0 0 24 24"><circle cx="12" cy="13" r="9.5" fill="#e8c33a" stroke="#5b3a19" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="#cf2a31"/></svg>'
 const STREAKS: Record<number, string> = { 3: 'Triple!', 5: 'Rampage!', 8: 'Unstoppable!', 12: 'Tank legend!' }
-export const PICKUP_LABEL: Record<PickupKind, string> = { rocket: 'Rockets', bounce: 'Ricochet', shield: 'Shield', speed: 'Turbo' }
+/** RPTnkTank::PlayFireSe per enemy type (3 / 7 / 9 fire rockets: their flight loop plays) */
+const SHOT_SE: Record<number, string> = { 4: 'RP_TNK_SE_SHOOT_ENEMY4', 5: 'RP_TNK_SE_SHOOT_ENEMY5', 6: 'RP_TNK_SE_SHOOT_ENEMY6', 8: 'RP_TNK_SE_SHOOT_ENEMY8' }

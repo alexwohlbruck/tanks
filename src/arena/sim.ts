@@ -22,13 +22,13 @@ import {
   PICKUP_RADIUS,
   PICKUP_RESPAWN,
   PICKUP_TICKS,
+  PICKUP_TYPE,
   PICKUPS_MAX,
   PROTECT_TICKS,
   RESPAWN_TICKS,
-  ROCKET_SPEED,
   TEAM_COLORS,
   TEAM_LIMIT,
-  TURBO_SPEED,
+  powerStats,
   type ArenaMode,
   type PickupKind,
 } from './rules'
@@ -220,9 +220,11 @@ export type ATank = TankBody & {
   alive: boolean
   respawnAt: number
   protectUntil: number
-  shield: boolean
+  /** the special tank this one has turned into (a pickup), null = the player tank */
   power: PickupKind | null
   powerUntil: number
+  /** Pink: shells still to fire in the current burst */
+  burst: number
   /** last tick this tank fired (the minimap shows recent shooters) */
   firedAt: number
   speed: number
@@ -233,7 +235,7 @@ export type AMine = { id: number; owner: ATank; pid: number; team: number; pos: 
 export type APickup = { id: number; kind: PickupKind; c: number; r: number; x: number; z: number }
 
 export type ArenaEvent =
-  | { t: 'shot'; tank: number; x: number; z: number; rocket: boolean }
+  | { t: 'shot'; tank: number; x: number; z: number; smoke: number; type: number }
   | { t: 'ricochet'; x: number; z: number }
   | { t: 'shellDie'; x: number; z: number; wall: boolean }
   | { t: 'clash'; x: number; z: number }
@@ -243,7 +245,6 @@ export type ArenaEvent =
   | { t: 'boom'; x: number; z: number }
   | { t: 'break'; c: number; r: number; h: number }
   | { t: 'pickup'; tank: number; kind: PickupKind; x: number; z: number }
-  | { t: 'shieldHit'; tank: number; x: number; z: number }
   | { t: 'spawn'; tank: number; x: number; z: number }
   | { t: 'match'; state: 'play' | 'over' }
 
@@ -313,9 +314,9 @@ export class ArenaSim {
       alive: false,
       respawnAt: this.tick,
       protectUntil: 0,
-      shield: false,
       power: null,
       powerUntil: 0,
+      burst: 0,
       firedAt: -999,
       speed: 0,
     }) as ATank
@@ -384,8 +385,8 @@ export class ArenaSim {
     t.pc.reset()
     t.alive = true
     t.protectUntil = this.tick + PROTECT_TICKS
-    t.shield = false
     t.power = null
+    t.burst = 0
     t.speed = 0
     t.player.input = { ...IDLE_INPUT, seq: t.player.input.seq, ax: pos.x + f.x * 100, az: pos.z + f.z * 100 }
     this.events.push({ t: 'spawn', tank: t.id, x: pos.x, z: pos.z })
@@ -434,12 +435,6 @@ export class ArenaSim {
       const sh = shellHits.get(t)
       if (mh || sh) {
         if (this.tick < t.protectUntil) continue
-        if (t.shield) {
-          t.shield = false
-          t.protectUntil = this.tick + 30
-          this.events.push({ t: 'shieldHit', tank: t.id, x: t.pos.x, z: t.pos.z })
-          continue
-        }
         if (mh) this.kill(t, mh.owner.player, 'mine')
         else this.kill(t, sh!.s.owner.player, 'shell')
         continue
@@ -459,55 +454,69 @@ export class ArenaSim {
     if (this.state === 'play') this.checkEnd()
   }
 
+  /** the tank's numbers: the player record, changed by its special-tank power */
+  stats(t: ATank) {
+    return powerStats(t.power, P())
+  }
+
   private control(t: ATank) {
     const p = t.player
     const inp = p.input
-    driveTank(t, inp, t.power === 'speed' ? TURBO_SPEED : 1)
+    const st = this.stats(t)
+    driveTank(t, inp, st.speedMul)
     t.speed = Math.hypot(t.vel.x, t.vel.z)
     const pc = t.pc
-    const prm = P()
     // RPTnkPlayerController::HandleFireInput, with the arena's counters
     const fire = p.wantFire
     const mine = p.wantMine
     p.wantFire = p.wantMine = false
     if (this.state !== 'play') return
     if (mine) {
-      if (pc.mineTimer === 0 && this.mines.filter((m) => m.owner === t && m.state !== 2).length < prm.maxMines) {
+      if (pc.mineTimer === 0 && this.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines) {
         this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false })
         this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
         pc.mineTimer = pc.mineCooldown
         pc.freeze = pc.mineFreeze
         t.protectUntil = 0
       }
-    } else if (fire) {
-      const dir = t.turretRot.z
-      const at = v3(t.pos.x + TANK.muzzle * dir.x, 0, t.pos.z + TANK.muzzle * dir.z)
-      if (pc.shellTimer === 0 && this.shells.filter((s) => s.owner === t).length < prm.maxShells && this.field.isInside(at) && !this.field.pointInBlock(at.x, at.z)) {
-        const rocket = t.power === 'rocket'
-        const speed = prm.shellSpeed * (rocket ? ROCKET_SPEED : 1)
-        this.shells.push({
-          id: this.id(),
-          owner: t,
-          pid: p.pid,
-          team: p.team,
-          pos: at,
-          vel: v3(dir.x * speed, 0, dir.z * speed),
-          age: 0,
-          bounces: t.power === 'bounce' ? 3 : prm.ricochets,
-          smoke: rocket ? 1 : 0,
-          acc: accum(),
-          hitWall: false,
-          dead: false,
-        })
-        this.events.push({ t: 'shot', tank: t.id, x: at.x, z: at.z, rocket })
+    } else if (fire && pc.shellTimer === 0) {
+      if (this.fire(t, st)) {
+        // Pink: the rest of the burst follows every 6 frames
+        t.burst = st.burst - 1
         pc.shellTimer = pc.fireCooldown
         pc.freeze = pc.fireFreeze
-        t.firedAt = this.tick
-        t.protectUntil = 0
       }
+    } else if (t.burst > 0 && pc.shellTimer === 0) {
+      t.burst--
+      if (this.fire(t, st)) pc.shellTimer = pc.fireCooldown
     }
     if (--pc.shellTimer < 0) pc.shellTimer = 0
     if (--pc.mineTimer < 0) pc.mineTimer = 0
+  }
+
+  private fire(t: ATank, st: ReturnType<typeof powerStats>) {
+    const p = t.player
+    const dir = t.turretRot.z
+    const at = v3(t.pos.x + TANK.muzzle * dir.x, 0, t.pos.z + TANK.muzzle * dir.z)
+    if (this.shells.filter((s) => s.owner === t).length >= st.maxShells || !this.field.isInside(at) || this.field.pointInBlock(at.x, at.z)) return false
+    this.shells.push({
+      id: this.id(),
+      owner: t,
+      pid: p.pid,
+      team: p.team,
+      pos: at,
+      vel: v3(dir.x * st.shellSpeed, 0, dir.z * st.shellSpeed),
+      age: 0,
+      bounces: st.ricochets,
+      smoke: st.smoke,
+      acc: accum(),
+      hitWall: false,
+      dead: false,
+    })
+    this.events.push({ t: 'shot', tank: t.id, x: at.x, z: at.z, smoke: st.smoke, type: t.power ? PICKUP_TYPE[t.power] : 0 })
+    t.firedAt = this.tick
+    t.protectUntil = 0
+    return true
   }
 
   /** RPTnkShell::CollideWithField */
@@ -687,11 +696,9 @@ export class ArenaSim {
     for (const k of this.pickups) {
       for (const t of live) {
         if (Math.hypot(t.pos.x - k.x, t.pos.z - k.z) > PICKUP_RADIUS + TANK.fieldRadius) continue
-        if (k.kind === 'shield') t.shield = true
-        else {
-          t.power = k.kind
-          t.powerUntil = this.tick + PICKUP_TICKS[k.kind]
-        }
+        t.power = k.kind
+        t.powerUntil = this.tick + PICKUP_TICKS[k.kind]
+        t.burst = 0
         this.events.push({ t: 'pickup', tank: t.id, kind: k.kind, x: k.x, z: k.z })
         k.id = -1
         break
