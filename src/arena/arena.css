@@ -220,8 +220,9 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 
 /* ---- touch screens (src/ui/touch.ts): the sticks own the lower corners, the pause button the
    top-right one; the minimap moves up, the leaders give way on small screens ---------------- */
-body.touch-play .ar-mapframe { bottom: auto; top: 0.6em; width: min(10em, 24vw); padding: 0.25em; }
-body.touch-play .ar-feed { top: auto; bottom: auto; left: 0.7em; top: calc(0.6em + min(10em, 24vw) * 0.75 + 1em); font-size: 0.85em; }
+body.touch-play .ar-mapframe { bottom: auto; top: calc(0.6em + env(safe-area-inset-top, 0px)); left: calc(0.7em + env(safe-area-inset-left, 0px)); width: min(10em, 24vw); padding: 0.25em; }
+body.touch-play .ar-top { top: calc(0.6em + env(safe-area-inset-top, 0px)); }
+body.touch-play .ar-feed { bottom: auto; left: calc(0.7em + env(safe-area-inset-left, 0px)); top: calc(0.6em + min(10em, 24vw) * 0.75 + 1em); font-size: 0.85em; }
 body.touch-play .ar-feed .ar-kill:nth-child(n + 4) { display: none; }
 body.touch-play .ar-board { top: calc(max(12px, env(safe-area-inset-top)) + clamp(40px, 6vmin, 56px) + 12px); }
 body.touch-play .ar-net { bottom: auto; top: calc(max(12px, env(safe-area-inset-top)) + clamp(40px, 6vmin, 56px) + 8px); right: 0.9em; }

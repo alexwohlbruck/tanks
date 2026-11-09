@@ -108,6 +108,7 @@ export class TouchControls {
       e.preventDefault()
       if (e.pointerType === 'mouse') return
       this.minePulse = true
+      navigator.vibrate?.(12)
       this.mineBtn.classList.add('on')
       this.used = true
     })
@@ -269,7 +270,10 @@ export class TouchControls {
     if (s === this.aim && !cancel) {
       const moved = Math.hypot(s.dx, s.dy)
       // released while aiming: fire; a short tap: fire where the turret points
-      if (this.armed || (moved <= AIM_DEAD && performance.now() - s.t0 < TAP_MS && !this.wasArmed(s))) this.firePulse = true
+      if (this.armed || (moved <= AIM_DEAD && performance.now() - s.t0 < TAP_MS && !this.wasArmed(s))) {
+        this.firePulse = true
+        navigator.vibrate?.(6)
+      }
     }
     if (s === this.aim) {
       this.armed = false
