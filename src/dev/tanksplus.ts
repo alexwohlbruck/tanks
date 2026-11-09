@@ -30,3 +30,16 @@ export async function playBot(level = 1, players = 1, frames = 600) {
   for (let i = 0; i < frames && g.missionIndex === level - 1; i++) g.tick(bot)
   return `${g.phase} frame ${g.world?.frame}`
 }
+
+/** starts a level, lets the bot play until `test(world)` holds (or `max` frames) */
+export async function playUntil(level: number, players: number, test: (w: import('../sim/world').World) => boolean, max = 3000) {
+  const { aimBot } = await import('../../tools/levels/bot')
+  play(level, players, 240)
+  const g = (window as unknown as { app: App }).app.game
+  const bot = aimBot(level * 7 + players)
+  let i = 0
+  while (i++ < max && g.missionIndex === level - 1 && !test(g.world!)) g.tick(bot)
+  // hold the moment for a screenshot (resume with app.game.paused = false)
+  g.paused = true
+  return `${g.phase} after ${i} frames`
+}

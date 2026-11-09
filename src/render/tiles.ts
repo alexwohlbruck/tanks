@@ -66,17 +66,17 @@ function basic(colorNode: ColorNode, opts: { transparent?: boolean; depthWrite?:
 const wpos = () => vec2(positionWorld.x, positionWorld.z).div(CELL)
 
 function makeMaterials() {
-  const ice = basic(
-    vec4(
-      mix(vec3(0.72, 0.88, 0.97), vec3(0.95, 0.99, 1), smoothstep(0.6, 1, sin(wpos().x.mul(2.1).add(wpos().y.mul(1.3))).mul(0.5).add(0.5))),
-      float(0.82),
-    ),
-    { transparent: true },
-  )
+  // ice: pale blue sheet, thin scratches and soft glints
+  const scratch = smoothstep(0.92, 1, sin(wpos().x.mul(5.3).add(wpos().y.mul(2.9))).mul(sin(wpos().x.mul(1.7).sub(wpos().y.mul(4.1)))))
+  const glint = smoothstep(0.75, 1, sin(wpos().x.mul(0.9).add(wpos().y.mul(0.6)).add(time.mul(0.4))))
+  const ice = basic(vec4(mix(vec3(0.74, 0.89, 0.97), vec3(1, 1, 1), scratch.mul(0.6).add(glint.mul(0.25))), float(0.78)), { transparent: true })
   const mudN = sin(wpos().x.mul(3.1)).mul(sin(wpos().y.mul(2.7))).add(sin(wpos().x.mul(1.3).add(wpos().y.mul(1.9))).mul(0.6))
   const mud = basic(vec4(mix(vec3(0.3, 0.2, 0.11), vec3(0.42, 0.29, 0.16), smoothstep(-0.4, 0.6, mudN)), float(0.95)), { transparent: true })
-  const wave = sin(wpos().x.mul(2.2).add(time.mul(1.6))).mul(sin(wpos().y.mul(2.6).sub(time.mul(1.1))))
-  const water = basic(vec4(mix(vec3(0.08, 0.3, 0.62), vec3(0.3, 0.62, 0.9), smoothstep(-0.2, 0.9, wave)), float(1)))
+  // water: crossing ripples, bright crests
+  const ripple = sin(wpos().x.mul(3.1).add(wpos().y.mul(1.2)).add(time.mul(1.7)))
+    .add(sin(wpos().x.mul(-1.4).add(wpos().y.mul(3.3)).add(time.mul(1.2))))
+    .add(sin(wpos().x.mul(5.7).sub(wpos().y.mul(4.9)).sub(time.mul(2.3))).mul(0.5))
+  const water = basic(vec4(mix(vec3(0.1, 0.33, 0.62), vec3(0.42, 0.7, 0.95), smoothstep(0.9, 2.2, ripple)), float(1)))
   const conveyor = [0, 1, 2, 3].map((d) => {
     const dir = [vec2(0, -1), vec2(1, 0), vec2(0, 1), vec2(-1, 0)][d]
     const across = vec2(dir.y, dir.x.negate())
