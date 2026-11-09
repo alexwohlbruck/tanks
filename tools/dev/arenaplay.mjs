@@ -1,5 +1,5 @@
 // One browser in the arena: join, drive, fire, screenshots, errors.
-//   node tools/dev/arenaplay.mjs [http://localhost:5300] [out=/tmp/arena] [mode=ffa|teams] [quality]
+//   node tools/dev/arenaplay.mjs [http://localhost:5300] [out=/tmp/arena] [mode=ffa|teams] [quality] [size=small|medium|large]
 import { chromium } from 'playwright-core'
 import { readdirSync } from 'fs'
 
@@ -7,6 +7,7 @@ const base = process.argv[2] ?? 'http://localhost:5300'
 const out = process.argv[3] ?? '/tmp/arena'
 const mode = process.argv[4] ?? 'ffa'
 const quality = process.argv[5] ?? 'high'
+const size = process.argv[6] ?? 'medium'
 const home = process.env.HOME
 const dir = readdirSync(`${home}/.cache/ms-playwright`).filter((d) => d.startsWith('chromium-')).sort().pop()
 const W = 1280, H = 720
@@ -24,6 +25,7 @@ try {
   await p.waitForSelector('.ar-input')
   await p.fill('.ar-input', 'Tester')
   await p.click(mode === 'teams' ? '.ar-mode:nth-child(2)' : '.ar-mode:nth-child(1)')
+  await p.click(`.ar-size[data-size=${size}]`)
   await p.waitForTimeout(800)
   await p.screenshot({ path: `${out}_join.png` })
   await p.click('.ar-go')
@@ -31,7 +33,7 @@ try {
   await p.waitForTimeout(1500)
   await p.screenshot({ path: `${out}_1.png` })
   const st = () => p.evaluate(() => { const s = window.app.session; const t = s.world.playerTanks[0]; return { x: Math.round(t.pos.x), z: Math.round(t.pos.z), alive: s.you.alive, tanks: s.world.tanks.length, shells: s.world.bullets.length, ammo: s.you.shells, aim: s.aim, rtt: Math.round(s.rtt), score: s.board?.players.find((q) => q[0] === s.pid) } })
-  console.log('start', await st())
+  console.log('start', await st(), await p.evaluate(() => [window.app.session.size, window.app.session.map.cols, window.app.session.map.rows]))
   await p.mouse.move(W * 0.7, H * 0.4)
   await p.keyboard.down('KeyD')
   await p.waitForTimeout(900)

@@ -13,7 +13,7 @@ import { backButton, band, button, type WebApp } from '../ui/web/base'
 import { h } from '../ui/web/dom'
 import { Nav } from '../ui/web/nav'
 import type { Board } from './protocol'
-import { EMOTES, FFA_COLORS, FFA_LIMIT, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, TEAM_COLORS, TEAM_LIMIT, TEAM_NAMES, THEME_INFO, type ArenaMode, type MapTheme, type PickupKind } from './rules'
+import { ARENA_SIZES, EMOTES, FFA_COLORS, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SIZES, TEAM_COLORS, TEAM_NAMES, THEME_INFO, sizeOf, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
 import { TANK } from '../sim/consts'
 import type { Tank } from '../sim/world'
 import { ArenaSession } from './session'
@@ -33,6 +33,15 @@ const icoHtml = (body: string, dark = shade(body), cls = 'tank-icon') => tankIco
 const SHELL_SVG = '<svg viewBox="0 0 10 24" class="ar-shell"><path d="M5 1C8 4 9 8 9 11v11H1V11c0-3 1-7 4-10z" fill="#f6f3ea" stroke="#5b3a19" stroke-width="1.4"/><path d="M1 17h8" stroke="#c99556" stroke-width="2"/></svg>'
 const MINE_SVG = '<svg viewBox="0 0 24 24" class="ar-mine"><circle cx="12" cy="13" r="9.5" fill="#e8c33a" stroke="#5b3a19" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="#cf2a31" stroke="#5b3a19" stroke-width="1.2"/></svg>'
 
+const SIZE_KEY = 'tanks-arena-size'
+function savedSize(): ArenaSize {
+  try {
+    return sizeOf(localStorage.getItem(SIZE_KEY))
+  } catch {
+    return 'medium'
+  }
+}
+
 class ArenaScreen implements Screen {
   readonly opaque = false
   private root!: HTMLElement
@@ -41,6 +50,7 @@ class ArenaScreen implements Screen {
   private menuOpen = false
   private session: ArenaSession | null = null
   private mode: ArenaMode = 'ffa'
+  private size: ArenaSize = savedSize()
   private nav: Nav | null = null
   private els: Record<string, HTMLElement> = {}
   private last: Record<string, string> = {}
@@ -125,6 +135,28 @@ class ArenaScreen implements Screen {
       })
       return b
     }
+    const sizeButton = (z: ArenaSize) => {
+      const S = SIZES[z]
+      // the map's outline, to scale
+      const art = h('i.ar-size-art', { style: `width:${(S.cols / 114) * 2.6}em;height:${(S.rows / 114) * 2.6}em` })
+      const b = h(
+        'button.ar-size',
+        { type: 'button', class: this.size === z ? 'on' : '', 'data-size': z },
+        h('span.ar-size-box', null, art),
+        h('b', null, S.name),
+        h('small', null, `${S.maxHumans} players`),
+        h('small.ar-size-live'),
+      )
+      b.addEventListener('click', () => {
+        this.size = z
+        try {
+          localStorage.setItem(SIZE_KEY, z)
+        } catch {}
+        this.root.querySelectorAll('.ar-size').forEach((x) => x.classList.toggle('on', x === b))
+        this.sound('move')
+      })
+      return b
+    }
     const ffaArt = h('div.ar-tanks')
     for (const c of FFA_COLORS.slice(0, 5)) ffaArt.append(tankIcon(c, shade(c)))
     const blue = () => tankIcon(TEAM_COLORS[0], shade(TEAM_COLORS[0]))
@@ -157,9 +189,10 @@ class ArenaScreen implements Screen {
               : h(
                   'div.ar-modes',
                   null,
-                  modeCard('ffa', 'Free-for-all', `Every tank for itself. First to ${FFA_LIMIT} wins.`, ffaArt),
-                  modeCard('teams', 'Teams', `Blue against Red. First team to ${TEAM_LIMIT}.`, teamArt),
+                  modeCard('ffa', 'Free-for-all', 'Every tank for itself. The top score wins.', ffaArt),
+                  modeCard('teams', 'Teams', 'Blue against Red. No friendly fire.', teamArt),
                 ),
+            this.invite ? null : h('div.ar-sizes', { role: 'group', 'aria-label': 'Map size' }, h('span.ar-sizes-head', null, 'Map size'), ...ARENA_SIZES.map(sizeButton)),
             button('Play', { icon: 'play', class: 'primary big ar-go', autofocus: true, onclick: () => this.play(name.value) }),
             online,
             leaderCard,
@@ -174,7 +207,8 @@ class ArenaScreen implements Screen {
                 'ul',
                 null,
                 h('li', null, 'One hit destroys a tank. You’re back 3 seconds later, protected until you fire.'),
-                h('li', null, 'Matches last 6 minutes, then a new map is built.'),
+                h('li', null, `Matches last 6 minutes, or until someone reaches the score limit (${ARENA_SIZES.map((z) => `${SIZES[z].name.toLowerCase()}: ${SIZES[z].ffaLimit}, teams ${SIZES[z].teamLimit}`).join('; ')}). Then a new map is built.`),
+                h('li', null, 'You come back near the fighting, out of sight of enemies.'),
                 h('li', null, 'Teams: no friendly fire. Destroying yourself costs a point.'),
                 h('li', null, 'The minimap shows teammates, and enemies right after they fire.'),
               ),
@@ -191,6 +225,11 @@ class ArenaScreen implements Screen {
         const by = (m: string) => r.arenas.filter((a: { mode: string }) => a.mode === m).reduce((n: number, a: { humans: number }) => n + a.humans, 0)
         online.classList.add('up')
         online.querySelector('span')!.textContent = r.online ? `${r.online} playing now · ${by('ffa')} free-for-all · ${by('teams')} teams` : 'Nobody online yet: the bots are ready'
+        // players in each size, for the chosen mode
+        for (const el of this.root.querySelectorAll<HTMLElement>('.ar-size')) {
+          const n = r.arenas.filter((a: { mode: string; size?: string }) => a.mode === this.mode && sizeOf(a.size) === el.dataset.size).reduce((n: number, a: { humans: number }) => n + a.humans, 0)
+          el.querySelector('.ar-size-live')!.textContent = n ? `${n} here now` : ''
+        }
       } catch {
         online.classList.remove('up')
         online.querySelector('span')!.textContent = 'The server can’t be reached'
@@ -207,7 +246,7 @@ class ArenaScreen implements Screen {
     this.poll = null
     this.sound('ok')
     this.app.audio.stopMusic()
-    const s = new ArenaSession(this.app.view, this.app.audio, name, this.mode, this.invite)
+    const s = new ArenaSession(this.app.view, this.app.audio, name, this.mode, this.invite, this.size)
     this.invite = null
     s.onPause = () => this.toggleMenu()
     this.session = s
@@ -443,13 +482,13 @@ class ArenaScreen implements Screen {
   private scoreHtml(b: Board, s: ArenaSession) {
     if (s.mode === 'teams') {
       const lead = b.teams[0] === b.teams[1] ? -1 : b.teams[0] > b.teams[1] ? 0 : 1
-      return `<div class="ar-plaque teams"><span class="t ${lead === 0 ? 'lead' : ''}">${icoHtml(TEAM_COLORS[0])}<b>${b.teams[0]}</b></span><small>first to ${TEAM_LIMIT}</small><span class="t ${lead === 1 ? 'lead' : ''}"><b>${b.teams[1]}</b>${icoHtml(TEAM_COLORS[1], undefined, 'tank-icon flip')}</span></div>`
+      return `<div class="ar-plaque teams"><span class="t ${lead === 0 ? 'lead' : ''}">${icoHtml(TEAM_COLORS[0])}<b>${b.teams[0]}</b></span><small>first to ${SIZES[s.size].teamLimit}</small><span class="t ${lead === 1 ? 'lead' : ''}"><b>${b.teams[1]}</b>${icoHtml(TEAM_COLORS[1], undefined, 'tank-icon flip')}</span></div>`
     }
     const me = b.players.find((p) => p[0] === s.pid)
     if (!me) return ''
     const sorted = [...b.players].sort((x, y) => y[6] - x[6] || x[5] - y[5])
     const rank = sorted.findIndex((p) => p[0] === s.pid) + 1
-    return `<div class="ar-plaque">${icoHtml(me[3])}<b>${me[6]}</b><small>/ ${FFA_LIMIT}</small><span class="rank">${ord(rank)} of ${b.players.length}</span></div>`
+    return `<div class="ar-plaque">${icoHtml(me[3])}<b>${me[6]}</b><small>/ ${SIZES[s.size].ffaLimit}</small><span class="rank">${ord(rank)} of ${b.players.length}</span></div>`
   }
 
   private boardHtml(b: Board, s: ArenaSession) {

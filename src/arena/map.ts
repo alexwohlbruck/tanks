@@ -4,18 +4,21 @@
 // off is filled with cork. Teams maps are mirrored left/right with an open base on each side.
 // Deterministic for a seed: the server sends the seed and every client rebuilds the same map.
 
-import { MAP, type ArenaMode, type MapTheme } from './rules'
+import { SIZES, type ArenaMode, type ArenaSize, type MapTheme } from './rules'
 
 export type ArenaMap = {
   seed: number
   mode: ArenaMode
   theme: MapTheme
+  size: ArenaSize
   cols: number
   rows: number
   /** map codes as in the level format: 0 empty, 101-107 cork, 200 hole, 201-207 wood */
   cells: number[][]
-  /** cells a tank can spawn on, per team (FFA: everything in [0]) */
+  /** cells a tank can spawn on, per team (FFA: everything in [0]); Teams: the bases */
   spawns: [number, number][][]
+  /** Teams: roomy cells in each team's own half (respawns near the fighting); FFA: as spawns */
+  halves: [number, number][][]
   /** cells pickups can appear on */
   open: [number, number][]
 }
@@ -125,13 +128,12 @@ const THEMES: Record<MapTheme, { weights: number[]; corkWalls: number; gutterCor
   maze: { weights: [0.2, 0.4, 3, 2.5, 1.2, 0.4, 0.3, 1.2, 2.5, 0.4, 0.2], corkWalls: 0.1, gutterCork: 0, gutterHoles: 0, longWalls: 3.5 },
 }
 
-export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mixed'): ArenaMap {
+export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mixed', size: ArenaSize = 'medium'): ArenaMap {
   const rnd = mulberry(seed)
   const th = THEMES[theme] ?? THEMES.mixed
   const pieces = PIECES.map(([w, p], i) => [w * (th.weights[i] ?? 1), p] as [number, Piece])
   const TOTAL = pieces.reduce((a, [w]) => a + w, 0)
-  const cols = MAP.cols
-  const rows = MAP.rows
+  const { cols, rows } = SIZES[size] ?? SIZES.medium
   const cells = Array.from({ length: rows }, () => new Array<number>(cols).fill(0))
   // border ring
   for (let x = 0; x < cols; x++) cells[0][x] = cells[rows - 1][x] = 202
@@ -230,7 +232,8 @@ export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mi
     mode === 'teams'
       ? [roomy.filter(([x]) => x < cols * 0.22), roomy.filter(([x]) => x > cols * 0.78)]
       : [roomy]
-  return { seed, mode, theme, cols, rows, cells, spawns, open }
+  const halves: [number, number][][] = mode === 'teams' ? [roomy.filter(([x]) => x < cols * 0.46), roomy.filter(([x]) => x > cols * 0.54)] : spawns
+  return { seed, mode, theme, size, cols, rows, cells, spawns, halves, open }
 }
 
 /** cell centre in world units (grid centred on the origin, like RPTnkField::GetCellPos) */

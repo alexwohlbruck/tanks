@@ -1,6 +1,6 @@
 // Arena: the massively-multiplayer mode (src/arena). Arenas run on their own 60 Hz loop; a
-// player joins the fullest arena of the chosen mode with room left (a new one when all are
-// full). Bots fill every arena up to BOT_FILL tanks.
+// player joins the fullest arena of the chosen mode and map size with room left (a new one when all are
+// full). Each arena has a map size; bots fill it up to that size's bot count.
 //   WS  /ws/arena                 JSON, src/arena/protocol.ts
 //   GET /api/arena                arenas and player counts
 //   GET /api/arena/leaders?id=    top 10 today / all time (server/arena/stats.ts)
@@ -10,7 +10,7 @@
 import type { ServerWebSocket } from 'bun'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
-import { ARENA_TPS, BOT_FILL, EMOTES, MAX_HUMANS, PICKUP_KINDS, SNAPSHOT_EVERY, WHITE_REVEAL, type ArenaMode } from '../../src/arena/rules'
+import { ARENA_TPS, EMOTES, PICKUP_KINDS, SIZES, SNAPSHOT_EVERY, WHITE_REVEAL, sizeOf, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
 import { cleanName } from '../../src/net/protocol'
 import { register } from '../index'
@@ -65,9 +65,12 @@ class Arena {
   private nextAt = performance.now()
   emptySince = Date.now()
 
-  constructor(public mode: ArenaMode) {
+  constructor(
+    public mode: ArenaMode,
+    public size: ArenaSize,
+  ) {
     loadGameData()
-    this.sim = new ArenaSim(mode)
+    this.sim = new ArenaSim(mode, undefined, size)
     this.balanceBots()
   }
 
@@ -75,9 +78,13 @@ class Arena {
     return this.sim.players.filter((p) => !p.bot).length
   }
 
+  get full() {
+    return this.humans >= SIZES[this.size].maxHumans
+  }
+
   balanceBots() {
     const s = this.sim
-    const want = Math.max(0, BOT_FILL - this.humans)
+    const want = Math.max(0, SIZES[this.size].bots - this.humans)
     let bots = s.players.filter((p) => p.bot)
     while (bots.length < want) {
       s.addPlayer(s.botName(), true)
@@ -126,6 +133,7 @@ class Arena {
       pid: p.pid,
       tank: p.tank.id,
       mode: this.mode,
+      size: this.size,
       seed: this.sim.map.seed,
       theme: this.sim.map.theme,
       broken: this.sim.broken,
@@ -387,11 +395,11 @@ const totalHumans = () => [...arenas.values()].reduce((a, r) => a + r.humans, 0)
 
 const fromIp = (a: Arena, ip: string) => [...a.clients].filter((c) => c.ip === ip).length
 
-function pickArena(mode: ArenaMode, ip: string): Arena | null {
-  const open = [...arenas.values()].filter((a) => a.mode === mode && a.humans < MAX_HUMANS && fromIp(a, ip) < MAX_PER_IP).sort((a, b) => b.humans - a.humans)
+function pickArena(mode: ArenaMode, size: ArenaSize, ip: string): Arena | null {
+  const open = [...arenas.values()].filter((a) => a.mode === mode && a.size === size && !a.full && fromIp(a, ip) < MAX_PER_IP).sort((a, b) => b.humans - a.humans)
   if (open[0]) return open[0]
   if (arenas.size >= MAX_ARENAS) return null
-  const a = new Arena(mode)
+  const a = new Arena(mode, size)
   arenas.set(a.id, a)
   return a
 }
@@ -421,19 +429,20 @@ function onMessage(c: Client, raw: string | Buffer) {
     case 'join': {
       if (m.v !== ARENA_PROTO) return send(c, { t: 'error', message: 'The game was updated: reload the page.' })
       let mode: ArenaMode = m.mode === 'teams' ? 'teams' : 'ffa'
+      const size = sizeOf(m.size)
       if (c.arena) c.arena.leave(c)
       c.statId = isStatId(m.id) ? m.id : null
       // an invite: that arena (its mode wins), on the inviting player's team
       const invited = typeof m.arena === 'string' ? arenas.get(m.arena) : undefined
       let team: number | undefined
       let a: Arena | null = null
-      if (invited && invited.humans < MAX_HUMANS && fromIp(invited, c.ip) < MAX_PER_IP) {
+      if (invited && !invited.full && fromIp(invited, c.ip) < MAX_PER_IP) {
         a = invited
         mode = a.mode
         const host = a.sim.players.find((p) => p.pid === Number(m.with) && !p.bot)
         if (host && mode === 'teams') team = host.team
       }
-      a ??= pickArena(mode, c.ip)
+      a ??= pickArena(mode, size, c.ip)
       if (!a) return send(c, { t: 'error', message: 'Every arena is full. Try again in a minute.' })
       c.playSince = Date.now()
       c.statsAt = Date.now()
@@ -475,7 +484,7 @@ register({
   http(req, url) {
     if (req.method !== 'GET') return
     if (url.pathname === '/api/arena')
-      return json({ arenas: [...arenas.values()].map((a) => ({ id: a.id, mode: a.mode, humans: a.humans, players: a.sim.players.length })), online: totalHumans() })
+      return json({ arenas: [...arenas.values()].map((a) => ({ id: a.id, mode: a.mode, size: a.size, humans: a.humans, players: a.sim.players.length })), online: totalHumans() })
     const id = url.searchParams.get('id')
     if (url.pathname === '/api/arena/leaders') return json(leaders(isStatId(id) ? id : undefined))
     if (url.pathname === '/api/arena/me') return json({ stats: isStatId(id) ? playerStats(id) : null })

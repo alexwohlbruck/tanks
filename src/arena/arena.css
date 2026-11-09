@@ -43,6 +43,42 @@
 }
 .web .card.ar-mode.on .card-title::after { content: ' ✓'; color: var(--red); }
 .ar-mode-art { display: flex; justify-content: center; min-height: 1.8em; }
+.ar-sizes { display: grid; grid-template-columns: auto repeat(3, 1fr); align-items: stretch; gap: 0.45em; }
+.ar-sizes-head { align-self: center; font-size: 0.75em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.75; padding-right: 0.2em; }
+@container (max-width: 26em) { .ar-sizes { grid-template-columns: repeat(3, 1fr); } .ar-sizes-head { grid-column: 1 / -1; } }
+.web .ar-size {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  cursor: pointer;
+  outline: none;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 0.1em;
+  padding: 0.45em 0.3em 0.4em;
+  border-radius: 0.6em;
+  background: linear-gradient(#fff7ea, #f6e2c4);
+  box-shadow: inset 0 0 0 0.1em rgba(140, 90, 40, 0.25), 0 0.18em 0 rgba(120, 70, 25, 0.3);
+  transition: transform 0.08s, box-shadow 0.12s, background 0.12s;
+}
+.web .ar-size:hover, .web .ar-size:focus-visible, .kbd .web .ar-size:focus { box-shadow: inset 0 0 0 0.1em rgba(140, 90, 40, 0.35), 0 0 0 0.16em var(--focus), 0 0.18em 0 rgba(120, 70, 25, 0.35); }
+.web .ar-size.on {
+  background: linear-gradient(#fffaf0, #ffe9cf);
+  box-shadow: inset 0 0 0 0.14em var(--red), 0 0.2em 0 var(--red-dark), 0 0.35em 0.5em rgba(60, 10, 0, 0.2);
+  transform: translateY(-0.08em);
+}
+.ar-size b { font-size: 0.95em; }
+.ar-size small { font-size: 0.68em; font-weight: 600; opacity: 0.75; }
+.ar-size small.ar-size-live { color: #2f8a3a; opacity: 1; min-height: 1em; }
+.ar-size-box { display: flex; align-items: center; justify-content: center; height: 2.2em; }
+.ar-size-art {
+  display: block;
+  border-radius: 0.15em;
+  background: repeating-linear-gradient(90deg, transparent 0 0.3em, rgba(120, 70, 25, 0.14) 0.3em 0.36em), #e9c98f;
+  box-shadow: inset 0 0 0 0.1em #9c6a32;
+}
+.ar-size.on .ar-size-art { background-color: #f0b86a; box-shadow: inset 0 0 0 0.1em var(--red-dark); }
 .ar-tanks { display: flex; align-items: center; justify-content: center; gap: 0.1em; }
 .ar-tanks .tank-icon { width: 2em; height: 1.25em; margin: 0 -0.15em; }
 .ar-tanks.vs b { margin: 0 0.35em; color: var(--red-dark); font-weight: 900; font-size: 0.9em; }

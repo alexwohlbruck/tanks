@@ -2,13 +2,13 @@
 // and sends every client a snapshot of what is near its tank 20 times a second, a scoreboard +
 // minimap every half second, and global events (kills, broken blocks, match state) to all.
 
-import type { ArenaMode, MapTheme, PickupKind } from './rules'
+import type { ArenaMode, ArenaSize, MapTheme, PickupKind } from './rules'
 
-export const ARENA_PROTO = 4
+export const ARENA_PROTO = 5
 
 export type C2S =
   /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team) */
-  | { t: 'join'; v: number; name: string; mode: ArenaMode; id?: string; arena?: string; with?: number }
+  | { t: 'join'; v: number; name: string; mode: ArenaMode; size?: ArenaSize; id?: string; arena?: string; with?: number }
   /** quick chat (rules EMOTES index) */
   | { t: 'emote'; i: number }
   /** the next map's theme, during the intermission */
@@ -102,7 +102,7 @@ export type Board = {
 }
 
 export type S2C =
-  | { t: 'welcome'; v: number; arena: string; pid: number; tank: number; mode: ArenaMode; seed: number; theme: MapTheme; broken: [number, number][]; tick: number; online: number }
+  | { t: 'welcome'; v: number; arena: string; pid: number; tank: number; mode: ArenaMode; size: ArenaSize; seed: number; theme: MapTheme; broken: [number, number][]; tick: number; online: number }
   | { t: 'map'; seed: number; theme: MapTheme; tick: number }
   | { t: 's'; k: number; T: TankRec[]; S: ShellRec[]; M: MineRec[]; K: PickupRec[]; E: NetEv[]; you: YouRec }
   | Board

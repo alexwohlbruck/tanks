@@ -19,12 +19,7 @@ function brain(p: Player): Brain {
 }
 
 /** straight shell line from a to b (holes don't stop shells) */
-export function clearLine(sim: ArenaSim, ax: number, az: number, bx: number, bz: number) {
-  const d = Math.hypot(bx - ax, bz - az)
-  const n = Math.ceil(d / 8)
-  for (let i = 1; i < n; i++) if (sim.field.pointInBlock(ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n)) return false
-  return true
-}
+export const clearLine = (sim: ArenaSim, ax: number, az: number, bx: number, bz: number) => sim.field.clearLine(ax, az, bx, bz)
 
 /** traces a shell with one ricochet; returns the closest approach to (tx, tz) after a bounce */
 function bankShot(sim: ArenaSim, x: number, z: number, dx: number, dz: number, tx: number, tz: number, self: ATank, friends: ATank[]): boolean {

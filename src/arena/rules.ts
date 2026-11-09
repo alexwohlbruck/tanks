@@ -3,15 +3,15 @@
 // Tank, shell and mine rules are the player tank's from the disc (TnkGameParam record 0).
 //
 // Rules
-//   - one hit destroys a tank; respawn after RESPAWN_TICKS at a
-//     spawn point away from enemies, protected for PROTECT_TICKS (ends early on firing)
-//   - Free-for-all: a kill scores 1, destroying yourself costs 1; first to FFA_LIMIT wins
+//   - one hit destroys a tank; respawn after RESPAWN_TICKS near the fighting (out of enemy
+//     sight, not too close), protected for PROTECT_TICKS (ends early on firing)
+//   - Free-for-all: a kill scores 1, destroying yourself costs 1; first to the size's limit wins
 //   - Teams (Blue vs Red): no friendly fire (shells pass teammates, their mines ignore you);
-//     every kill scores for the team; first team to TEAM_LIMIT wins
+//     every kill scores for the team; first team to its limit wins
 //   - otherwise the match ends after MATCH_TICKS; the best score wins
 //   - INTERMISSION_TICKS of results, then a new map
 //   - pickups around the map turn you into one of the disc's special tanks for a while
-//   - bots fill an arena up to BOT_FILL tanks and leave as players arrive
+//   - bots fill an arena up to its size's bot count and leave as players arrive
 
 export const ARENA_TPS = 60
 /** snapshots per second (every SNAPSHOT_EVERY ticks) */
@@ -19,17 +19,29 @@ export const SNAPSHOT_EVERY = 3
 
 export type ArenaMode = 'ffa' | 'teams'
 
-export const MAP = { cols: 84, rows: 56 } as const
-export const MAX_HUMANS = 24
-export const BOT_FILL = 10
+/**
+ * Map sizes (each arena has one; players pick when they join). Bigger maps hold more players
+ * and bots, more pickups, and a higher score to win.
+ */
+export type ArenaSize = 'small' | 'medium' | 'large'
+export const ARENA_SIZES: ArenaSize[] = ['small', 'medium', 'large']
+export const SIZES: Record<ArenaSize, { cols: number; rows: number; maxHumans: number; bots: number; pickups: number; ffaLimit: number; teamLimit: number; name: string }> = {
+  small: { cols: 51, rows: 37, maxHumans: 10, bots: 6, pickups: 5, ffaLimit: 15, teamLimit: 30, name: 'Small' },
+  medium: { cols: 84, rows: 56, maxHumans: 24, bots: 10, pickups: 10, ffaLimit: 25, teamLimit: 50, name: 'Medium' },
+  large: { cols: 114, rows: 79, maxHumans: 40, bots: 16, pickups: 16, ffaLimit: 35, teamLimit: 75, name: 'Large' },
+}
+export const sizeOf = (v: unknown): ArenaSize => ((ARENA_SIZES as unknown[]).includes(v) ? (v as ArenaSize) : 'medium')
 
 export const MATCH_TICKS = 6 * 60 * 60
 export const INTERMISSION_TICKS = 12 * 60
-export const FFA_LIMIT = 25
-export const TEAM_LIMIT = 50
 
 export const RESPAWN_TICKS = 3 * 60
 export const PROTECT_TICKS = Math.round(2.5 * 60)
+/** respawns: the best distance to the nearest enemy (about a screen away), the least, and how
+ * far an enemy's line of sight counts against a spawn cell */
+export const SPAWN_IDEAL = 480
+export const SPAWN_SAFE = 260
+export const SPAWN_SIGHT = 620
 
 /**
  * Pickups are the disc's special tanks: drive over one and your tank becomes that type for a
@@ -63,7 +75,6 @@ export const PICKUP_INFO: Record<PickupKind, { name: string; color: string; dark
 export const HOMING = { turn: 1.5, delay: 14, range: 520, cone: 75 }
 /** Sniper: the Tanks+ Sniper's shell speed */
 export const SNIPER_SHELL_SPEED = 7.5
-export const PICKUPS_MAX = 10
 export const PICKUP_RESPAWN = 6 * 60
 export const PICKUP_RADIUS = 22
 /** Teal / Green / Black shell speed (their records: 6, the player's 3) */

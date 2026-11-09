@@ -17,7 +17,7 @@ import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank
 import * as THREE from 'three/webgpu'
 import { generateMap, type ArenaMap } from './map'
 import { ARENA_PROTO, TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
-import { EMOTE_TICKS, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, type ArenaMode, type MapTheme, type PickupKind } from './rules'
+import { EMOTE_TICKS, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
 import { paramsFor } from '../sim/stats'
 import type { BaseModel } from '../render/registry'
 import { tankIcon } from '../ui/web/art'
@@ -46,6 +46,8 @@ export class ArenaSession implements Session {
   status: 'connecting' | 'online' | 'closed' = 'connecting'
   error = ''
   mode: ArenaMode
+  /** the arena's map size (an invite's arena decides it) */
+  size: ArenaSize
   pid = 0
   tankId = 0
   map: ArenaMap | null = null
@@ -96,15 +98,17 @@ export class ArenaSession implements Session {
     name: string,
     mode: ArenaMode,
     invite: { arena: string; with?: number } | null = null,
+    size: ArenaSize = 'medium',
   ) {
     this.mode = mode
+    this.size = size
     try {
       localStorage.setItem(NAME_KEY, name)
     } catch {}
     this.ws = new WebSocket(arenaUrl())
     this.ws.onopen = () => {
       this.status = 'online'
-      this.send({ t: 'join', v: ARENA_PROTO, name, mode, id: ArenaSession.statId(), arena: invite?.arena, with: invite?.with })
+      this.send({ t: 'join', v: ARENA_PROTO, name, mode, size, id: ArenaSession.statId(), arena: invite?.arena, with: invite?.with })
     }
     this.ws.onclose = () => {
       this.status = 'closed'
@@ -183,6 +187,7 @@ export class ArenaSession implements Session {
         this.pid = m.pid
         this.tankId = m.tank
         this.mode = m.mode
+        this.size = m.size
         this.loadMap(m.seed, m.theme, m.broken)
         this.audio.playMusic('RP_TNK_BGM_LOOP2')
         return
@@ -214,7 +219,7 @@ export class ArenaSession implements Session {
   }
 
   private loadMap(seed: number, theme: MapTheme, broken: [number, number][]) {
-    const map = generateMap(seed, this.mode, theme)
+    const map = generateMap(seed, this.mode, theme, this.size)
     for (const [c, r] of broken) map.cells[r][c] = 0
     this.map = map
     this.field = new ArenaField(map)

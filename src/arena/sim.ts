@@ -15,7 +15,6 @@ import {
   ARENA_TPS,
   BOT_NAMES,
   FFA_COLORS,
-  FFA_LIMIT,
   INTERMISSION_TICKS,
   MATCH_TICKS,
   PICKUP_KINDS,
@@ -23,14 +22,17 @@ import {
   PICKUP_RESPAWN,
   PICKUP_TICKS,
   PICKUP_TYPE,
-  PICKUPS_MAX,
   PROTECT_TICKS,
+  SPAWN_IDEAL,
+  SPAWN_SAFE,
+  SPAWN_SIGHT,
   RESPAWN_TICKS,
   TEAM_COLORS,
-  TEAM_LIMIT,
   powerStats,
   HOMING,
   MAP_THEMES,
+  SIZES,
+  type ArenaSize,
   type MapTheme,
   type ArenaMode,
   type PickupKind,
@@ -120,6 +122,14 @@ export class ArenaField {
   pointInBlock(x: number, z: number) {
     const [c, r] = cellOf(this, x, z)
     return this.height(c, r) > 1
+  }
+
+  /** straight shell line from a to b (holes don't stop shells) */
+  clearLine(ax: number, az: number, bx: number, bz: number) {
+    const d = Math.hypot(bx - ax, bz - az)
+    const n = Math.ceil(d / 8)
+    for (let i = 1; i < n; i++) if (this.pointInBlock(ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n)) return false
+    return true
   }
 
   /**
@@ -296,6 +306,7 @@ export class ArenaSim {
   private nextId = 1
   private nextPid = 1
   private pickupAt = 0
+  private matchStart = 0
   private rnd: () => number
   /** cells broken this match (sent to joining clients) */
   broken: [number, number][] = []
@@ -303,6 +314,7 @@ export class ArenaSim {
   constructor(
     public mode: ArenaMode,
     seed = (Math.random() * 2 ** 31) | 0,
+    public size: ArenaSize = 'medium',
   ) {
     this.rnd = mulberry(seed ^ 0x5bd1e995)
     this.newMatch(seed)
@@ -313,7 +325,8 @@ export class ArenaSim {
   }
 
   newMatch(seed = (this.rnd() * 2 ** 31) | 0, theme = this.votedTheme()) {
-    this.map = generateMap(seed, this.mode, theme)
+    this.map = generateMap(seed, this.mode, theme, this.size)
+    this.matchStart = this.tick
     this.voteOptions = []
     this.votes.clear()
     this.field = new ArenaField(this.map)
@@ -326,6 +339,7 @@ export class ArenaSim {
     this.state = 'play'
     this.phaseEnd = this.tick + MATCH_TICKS
     this.pickupAt = this.tick + 60
+    for (const p of this.players) p.tank.alive = false
     for (const p of this.players) {
       p.kills = p.deaths = p.score = p.streak = p.best = 0
       p.killedBy = null
@@ -385,20 +399,50 @@ export class ArenaSim {
 
   // ---- spawning ---------------------------------------------------------------------------
 
-  /** a roomy cell of the tank's side, as far as possible from its enemies (best of 16 samples) */
+  /**
+   * Where a tank comes back: near the fighting, but not on top of it. Samples roomy cells of
+   * the tank's side (Teams: its own half; at the start of a match, its base) and scores them:
+   * best when the nearest enemy is about SPAWN_IDEAL away, out of every nearby enemy's sight,
+   * and clear of mines. Without enemies on the field, near the middle.
+   */
   private spawnPoint(p: Player): V3 {
-    const list = this.map.spawns[this.mode === 'teams' ? p.team : 0]
+    const side = this.mode === 'teams' ? p.team : 0
+    const foes = this.tanks.filter((t) => t.alive && this.enemies(p, t.player))
+    const start = this.tick - this.matchStart < 60
+    const list = start || !foes.length ? this.map.spawns[side] : this.map.halves[side]
+    const friends = this.mode === 'teams' ? this.tanks.filter((t) => t.alive && t.player !== p && t.player.team === p.team) : []
     let best: V3 | null = null
-    let bestD = -1
-    for (let i = 0; i < 16; i++) {
+    let bestScore = -Infinity
+    for (let i = 0; i < 24; i++) {
       const [c, r] = list[Math.floor(this.rnd() * list.length)]
       if (this.field.at(c, r) !== 0) continue
       const pos = cellPos(this.map, c, r)
-      let d = 1e9
-      for (const t of this.tanks) if (t.alive && this.enemies(p, t.player)) d = Math.min(d, Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z))
-      for (const m of this.mines) d = Math.min(d, Math.hypot(m.pos.x - pos.x, m.pos.z - pos.z) * 3)
-      if (d > bestD) {
-        bestD = d
+      let score: number
+      if (start) {
+        // the match start: spread out over the base
+        score = Math.min(...this.tanks.filter((t) => t.alive).map((t) => Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)), 1e4)
+      } else if (!foes.length) {
+        score = -Math.hypot(pos.x, pos.z)
+      } else {
+        let near = 1e9
+        let seen = 0
+        for (const t of foes) {
+          const d = Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)
+          near = Math.min(near, d)
+          if (d < SPAWN_SIGHT && this.field.clearLine(pos.x, pos.z, t.pos.x, t.pos.z)) seen++
+        }
+        score = -Math.abs(near - SPAWN_IDEAL)
+        if (near < SPAWN_SAFE) score -= 4000 + (SPAWN_SAFE - near) * 10
+        score -= seen * 1500
+        // Teams: next to a teammate is better (joins the push)
+        if (friends.length) score -= Math.min(...friends.map((t) => Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z))) * 0.25
+      }
+      for (const m of this.mines) {
+        const d = Math.hypot(m.pos.x - pos.x, m.pos.z - pos.z)
+        if (d < 200) score -= 3000 + (200 - d) * 10
+      }
+      if (score > bestScore) {
+        bestScore = score
         best = v3(pos.x, 0, pos.z)
       }
     }
@@ -409,8 +453,14 @@ export class ArenaSim {
     const pos = this.spawnPoint(t.player)
     t.pos = pos
     t.vel = v3()
-    // face the middle of the map
-    const f = normalize(v3(-pos.x || 1, 0, -pos.z * 0.3))
+    // face the nearest enemy (else the middle of the map)
+    let f = normalize(v3(-pos.x || 1, 0, -pos.z * 0.3))
+    let near = 1e9
+    for (const o of this.tanks)
+      if (o.alive && o !== t && this.enemies(t.player, o.player)) {
+        const d = Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z)
+        if (d < near && d > 1) (near = d), (f = normalize(v3(o.pos.x - pos.x, 0, o.pos.z - pos.z)))
+      }
     axesFromForward(t.rot, f)
     axesFromForward(t.turretRot, f)
     t.pc.reset()
@@ -786,7 +836,7 @@ export class ArenaSim {
       }
     }
     this.pickups = this.pickups.filter((k) => k.id >= 0)
-    if (this.state === 'play' && this.tick >= this.pickupAt && this.pickups.length < PICKUPS_MAX) {
+    if (this.state === 'play' && this.tick >= this.pickupAt && this.pickups.length < SIZES[this.size].pickups) {
       this.pickupAt = this.tick + PICKUP_RESPAWN
       for (let i = 0; i < 10; i++) {
         const [c, r] = this.map.open[Math.floor(this.rnd() * this.map.open.length)]
@@ -816,8 +866,8 @@ export class ArenaSim {
 
   private checkEnd() {
     let done = this.tick >= this.phaseEnd
-    if (this.mode === 'teams') done ||= this.teamScore.some((s) => s >= TEAM_LIMIT)
-    else done ||= this.players.some((p) => p.score >= FFA_LIMIT)
+    if (this.mode === 'teams') done ||= this.teamScore.some((s) => s >= SIZES[this.size].teamLimit)
+    else done ||= this.players.some((p) => p.score >= SIZES[this.size].ffaLimit)
     if (!done) return
     if (this.mode === 'teams') {
       const [a, b] = this.teamScore
