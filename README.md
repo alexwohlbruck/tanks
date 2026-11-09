@@ -22,7 +22,11 @@ python3 tools/ui/build_ui.py            # BRLYT/BRLAN/TPL/BRFNT/BMG -> public/as
 python3 tools/ui/build_shared_textures.py  # medal / VS winner model textures for the result screens
 python3 tools/audio/build_audio.py      # BRSAR (SE, sequenced BGM, stems) -> public/assets/audio
 python3 tools/audio/compress.py         # WAV -> FLAC (lossless, sample-exact loops)
+bun tools/hires/build.ts                # hi-res textures for the high/ultra quality -> public/assets/hires (~1 min)
 ```
+
+The hi-res step is optional: without `public/assets/hires/` (or for any texture missing from
+it) the game uses the disc textures at every quality.
 
 ## Run
 
@@ -32,7 +36,23 @@ bun run dev          # http://localhost:5300
 ```
 
 URL options: `?mission=N` start at mission N, `&p2=1` two players, `&gold=1` unlock
-missions 21-100 (normally requires the Tanks gold medal), `?webgl` force WebGL2.
+missions 21-100 (normally requires the Tanks gold medal), `?webgl` force WebGL2,
+`?quality=classic|high|ultra` render quality (see below).
+
+## Render quality
+
+`app.view.setQuality('classic' | 'high' | 'ultra', overrides?)` (`src/render/quality.ts`):
+
+| quality | what |
+|---|---|
+| `classic` | the GX-faithful port: disc textures, GX lighting equation, decal shadows, MSAA, DPR <= 2 |
+| `high` | + hi-res textures (mipmapped, anisotropic), PN-smoothed curved models (turrets, mine, shell, border logs), hi-res effect sprites and tread stamps; same lighting and cost class (phone target) |
+| `ultra` | + enhanced lighting (hemisphere + key light, soft specular), real-time PCF shadow maps instead of the decals, supersampled DPR (1.5x, <= 3) |
+
+`overrides` adjusts single options (`{ shadows: false }`, `{ maxPixelRatio: 1 }`, ...). Nothing is
+persisted by the renderer. New tank types (ids >= 10) and special floor tiles (codes 500-599)
+hook into the renderer through `src/render/registry.ts` (`registerTankVisual`,
+`registerTileRenderer`, documented at the top of the file).
 
 Controls: WASD / arrows / left stick to drive (Nunchuk), mouse or right stick to aim
 (Wii Remote pointer), left click / J / RT to fire (B), right click / Space / E / LT to lay a
@@ -53,4 +73,6 @@ mine (A), Esc / Start to pause (+). Player 2 uses a gamepad.
 Dev pages: `/uitest.html` (layouts over a reference screenshot), `/effects.html`
 (particle effects), `/assets/ui/preview.html` (layout gallery).
 Headless checks: `bun tools/dev/simtest.ts` (missions 1-20 in the simulation),
-`node tools/dev/play.mjs <out.png> <url> <script>` (scripted browser session).
+`node tools/dev/play.mjs <out.png> <url> <script>` (scripted browser session),
+`node tools/hires/shots.mjs tools/hires/checks/<qualities|zoom|players|perf>.mjs` (render
+quality screenshots, 4 players + registry hooks, per-quality draw calls / frame time).

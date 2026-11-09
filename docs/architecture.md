@@ -10,7 +10,7 @@
 | game flow | `src/game.ts` | port of `RPTnkGameManager`; `newGame(players 1-4, start, seed, pack)` — `pack` = custom levels |
 | simulation | `src/sim/` | port of the decomp; deterministic 60 Hz; players 0-3, enemies `TEAM_ENEMY` (9), weapon owner slots players 0-3 / enemies 4+ |
 | levels | `src/levels/format.ts` | `LevelDef` / `LevelPack`; cell codes as the disc maps + 300-303 players, 400-411 enemy slots, 500-599 special tiles |
-| render | `src/render/` | three.js WebGPU (WebGL2 fallback), TSL materials, nw4r effects |
+| render | `src/render/` | three.js WebGPU (WebGL2 fallback), TSL materials, nw4r effects; `quality.ts` presets (`SceneView.setQuality`), `registry.ts` hooks for new tank types / tiles, `hires.ts` + `tools/hires/` hi-res textures |
 | original UI | `src/ui/` | NW4R layout runtime + Tanks layouts + Wii Play shared screens |
 | audio | `src/audio/` | WebAudio; layered BGM stems with track masks |
 

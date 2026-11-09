@@ -1,7 +1,7 @@
 // Render checks for the hi-res / quality work: node tools/hires/shots.mjs <steps.js> [url]
 // <steps.js> exports `steps` (array of [kind, arg]): ['wait', ms], ['eval', js-string-or-fn],
 // ['shot', path], ['log', js] (prints the result). Env W / H set the viewport, DPR the device
-// pixel ratio. One headless browser at a time on the dev box (the launch waits on a lock).
+// pixel ratio, NO_HIRES=1 hides public/assets/hires. One headless browser at a time on the dev box (the launch waits on a lock).
 import { chromium } from 'playwright-core'
 import { readdirSync } from 'fs'
 import { pathToFileURL } from 'url'
@@ -20,6 +20,8 @@ try {
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: DPR })
   page.on('pageerror', (e) => console.log('[pageerror]', e.message))
   page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && console.log(`[${m.type()}]`, m.text().slice(0, 300)))
+  // NO_HIRES=1: serve no hi-res set, to check the disc-texture fallback
+  if (process.env.NO_HIRES) await page.route('**/assets/hires/**', (r) => r.fulfill({ status: 404, body: '' }))
   await page.goto(url)
   for (const [k, v] of steps) {
     if (k === 'wait') await page.waitForTimeout(v)

@@ -106,6 +106,9 @@ export class SceneView {
     this.renderer.autoClear = false
     this.models.frameCamera(this.camera)
     this.deriveCursors()
+    // dev/testing: ?quality=classic|high|ultra (the settings menu calls setQuality itself)
+    const q = new URLSearchParams(location.search).get('quality')
+    if (q === 'classic' || q === 'high' || q === 'ultra') void this.setQuality(q)
   }
 
   resize(w: number, h: number) {
