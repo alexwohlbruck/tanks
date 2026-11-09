@@ -76,8 +76,9 @@ export class UiPresenter implements Presenter {
       addLives: () => (this.sig.life = true),
       kills: (p) => g()?.stats.kills[p] ?? 0,
       killsByType: (p, i) => g()?.stats.killsByType[p][i + 1] ?? 0,
-      typeOrder: (i) => (g()?.stats.typeOrder[i] ?? 1) - 1,
-      typeNum: () => g()?.stats.typeOrder.length ?? 0,
+      // the original result layout has rows for types 1-9 only ([tanks+] types 10+ are counted in stats)
+      typeOrder: (i) => (g()?.stats.typeOrder.filter((t) => t <= 9)[i] ?? 1) - 1,
+      typeNum: () => g()?.stats.typeOrder.filter((t) => t <= 9).length ?? 0,
       winner: () => g()?.winner() ?? -1,
       enemyAlive: () => g()?.world?.enemyAliveNum ?? 0,
       setStageReady: () => (this.sig.ready = true),

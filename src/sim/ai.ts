@@ -5,7 +5,7 @@
 import { Actor } from './actor'
 import { MINE, SHELL, ENEMY_SLOT0 } from './consts'
 import { collideActor } from './field'
-import { paramsFor } from './stats'
+import { FIRST_ADDED_TYPE, paramsFor } from './stats'
 import type { Tank } from './tank'
 import {
   type Axes,
@@ -806,14 +806,18 @@ export class AiAttack {
       this.fireInterval = this.w.rng.timer(this.fireIntervalMin, this.fireIntervalMax)
       t.aiCtrl.move.keepDir = true
     }
+    // [tanks+] an added type's behaviour may take the shot over (sniper charge-up); never 1-9
+    if (this.fire && this.type >= FIRST_ADDED_TYPE && this.w.plus && this.w.plus.interceptFire(t)) this.fire = false
     if (this.fire) {
       const muzzle = v3(muzzleDist * turret.z.x + this.pos.x, muzzleDist * turret.z.y + this.pos.y, muzzleDist * turret.z.z + this.pos.z)
       const slot = t.index + ENEMY_SLOT0
+      // [tanks+] added types borrow an original type's shell look (smoke trail, sounds)
+      const look = this.type < FIRST_ADDED_TYPE ? this.type : this.w.plus ? this.w.plus.shellLook(this.type) : 2
       let smoke = 0
-      if (this.type === 3) smoke = 1
-      else if (this.type === 7) smoke = 2
-      else if (this.type === 9) smoke = 1
-      const shell = this.w.fireShell(this.shellSpeed, t, muzzle, vcopy(turret.z), slot, this.shellBounces, smoke, this.type)
+      if (look === 3) smoke = 1
+      else if (look === 7) smoke = 2
+      else if (look === 9) smoke = 1
+      const shell = this.w.fireShell(this.shellSpeed, t, muzzle, vcopy(turret.z), slot, this.shellBounces, smoke, look)
       t.playFireSe(shell)
       this.fireTimer = this.fireCooldown
       this.freeze = this.fireFreeze

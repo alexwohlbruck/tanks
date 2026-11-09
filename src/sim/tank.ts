@@ -9,8 +9,9 @@ import { AiController } from './ai'
 import { TANK, TEAM_ENEMY } from './consts'
 import { collideActor } from './field'
 import { PlayerController } from './player'
+import type { TankExt } from './plus'
 import type { Shell } from './shell'
-import { paramsFor } from './stats'
+import { FIRST_ADDED_TYPE, paramsFor } from './stats'
 import { type Axes, type V3, EY, accumulate, copyAxes, cross, dot, heading, identityAxes, mag, normalize, setAxes, v3, vcopy, vset } from './vec'
 import type { World } from './world'
 
@@ -140,6 +141,8 @@ export class Tank extends Actor {
   odometer = 0
   /** scratch space for renderers (not part of the simulation) */
   ai: any = {}
+  /** [tanks+] per-tank state of the extension (src/sim/plus.ts); null for the original missions */
+  ext: TankExt | null = null
 
   constructor(private w: World, enemy: boolean, index: number) {
     super()
@@ -172,7 +175,8 @@ export class Tank extends Actor {
   }
   /** RPTnkTank::CalcModelMtx hides the model in state 2 when stealthed */
   get invisible() {
-    return this.state === 2 && this.stealth
+    // [tanks+] Ghost / fog of war (ext is null for the original missions)
+    return (this.state === 2 && this.stealth) || (this.ext !== null && this.ext.hidden)
   }
   get moving() {
     return this.speed > 0.01
@@ -231,6 +235,7 @@ export class Tank extends Actor {
     this.tankSound.clear()
     this.player.reset()
     this.aiCtrl.reset()
+    this.ext = null
   }
 
   /** RPTnkTank::InitOrientation: face the field centre along the nearest axis */
@@ -255,6 +260,8 @@ export class Tank extends Actor {
     this.modelIdx = this.index
     this.state = show ? 0 : 1
     this.tankSound.treadIndex = this.index
+    // [tanks+]
+    this.ext = this.w.plus ? this.w.plus.attach(this) : null
   }
 
   /** RPTnkTank::SpawnEnemy */
@@ -271,6 +278,12 @@ export class Tank extends Actor {
     this.aiCtrl.attack.setAimDirection(vcopy(this.rot.z))
     this.state = show ? 0 : 2
     this.tankSound.treadIndex = type + 1
+    // [tanks+] (added types get the tread sound of their speed class)
+    this.ext = this.w.plus ? this.w.plus.attach(this) : null
+    if (type >= FIRST_ADDED_TYPE) {
+      const s = paramsFor(type).speed
+      this.tankSound.treadIndex = s <= 1.2 ? 2 : s <= 1.6 ? 5 : s <= 1.9 ? 7 : 9
+    }
   }
 
   /** RPTnkTank::Activate (StateStageStart): White plays Tnk_stealth_change and vanishes */
@@ -346,6 +359,8 @@ export class Tank extends Actor {
 
   /** consumes a recorded hit; true when the tank exploded */
   private resolveHits(): boolean {
+    // [tanks+] shields, hit points, invulnerability frames (ext is null for the original missions)
+    if (this.ext && this.w.plus!.absorbHit(this)) return false
     if (this.mineHit.id !== 0) {
       if (--this.lives === 0) this.explode(this.mineHit.id, 'mine')
       return true
@@ -426,7 +441,8 @@ export class Tank extends Actor {
   /** RPTnkTank::TestHitAlt (shells): radius 15 + other's around pos + (0, 0, 9) */
   override testHitAlt(other: Actor) {
     const o = other.hitCenter()
-    const r = TANK.shellRadius + other.hitRadius
+    // [tanks+] big boss hulls
+    const r = this.ext ? TANK.shellRadius + other.hitRadius + this.ext.hitBonus : TANK.shellRadius + other.hitRadius
     return circle(o, this.pos.x + this.hitOffsetAlt.x, this.pos.z + this.hitOffsetAlt.z, r)
   }
 
@@ -484,10 +500,14 @@ export class Tank extends Actor {
   playFireSe(shell: Shell | null) {
     if (!this.isEnemy) this.w.sound(this.index === 0 ? 'RP_TNK_SE_SHOOT_1P' : 'RP_TNK_SE_SHOOT_2P', this.pos, this)
     else {
-      const id = { 1: 'RP_TNK_SE_SHOOT_ENEMY1', 2: 'RP_TNK_SE_SHOOT_ENEMY2', 4: 'RP_TNK_SE_SHOOT_ENEMY4', 5: 'RP_TNK_SE_SHOOT_ENEMY5', 6: 'RP_TNK_SE_SHOOT_ENEMY6', 8: 'RP_TNK_SE_SHOOT_ENEMY8' }[this.enemyType]
+      // [tanks+] added types sound like the original type whose shells they borrow
+      const type = this.enemyType < FIRST_ADDED_TYPE ? this.enemyType : this.w.plus ? this.w.plus.shellLook(this.enemyType) : 2
+      const id = { 1: 'RP_TNK_SE_SHOOT_ENEMY1', 2: 'RP_TNK_SE_SHOOT_ENEMY2', 4: 'RP_TNK_SE_SHOOT_ENEMY4', 5: 'RP_TNK_SE_SHOOT_ENEMY5', 6: 'RP_TNK_SE_SHOOT_ENEMY6', 8: 'RP_TNK_SE_SHOOT_ENEMY8' }[type]
       if (id) this.w.sound(id, this.pos, this)
     }
     this.w.emit({ t: 'shoot', tank: this, bullet: shell })
+    // [tanks+] fans, rocket power-up
+    if (this.w.plus) this.w.plus.onFire(this, shell)
   }
 
   /** RPTnkTank::PlayLayMineSe */
