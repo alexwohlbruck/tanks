@@ -103,7 +103,8 @@ export function aimBot(seed: number) {
       }
       let mx = 0
       let mz = 0
-      const line = target && w.clearShot(t.pos, target)
+      const line = target && wideShot(w, t.pos, target)
+      let breakAt: { x: number; z: number } | null = null
       if (st.path.length > 1 && !(line && td < 220)) {
         const [c, r] = st.path[1]
         const q = w.cellCenter(c, r)
@@ -111,6 +112,12 @@ export function aimBot(seed: number) {
         mz = q.z - t.pos.z
         const [tc, tr] = w.cellAt(t.pos)
         if (tc === c && tr === r) st.path.shift()
+        // glass / crate in the way: shoot it open from a little distance
+        const code = w.grid[r][c].code
+        if ((code === 531 || code === 532) && w.grid[r][c].kind !== 0) {
+          breakAt = q
+          if (Math.hypot(mx, mz) < 70) mx = mz = 0
+        }
       } else if (target && td < 120) {
         // too close: back off
         mx = t.pos.x - target.x
@@ -152,12 +159,13 @@ export function aimBot(seed: number) {
         p.moveX = mx / m
         p.moveY = mz / m
       }
-      if (--st.fireWait <= 0 && target && line) {
+      if (--st.fireWait <= 0 && ((target && line) || breakAt)) {
         p.fire = true
         st.fireWait = 14 + Math.floor(rnd() * 10)
       }
       if (target && td < 75 && rnd() < 0.05) p.mine = true
-      padToIntent(t, p, target ? { x: target.x, z: target.z } : null)
+      const aim = breakAt && !line ? breakAt : target
+      padToIntent(t, p, aim ? { x: aim.x, z: aim.z } : null)
     }
   }
 }
@@ -169,7 +177,8 @@ function gridPath(w: World, from: { x: number; z: number }, to: { x: number; z: 
   const W = w.width
   const H = w.height
   const prev = new Int32Array(W * H).fill(-1)
-  const ok = (c: number, r: number) => c >= 0 && r >= 0 && c < W && r < H && w.grid[r][c].kind === 0
+  // glass and crates can be shot open, so they count as open
+  const ok = (c: number, r: number) => c >= 0 && r >= 0 && c < W && r < H && (w.grid[r][c].kind === 0 || w.grid[r][c].code === 531 || w.grid[r][c].code === 532)
   const q = [sr * W + sc]
   prev[sr * W + sc] = sr * W + sc
   while (q.length) {
@@ -200,4 +209,14 @@ function gridPath(w: World, from: { x: number; z: number }, to: { x: number; z: 
     if (prev[k] === k) break
   }
   return out
+}
+
+/** clear line for a shell (radius 6): the centre line and two lines beside it */
+function wideShot(w: World, a: { x: number; z: number }, b: { x: number; z: number }) {
+  const dx = b.x - a.x
+  const dz = b.z - a.z
+  const d = Math.hypot(dx, dz) || 1
+  const ox = (-dz / d) * 7
+  const oz = (dx / d) * 7
+  return w.clearShot(a, b) && w.clearShot({ x: a.x + ox, z: a.z + oz }, { x: b.x + ox, z: b.z + oz }) && w.clearShot({ x: a.x - ox, z: a.z - oz }, { x: b.x - ox, z: b.z - oz })
 }
