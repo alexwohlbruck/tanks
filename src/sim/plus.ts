@@ -19,9 +19,8 @@
 // All randomness comes from the extension's own RPRandom (seeded from the level), never from
 // the shared game RNG directly.
 
-import { ENEMY_SLOT0, MINE, TANK } from './consts'
+import { ENEMY_SLOT0, TANK } from './consts'
 import type { Block } from './field'
-import type { Mine } from './mine'
 import { PowerUps, applyBuffs } from './powerups'
 import { RPRandom } from './rng'
 import type { Shell } from './shell'
@@ -101,7 +100,6 @@ export class Plus {
   fog = 0
   /** wind: added to every shell's velocity each frame (keeps its speed) */
   wind: V3 | null = null
-  private minesChecked = new WeakSet<Mine>()
 
   constructor(
     public w: World,
@@ -237,15 +235,6 @@ export class Plus {
   /** World.physics after every CollideWithField (hit flags are read by Calculate next) */
   collide() {
     this.tiles.collide()
-    // RPTnkMine arming: wait for the mine's own tank (the pool index of enemy / 3rd-4th
-    // player mines is offset in MinePool.collideWithField; corrected here for Tanks+ levels)
-    for (const m of this.w.minePool.items) {
-      if (!m.active || m.state === 2 || this.minesChecked.has(m) || !m.owner) continue
-      const o = m.owner
-      const near = o.active && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) <= MINE.armRadius + TANK.mineRadius
-      m.hitFlags[5] = !near
-      if (!near) this.minesChecked.add(m)
-    }
   }
 
   /** World.physics after every Calculate */

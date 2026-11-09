@@ -46,7 +46,7 @@ function eventKey(e: SimEvent): string {
     case 'bulletDie':
       return `bulletDie ${e.bullet.index} ${v(e.pos)} ${e.reason}`
     case 'tankDie':
-      return `die ${e.tank.index}${e.tank.isEnemy ? 'e' : 'p'} ${e.by} ${e.cause} ${e.killer}`
+      return `die ${e.tank.index}${e.tank.isEnemy ? 'e' : 'p'} ${e.by === 9 ? 3 : e.by} ${e.cause} ${e.killer}`
     case 'mineSet':
     case 'mineFuse':
     case 'mineExplode':

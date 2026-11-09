@@ -69,7 +69,7 @@ export class Mine extends Actor {
 
   override applySpawnParam(param: number) {
     this.slot = param & 0xf
-    this.isEnemy = this.slot >= 2
+    this.isEnemy = this.slot >= ENEMY_SLOT0
   }
 
   override clearForcesStep() {
@@ -84,7 +84,7 @@ export class Mine extends Actor {
     if (this.state === 0 || this.state === 1) {
       if (!this.hitFlags[5]) {
         this.hitRadius = MINE.armRadius
-        const owner = this.isEnemy ? this.slot - 2 : this.slot
+        const owner = this.isEnemy ? this.slot - ENEMY_SLOT0 : this.slot
         if (!this.w.testMineHitTank(this, owner, this.isEnemy)) this.hitFlags[5] = true
       } else {
         this.hitRadius = MINE.triggerRadius

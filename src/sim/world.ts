@@ -179,7 +179,8 @@ export class World {
    * weapon manager */
   reset() {
     this.blocks.reset()
-    for (const t of this.playerTanks) t.reset()
+    // the original has 2 player tanks (their reset draws random numbers); 3-4 only exist in 3-4P games
+    for (const t of this.playerTanks.slice(0, Math.max(2, this.players))) t.reset()
     for (const t of this.enemyTanks) t.reset()
     this.enemyNext = 0
     this.enemyAliveNum = 0

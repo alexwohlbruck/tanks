@@ -66,7 +66,7 @@ export class Shell extends Actor {
   /** RPTnkShell::ApplySpawnParam */
   override applySpawnParam(param: number) {
     this.slot = param & 0xf
-    this.isEnemy = this.slot >= 2
+    this.isEnemy = this.slot >= ENEMY_SLOT0
     this.bouncesLeft = (param >> 4) & 0xf
     this.smokeType = (param >> 8) & 7
     this.shooterType = (param >> 12) & 0xf
