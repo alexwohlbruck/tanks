@@ -3,6 +3,9 @@
 
 import { registerScreen } from '../../app/router'
 import { TANKS_PLUS_WORLDS, tanksPlus } from '../../levels/packs'
+import { loadPackRecord } from '../shared/save'
+import { packMedalRule } from '../shared/track'
+import { medalIcon, MEDALS } from './art'
 import { backButton, band, button, WebScreen } from './base'
 import { h } from './dom'
 
@@ -76,6 +79,7 @@ class TanksPlusScreen extends WebScreen {
               },
             }),
           ),
+          this.medal(),
         ),
         h(
           'div.panel-scroll.tp-levels',
@@ -99,6 +103,18 @@ class TanksPlusScreen extends WebScreen {
       ),
     )
     requestAnimationFrame(() => this.nav?.focus())
+  }
+
+  /** the pack medal won so far and what the next one asks for */
+  private medal() {
+    const r = loadPackRecord('tanksplus')
+    const n = tanksPlus.levels.length
+    return h(
+      'div.tp-medal',
+      null,
+      medalIcon(r.medal),
+      h('span', null, h('b', null, r.medal ? `${MEDALS[r.medal - 1].name} medal` : 'No medal yet'), h('small', null, r.medal < 4 ? `${MEDALS[r.medal].name}: ${packMedalRule(n, r.medal + 1)}` : 'The highest medal!')),
+    )
   }
 
   protected back() {

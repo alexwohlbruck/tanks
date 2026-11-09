@@ -9,7 +9,9 @@
 import { registerScreen } from '../../app/router'
 import type { Game } from '../../game'
 import { TANKS_MEDALS } from '../shared/medalResult'
-import { loadPlayerData, savePlayerData, vsSession } from '../shared/save'
+import { unlock } from '../shared/achievements'
+import { loadPlayerData, MEDAL_PACKS, savePlayerData, vsSession } from '../shared/save'
+import { currentRun, packMedalRule, recordPackRun } from '../shared/track'
 import { medalIcon, MEDALS, PLAYER_COLORS, tankIcon, tankStyle } from './art'
 import { band, button, WebScreen } from './base'
 import { h } from './dom'
@@ -49,6 +51,8 @@ export function recordRun(score: number): RunRecord {
     }
   const newMedal = reached > d.medal ? reached : 0
   savePlayerData({ medal: Math.max(d.medal, reached), records })
+  if (reached >= 3) unlock('classic-gold')
+  if (reached >= 4) unlock('classic-platinum')
   return { score, reached, newMedal, best: Math.max(d.medal, reached), rank, records }
 }
 
@@ -106,18 +110,30 @@ class ResultsScreen extends WebScreen {
           ),
         ),
       )
-    } else if (players >= 2) {
-      const w = g.winner()
-      if (players === 2) tallyVs(w)
+    } else if (!classic && MEDAL_PACKS.includes(g.pack!.id ?? '')) {
+      // a built-in campaign (Tanks+): its own medals, any number of players
+      const pack = g.pack!
+      const r = recordPackRun(pack, currentRun())
+      if (r.newMedal) this.app.audio.playMusic(['RP_COM_BGM_GET_COPPER', 'RP_COM_BGM_GET_SILVER', 'RP_COM_BGM_GET_GOLD', 'RP_COM_BGM_GET_PLATINA'][r.newMedal - 1])
+      const n = pack.levels.length
       right.push(
         h(
-          'div.winner',
-          null,
-          w >= 0 ? tankIcon(PLAYER_COLORS[w].body, PLAYER_COLORS[w].dark, 'tank-icon big') : null,
-          h('div.winner-name', null, w >= 0 ? `Player ${w + 1} wins!` : "It's a tie!"),
-          players === 2 ? h('div.tally', null, h('span.p1', null, String(vsSession.wins[0])), h('small', null, 'wins'), h('span.p2', null, String(vsSession.wins[1]))) : null,
+          'div.medal-box',
+          { class: r.newMedal ? 'new' : '' },
+          medalIcon(r.reached, 'medal-icon big'),
+          h(
+            'div.medal-text',
+            null,
+            r.newMedal ? h('div.flag', null, 'New medal!') : null,
+            h('div.medal-name', null, r.reached ? `${MEDALS[r.reached - 1].name} medal` : 'No medal yet'),
+            h('small', null, r.reached < 4 ? `${MEDALS[r.reached].name}: ${packMedalRule(n, r.reached + 1)}` : 'The highest medal!'),
+          ),
         ),
+        h('div.records.pack-progress', null, h('div.records-head', null, 'Levels cleared'), h('div.pack-cleared', null, h('b', null, String(r.cleared)), h('span', null, `of ${n}`)), r.best > r.reached ? h('small', null, `Best medal: ${MEDALS[r.best - 1].name}`) : null),
       )
+      if (players >= 2) right.push(this.winnerBox(g, players))
+    } else if (players >= 2) {
+      right.push(this.winnerBox(g, players))
     }
     root.append(
       h(
@@ -137,6 +153,19 @@ class ResultsScreen extends WebScreen {
           ),
         ),
       ),
+    )
+  }
+
+  /** 2+ players: the winner and the 2P session tally */
+  private winnerBox(g: Game, players: number) {
+    const w = g.winner()
+    if (players === 2) tallyVs(w)
+    return h(
+      'div.winner',
+      null,
+      w >= 0 ? tankIcon(PLAYER_COLORS[w].body, PLAYER_COLORS[w].dark, 'tank-icon big') : null,
+      h('div.winner-name', null, w >= 0 ? `Player ${w + 1} wins!` : "It's a tie!"),
+      players === 2 ? h('div.tally', null, h('span.p1', null, String(vsSession.wins[0])), h('small', null, 'wins'), h('span.p2', null, String(vsSession.wins[1]))) : null,
     )
   }
 

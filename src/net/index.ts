@@ -34,8 +34,8 @@ export function bindNet(a: AppContext) {
       remember(!!m.room)
       if (!m.room || m.room.state === 'lobby') {
         if (session) endSession()
-        // back in a room after a reload / reconnect
-        else if (m.room && app && app.screen !== 'lobby') app.show('lobby')
+        // back in a room after a reload / reconnect ('invite': the web screen that set it up)
+        else if (m.room && app && app.screen !== 'lobby' && app.screen !== 'invite') app.show('lobby')
       }
     }
   })

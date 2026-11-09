@@ -7,6 +7,7 @@ import { tankType } from '../editor/catalog'
 import { thumbnail } from '../editor/draw'
 import { clear, h, isolateKeys, isTyping, modal, playAndReturn, relTime, toast } from '../editor/ui'
 import { ApiError, StoreApi, type PackDetail, type PackSummary, type Sort } from './api'
+import { unlock } from '../ui/shared/achievements'
 
 const SORTS: { id: Sort; label: string }[] = [
   { id: 'new', label: 'New' },
@@ -262,6 +263,7 @@ class Store implements Screen {
 
     const play = (from: number) => {
       void this.api.play(d.id).catch(() => {})
+      unlock('store-play')
       const p: LevelPack = { ...pack, id: d.id }
       playAndReturn(this.app, p, this.players, from, 'store', { id: d.id })
     }

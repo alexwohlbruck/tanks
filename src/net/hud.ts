@@ -4,6 +4,7 @@
 
 import { registerScreen } from '../app/router'
 import type { AppContext, Screen } from '../app/types'
+import { unlock } from '../ui/shared/achievements'
 import { netClient } from './client'
 import { currentSession } from './index'
 import './net.css'
@@ -92,6 +93,9 @@ class NetHud implements Screen {
     const meta = s?.meta
     const vs = meta?.vs
     this.set('vs', vs ? this.scoreboard(room, vs.scores, vs.frags, vs.round, vs.target, meta!.players) : '')
+    // achievements: a campaign with a friend, a versus match won
+    if (s && s.me >= 0 && room && room.state === 'playing' && room.members.length >= 2 && room.settings.mode !== 'versus') unlock('online-coop')
+    if (s && vs && vs.phase === 'end' && vs.winner >= 0 && vs.winner === s.me && meta!.players >= 2) unlock('vs-win')
     let banner = ''
     if (s && s.me < 0 && room && room.state === 'playing') banner = `<div class="nh-spec">Spectating · you join ${vs ? 'next round' : 'at the next mission'}</div>`
     if (vs) {
