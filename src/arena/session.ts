@@ -21,6 +21,7 @@ import { EMOTE_TICKS, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_C
 import { paramsFor } from '../sim/stats'
 import type { BaseModel } from '../render/registry'
 import { tankIcon } from '../ui/web/art'
+import { collect, progress, reach, unlock } from '../ui/shared/achievements'
 import { ArenaField, collideTank, driveTank, newBody, type ArenaInput, type TankBody } from './sim'
 
 type Snap = Extract<S2C, { t: 's' }>
@@ -189,6 +190,12 @@ export class ArenaSession implements Session {
         this.audio.playMusic('RP_TNK_BGM_LOOP2')
         return
       case 'board':
+        // a match won (by this player, or by their team)
+        if (m.state === 'over' && this.board?.state === 'play' && m.winner) {
+          const me = m.players.find((p) => p[0] === this.pid)
+          const won = me && (this.mode === 'teams' ? m.winner.name === ['Blue', 'Red'][me[2]] : m.winner.name === me[1] && m.winner.color === me[3])
+          if (won) unlock('arena-win')
+        }
         this.board = m
         for (const p of m.players) this.names.set(p[0], { name: p[1], team: p[2], color: p[3] })
         return
@@ -601,7 +608,14 @@ export class ArenaSession implements Session {
           this.sound('RP_TNK_SE_BROKEN', e[1], e[2], 0.8)
           break
         case 'kill': {
-          const [, id, x, z, victim, killer, cause, streak] = e
+          const [, id, x, z, victim, killer, cause, streak, layer] = e
+          // achievements (src/ui/shared/achievements.ts arena hooks), for this player only
+          if (killer === this.pid && victim !== this.pid) {
+            unlock('arena-first-kill')
+            progress('arena-kills-100')
+            reach('arena-streak-5', streak)
+            if (cause === 'mine' && layer && layer !== this.pid) unlock('arena-mine-steal')
+          }
           const t = this.tankFor(id)
           if (t) {
             t.pos.x = x
@@ -646,6 +660,7 @@ export class ArenaSession implements Session {
           if (id === this.tankId) {
             this.audio.play('RP_TNK_SE_TNK1UP')
             const info = PICKUP_INFO[kind as PickupKind]
+            if (info) collect('arena-all-specials', info.name)
             if (info) this.banner = { text: `${info.name} tank: ${info.trick}!`, until: performance.now() + 1800 }
           } else this.sound('RP_TNK_SE_GET_TNKNUM', x, z, 0.6)
           break

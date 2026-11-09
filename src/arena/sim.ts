@@ -262,7 +262,7 @@ export type ArenaEvent =
   | { t: 'ricochet'; x: number; z: number }
   | { t: 'shellDie'; x: number; z: number; wall: boolean }
   | { t: 'clash'; x: number; z: number }
-  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine'; streak: number }
+  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine'; streak: number; layer: number }
   | { t: 'mineSet'; x: number; z: number }
   | { t: 'mineFuse'; id: number; x: number; z: number }
   | { t: 'boom'; x: number; z: number }
@@ -470,7 +470,7 @@ export class ArenaSim {
       const sh = shellHits.get(t)
       if (mh || sh) {
         if (this.tick < t.protectUntil) continue
-        if (mh) this.kill(t, this.detonator(mh), 'mine')
+        if (mh) this.kill(t, this.detonator(mh), 'mine', mh.owner.player.pid)
         else this.kill(t, sh!.s.owner.player, 'shell')
         continue
       }
@@ -745,7 +745,8 @@ export class ArenaSim {
     }
   }
 
-  private kill(t: ATank, by: Player, cause: 'shell' | 'mine') {
+  /** `layer`: whoever laid the mine (a mine kill) */
+  private kill(t: ATank, by: Player, cause: 'shell' | 'mine', layer = 0) {
     const v = t.player
     t.alive = false
     t.vel = v3()
@@ -769,7 +770,7 @@ export class ArenaSim {
         if (this.mode === 'teams') this.teamScore[by.team]++
       }
     }
-    this.events.push({ t: 'kill', tank: t.id, x: t.pos.x, z: t.pos.z, victim: v.pid, killer, cause, streak: by !== v ? by.streak : 0 })
+    this.events.push({ t: 'kill', tank: t.id, x: t.pos.x, z: t.pos.z, victim: v.pid, killer, cause, streak: by !== v ? by.streak : 0, layer })
   }
 
   private stepPickups(live: ATank[]) {

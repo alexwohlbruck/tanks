@@ -315,7 +315,7 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
   const near = (x: number, z: number) => Math.abs(x - c.focus.x) < VIEW.x + 200 && Math.abs(z - c.focus.z) < VIEW.z + 200
   switch (e.t) {
     case 'kill':
-      return ['kill', e.tank, r1(e.x), r1(e.z), e.victim, e.killer, e.cause, e.streak]
+      return ['kill', e.tank, r1(e.x), r1(e.z), e.victim, e.killer, e.cause, e.streak, e.layer]
     case 'break':
       return ['brk', e.c, e.r, e.h]
     case 'match':

@@ -4,7 +4,7 @@
 
 import type { ArenaMode, MapTheme, PickupKind } from './rules'
 
-export const ARENA_PROTO = 3
+export const ARENA_PROTO = 4
 
 export type C2S =
   /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team) */
@@ -74,7 +74,7 @@ export type NetEv =
   | ['ric', number, number]
   | ['die', number, number, number] // x, z, wall
   | ['clash', number, number]
-  | ['kill', number, number, number, number, number, string, number] // tank, x, z, victim, killer, cause, streak
+  | ['kill', number, number, number, number, number, string, number, number] // tank, x, z, victim, killer, cause, streak, mine layer
   | ['mset', number, number]
   | ['fuse', number, number, number]
   | ['boom', number, number]

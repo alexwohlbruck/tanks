@@ -43,7 +43,7 @@ export type Achievement = {
 }
 
 /** the special tanks of the arena (src/arena pickups) */
-export const ARENA_SPECIALS = ['Teal', 'Green', 'Black', 'Pink', 'Yellow', 'Violet', 'White']
+export const ARENA_SPECIALS = ['Teal', 'Green', 'Black', 'Pink', 'Yellow', 'Violet', 'White', 'Hornet', 'Sniper']
 
 export const GROUPS: { id: AchievementGroup; name: string }[] = [
   { id: 'classic', name: 'Classic' },
