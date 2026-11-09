@@ -66,3 +66,21 @@ export function show(o: { frames?: number; players?: number } = {}) {
   }
   return `${game.phase} tiles=${w.plus?.tiles.list.length}`
 }
+
+/** the editor's tile swatches on one sheet over the page (screenshots of src/editor/tileswatch.ts) */
+export async function swatches(size = 56) {
+  const { drawTileSwatch } = await import('../editor/tileswatch')
+  const { tileTypes } = await import('../sim/tiles')
+  const list = tileTypes()
+  const cols = 10
+  const cv = document.createElement('canvas')
+  cv.width = cols * (size + 8) + 8
+  cv.height = Math.ceil(list.length / cols) * (size + 8) + 8
+  cv.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;image-rendering:pixelated'
+  const c = cv.getContext('2d')!
+  c.fillStyle = '#e9d3a4'
+  c.fillRect(0, 0, cv.width, cv.height)
+  list.forEach((t, i) => drawTileSwatch(c, t.code, 8 + (i % cols) * (size + 8), 8 + Math.floor(i / cols) * (size + 8), size))
+  document.body.appendChild(cv)
+  return list.length
+}
