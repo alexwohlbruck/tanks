@@ -9,3 +9,4 @@ public/assets/
 public/ref-*.png
 __pycache__/
 *.pyc
+.claude/

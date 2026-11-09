@@ -9,6 +9,7 @@ let state = Number(q.get('state') ?? 4)
 const info: TnkInfo = {
   state: () => state,
   stage: () => Number(q.get('stage') ?? 7),
+  tutorial: () => Number(q.get('stage') ?? 7) === 0,
   lastStage: () => 19,
   modeIdx: () => (q.get('p2') ? 1 : 0),
   lives: () => 3,

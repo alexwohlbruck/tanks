@@ -8,6 +8,8 @@ import { fullWidth, loadLayout, loadMessages, Lyt, msg } from './lyt'
 export type TnkInfo = {
   state(): number
   stage(): number
+  /** mission 1 of the original campaign: the control-hint banner (RPTnkExMsg) is drawn */
+  tutorial(): boolean
   lastStage(): number
   modeIdx(): 0 | 1
   lives(p: number): number
@@ -661,7 +663,7 @@ export class TnkLayouts {
   calc(confirm: boolean) {
     const s = this.g.state()
     this.hud.calc()
-    if (this.g.stage() === 0) this.ex.calc()
+    if (this.g.tutorial()) this.ex.calc()
     if (s === 4) this.start.l.calc()
     if (s === 6 || s === 7) this.clear.calc()
     if (s === 9) this.failed.calc()
@@ -673,7 +675,7 @@ export class TnkLayouts {
 
   draw(ctx: CanvasRenderingContext2D, wideX: number) {
     const s = this.g.state()
-    if (this.g.stage() === 0) this.ex.l.draw(ctx, wideX)
+    if (this.g.tutorial()) this.ex.l.draw(ctx, wideX)
     this.hud.l.draw(ctx, wideX)
     this.eachHit((h) => h.l.draw(ctx, wideX))
     if (s === 4) this.start.l.draw(ctx, wideX)

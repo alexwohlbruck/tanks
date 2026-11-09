@@ -438,7 +438,7 @@ export class Game {
         this.presenter.hitPopup(pos, p)
       },
       enemySpawned: (type, tank) => {
-        if (this.stage === 0) this.exGuide.target = tank
+        if (this.stage === 0 && !this.pack) this.exGuide.target = tank
         this.stats.addKilledType(type)
       },
       enemyDestroyed: (slot) => {
@@ -671,7 +671,7 @@ export class Game {
       this.presenter.setBalloons(false)
       this.presenter.startMsgPlay()
       this.presenter.hudIn()
-      if (this.stage === 0) {
+      if (this.stage === 0 && !this.pack) {
         this.exGuide.start(w)
         this.presenter.exGuideStart()
       }
@@ -703,7 +703,7 @@ export class Game {
       this.timer = 0
       this.setState(8)
     } else {
-      if (this.stage === 0) this.presenter.exGuideStop()
+      if (this.stage === 0 && !this.pack) this.presenter.exGuideStop()
       this.presenter.clearMsgShow()
       this.presenter.hudOut()
       this.bgm.stop()
@@ -717,7 +717,7 @@ export class Game {
 
   private statePlay() {
     const w = this.world!
-    if (this.stage === 0) this.exGuide.calculate(w, this.presenter)
+    if (this.stage === 0 && !this.pack) this.exGuide.calculate(w, this.presenter)
     const dead = w.playersDeadState()
     if (dead !== 3) {
       ++this.timer
@@ -744,7 +744,7 @@ export class Game {
       this.timer = FLOW.missWait
       this.setState(5)
     }
-    if (this.stage === 0) this.presenter.exGuideStop()
+    if (this.stage === 0 && !this.pack) this.presenter.exGuideStop()
   }
 
   private stateMissWait() {

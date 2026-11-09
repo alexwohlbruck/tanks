@@ -69,6 +69,7 @@ export class UiPresenter implements Presenter {
     const info: TnkInfo = {
       state: () => g()?.state ?? 0,
       stage: () => g()?.stage ?? 0,
+      tutorial: () => (g()?.stage ?? 0) === 0 && !g()?.pack,
       lastStage: () => g()?.lastStage ?? 19,
       modeIdx: () => (g()?.players === 2 ? 1 : 0),
       lives: (p) => g()?.livesOf(p as 0 | 1) ?? 0,
