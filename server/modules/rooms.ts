@@ -3,6 +3,8 @@
 //   GET /api/rooms           public rooms
 //   GET /api/rooms/<CODE>    one room (join links check it exists)
 // Env: ROOMS_MAX (default 200), LEVELS_URL (pack lookup base, default http://127.0.0.1:$PORT/api/levels)
+//      NET_SIM_LAG_MS / NET_SIM_JITTER_MS: development only, add a one-way delay (each way) with
+//      jitter to every message, order preserved like TCP (test prediction / interpolation)
 
 import type { ServerWebSocket } from 'bun'
 import { readFileSync } from 'node:fs'
@@ -18,6 +20,19 @@ const MAX_ROOMS = Number(process.env.ROOMS_MAX ?? 200)
 const MAX_TEXT = 512 * 1024
 const PORT = Number(process.env.PORT ?? 3001)
 const LEVELS_URL = process.env.LEVELS_URL ?? `http://127.0.0.1:${PORT}/api/levels`
+const SIM_LAG = Number(process.env.NET_SIM_LAG_MS ?? 0)
+const SIM_JITTER = Number(process.env.NET_SIM_JITTER_MS ?? 0)
+
+/** simulated network: delays `f` by lag + jitter without reordering (per direction, per socket) */
+function delayer() {
+  let last = 0
+  return (f: () => void) => {
+    if (!SIM_LAG && !SIM_JITTER) return f()
+    const at = Math.max(last, performance.now() + SIM_LAG + Math.random() * SIM_JITTER)
+    last = at
+    setTimeout(f, at - performance.now())
+  }
+}
 
 // ---- game data (public/assets/data, generated from the disc) ---------------------------------
 
@@ -113,6 +128,8 @@ type Client = {
   ctl: Bucket
   inp: Bucket
   dropped: number
+  /** simulated network delay, in / out */
+  din: (f: () => void) => void
 }
 
 const clients = new Map<ServerWebSocket<WsData>, Client>()
@@ -259,6 +276,37 @@ function handle(c: Client, m: C2S) {
   }
 }
 
+function onMessage(ws: ServerWebSocket<WsData>, c: Client, msg: string | Buffer) {
+  if (typeof msg !== 'string') {
+    // input frames
+    if (!c.inp.take()) {
+      if (++c.dropped > 2000) ws.close(4008, 'rate limit')
+      return
+    }
+    const i = decodeInput(msg)
+    if (i && c.member && c.room?.runner) c.member.pushInput(i)
+    return
+  }
+  if (msg.length > MAX_TEXT) return ws.close(4009, 'message too big')
+  if (!c.ctl.take()) {
+    if (++c.dropped > 2000) ws.close(4008, 'rate limit')
+    return err(c, 'slow down')
+  }
+  let m: C2S
+  try {
+    m = JSON.parse(msg)
+  } catch {
+    return err(c, 'bad message')
+  }
+  if (!m || typeof m !== 'object' || typeof m.t !== 'string') return err(c, 'bad message')
+  try {
+    handle(c, m)
+  } catch (e) {
+    console.error('[rooms]', e)
+    err(c, 'server error')
+  }
+}
+
 function ipOf(req: Request) {
   return (req.headers.get('x-forwarded-for')?.split(',')[0] ?? req.headers.get('x-real-ip') ?? 'local').trim()
 }
@@ -283,6 +331,7 @@ register({
     open(ws) {
       const ip = String(ws.data.ip ?? 'local')
       perIp.set(ip, (perIp.get(ip) ?? 0) + 1)
+      const dout = delayer()
       const c: Client = {
         ws,
         ip,
@@ -294,9 +343,11 @@ register({
         ctl: new Bucket(20, 60),
         inp: new Bucket(130, 260),
         dropped: 0,
+        din: delayer(),
         conn: {
           send: (d) => {
-            ws.send(d)
+            if (SIM_LAG || SIM_JITTER) dout(() => ws.readyState === 1 && ws.send(d))
+            else ws.send(d)
           },
           buffered: () => ws.getBufferedAmount(),
           close: (code, reason) => ws.close(code, reason),
@@ -307,34 +358,8 @@ register({
     message(ws, msg) {
       const c = clients.get(ws)
       if (!c) return
-      if (typeof msg !== 'string') {
-        // input frames
-        if (!c.inp.take()) {
-          if (++c.dropped > 2000) ws.close(4008, 'rate limit')
-          return
-        }
-        const i = decodeInput(msg)
-        if (i && c.member && c.room?.runner) c.member.pushInput(i)
-        return
-      }
-      if (msg.length > MAX_TEXT) return ws.close(4009, 'message too big')
-      if (!c.ctl.take()) {
-        if (++c.dropped > 2000) ws.close(4008, 'rate limit')
-        return err(c, 'slow down')
-      }
-      let m: C2S
-      try {
-        m = JSON.parse(msg)
-      } catch {
-        return err(c, 'bad message')
-      }
-      if (!m || typeof m !== 'object' || typeof m.t !== 'string') return err(c, 'bad message')
-      try {
-        handle(c, m)
-      } catch (e) {
-        console.error('[rooms]', e)
-        err(c, 'server error')
-      }
+      if (SIM_LAG || SIM_JITTER) return c.din(() => clients.has(ws) && onMessage(ws, c, msg))
+      onMessage(ws, c, msg)
     },
     close(ws) {
       const c = clients.get(ws)

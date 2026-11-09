@@ -129,7 +129,7 @@ for (const b of bots.slice(1)) {
   await b.connect()
   b.send({ t: 'join', code })
 }
-for (const b of bots) check(await b.wait((x) => x.room?.members.length === N), `${b.name} sees ${N} members (slot ${b.room?.you})`)
+for (const b of bots) check(await b.wait((x) => x.room?.members.length === N), `${b.name} sees ${N} members (slot ${b.room?.you}; ${b.room?.members.length} seen; ${b.errors.join(',')})`)
 if (mode === 'versus') bots[0].send({ t: 'settings', settings: { mode: 'versus', rounds: 2, ai: 2, arena: 1 } })
 if (mode === 'pack') {
   const cells = Array.from({ length: 17 }, () => new Array(22).fill(0))
@@ -158,7 +158,9 @@ for (const [i, b] of bots.entries()) {
   const lag = b.lags.length ? b.lags.reduce((a, x) => a + x, 0) / b.lags.length : NaN
   console.log(`  ${b.name}: ${kbs.toFixed(2)} KB/s down, ${hz.toFixed(1)} snapshots/s, rtt ${rtt.toFixed(1)} ms, input lag ${lag.toFixed(1)} frames (sent - acked), moved ${moved.toFixed(0)}, events ${b.events}, errors ${b.errors.join('; ') || 'none'}`)
   check(hz > 25 && hz < 35, `${b.name} snapshot rate ~30 Hz`)
-  check(b.lags.length > 0 && lag < 8, `${b.name} inputs applied promptly`)
+  // sent - acked at arrival = the round trip + the server's input queue + snapshot spacing
+  const queued = lag - rtt / (1000 / 60)
+  check(b.lags.length > 0 && queued < 5, `${b.name} inputs applied promptly (${queued.toFixed(1)} frames beyond the round trip)`)
   check(b.errors.length === 0, `${b.name} no errors`)
 }
 const last = bots[0].snaps.at(-1)!

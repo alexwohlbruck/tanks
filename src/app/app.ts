@@ -165,7 +165,8 @@ export class App implements AppContext {
     const cursors: Cursor[] | null = this.session.cursors ?? null
     // DOM screens with pointer focus, the pre-game screens, pause menu and scene fades own the
     // frame; the aiming cursors hide (RPTnkScene::pauseCallBack sets their display mode to 0)
-    // [net] online sessions handle Esc / pre-game themselves
+    // [net] online sessions handle Esc / pre-game themselves (and the pre-game screens close)
+    if (this.session.hudInput && this.hud.preGame.active) this.hud.preGame.close()
     if (this.router.modal || (this.session.hudInput ? this.session.hudInput(merged) : this.hud.input(merged))) {
       for (let i = 0; i < 4; i++) view.updateCursor(i, { x: 0, y: 0, visible: false, mode: 0 }, null)
       view.stepCursorFx()
