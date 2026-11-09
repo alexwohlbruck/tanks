@@ -28,7 +28,7 @@ class CreditsScreen extends WebScreen {
             ),
             h('h3', null, 'Built with'),
             h('ul', null, h('li', null, 'three.js (MIT)'), h('li', null, 'M+ 1 typeface — The M+ FONTS Project, SIL Open Font License 1.1'), h('li', null, 'Bun, Vite, TypeScript')),
-            h('p.small', null, 'Made by Alex Wohlbruck.'),
+            h('p.made', null, 'Made with ❤️ by ', h('a', { href: 'https://alex.wohlbruck.dev', target: '_blank', rel: 'noopener' }, 'Alex Wohlbruck')),
           ),
         ),
       ),
