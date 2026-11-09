@@ -754,8 +754,12 @@ class Editor implements Screen {
     return { x: p.x - Math.floor((c.w - 1) / 2), y: p.y - Math.floor((c.h - 1) / 2) }
   }
 
+  /** the finger / button that paints (a second finger on a touch screen is ignored) */
+  private dragId = -1
+
   private onDown(e: PointerEvent) {
-    if (this.bigPreview) return
+    if (this.bigPreview || (this.drag && e.pointerId !== this.dragId)) return
+    this.dragId = e.pointerId
     const p = this.cellAt(e)
     if (!M.inside(p.x, p.y)) return
     try {
@@ -818,6 +822,7 @@ class Editor implements Screen {
   }
 
   private onMove(e: PointerEvent) {
+    if (this.drag && e.pointerId !== this.dragId) return
     const p = this.cellAt(e)
     const d = this.drag
     if (!d) {
@@ -850,9 +855,9 @@ class Editor implements Screen {
     this.draw()
   }
 
-  private onUp(_e: PointerEvent) {
+  private onUp(e: PointerEvent) {
     const d = this.drag
-    if (!d) return
+    if (!d || e.pointerId !== this.dragId) return
     this.drag = null
     const l = this.level
     M.trimEnemies(l)

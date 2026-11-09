@@ -145,3 +145,53 @@
   .ed-strip-tools { width: 130px; }
   .ed-slot select { font-size: 12px; }
 }
+
+/* phones held sideways: thin bars, slim side columns, the grid keeps the middle */
+@media (max-height: 520px) and (orientation: landscape) {
+  .ed-root { grid-template-columns: 196px minmax(0, 1fr) minmax(0, 220px); grid-template-rows: 44px minmax(0, 1fr) 84px; gap: 6px; padding: 0 max(6px, env(safe-area-inset-right)) 6px max(6px, env(safe-area-inset-left)); }
+  .ed-top { margin: 0 calc(-1 * max(6px, env(safe-area-inset-left))); padding: 0 max(6px, env(safe-area-inset-left)); gap: 5px; }
+  .ed-top .tk-btn { min-height: 32px; padding: 3px 9px; font-size: 13px; }
+  .ed-top input.ed-packname { min-height: 32px; padding: 3px 8px; max-width: 150px; min-width: 100px; }
+  .ed-spacer { flex: 0 0 4px; }
+  .ed-left { padding: 6px; gap: 8px; }
+  .ed-tool { min-height: 44px; }
+  .ed-right { padding: 8px; gap: 10px; }
+  .ed-strip { padding: 5px; gap: 6px; }
+  .ed-card { width: 72px; }
+  .ed-card-t { font-size: 11px; padding: 1px 4px; }
+  .ed-strip-tools { width: 116px; gap: 4px; }
+  .ed-strip-tools .tk-btn, .ed-card-add .tk-btn { min-height: 26px; padding: 2px 6px; font-size: 12px; }
+  .ed-card-add { width: auto; padding: 5px; }
+  .ed-status { font-size: 11px; min-height: 14px; }
+}
+
+/* phones held upright: the grid on top, tools and level settings side by side under it */
+@media (max-width: 760px) and (orientation: portrait) {
+  .ed-root {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 0.9fr) minmax(0, 1fr) 92px;
+    grid-template-areas: 'top top' 'center center' 'left side' 'strip strip';
+    gap: 6px;
+    padding: 0 6px max(6px, env(safe-area-inset-bottom));
+  }
+  .ed-top { margin: 0 -6px; padding: max(6px, env(safe-area-inset-top)) 6px 6px; gap: 4px; flex-wrap: wrap; overflow: visible; }
+  .ed-top .tk-btn { min-height: 32px; padding: 3px 6px; font-size: 12px; border-radius: 8px; }
+  .ed-top input.ed-packname { flex: 1 1 110px; min-width: 0; max-width: none; min-height: 32px; padding: 3px 8px; }
+  .ed-spacer { display: none; }
+  .ed-play { order: -1; }
+  .ed-back { order: -2; }
+  .ed-left { padding: 6px; gap: 8px; }
+  .ed-tool { min-height: 44px; font-size: 11px; }
+  .ed-tanks { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ed-heights { flex-wrap: wrap; }
+  .ed-heights .tk-btn { flex: 0 0 calc((100% - 18px) / 4); }
+  .ed-side { gap: 6px; }
+  .ed-right { padding: 8px; gap: 10px; }
+  .ed-strip { padding: 5px; gap: 6px; }
+  .ed-card { width: 72px; }
+  .ed-card-t { font-size: 11px; padding: 1px 4px; }
+  .ed-strip-tools { width: 112px; gap: 4px; }
+  .ed-strip-tools .tk-btn, .ed-card-add .tk-btn { min-height: 26px; padding: 2px 6px; font-size: 12px; }
+  .ed-card-add { width: auto; padding: 5px; }
+  .ed-status { font-size: 11px; min-height: 14px; }
+}
