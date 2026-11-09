@@ -1,5 +1,13 @@
-html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; }
-#stage { position: absolute; inset: 0; margin: auto; aspect-ratio: 16 / 9; max-width: 100vw; max-height: 100vh; }
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; overscroll-behavior: none; }
+/* modern UI: the game fills the window at any aspect; classic UI: the 16:9 TV picture */
+#stage { position: absolute; inset: 0; }
+body.classic #stage { margin: auto; aspect-ratio: 16 / 9; max-width: 100vw; max-height: 100vh; }
+body.modern { background: #2a1606; }
+/* the table under the diorama, seen past the field's floor on tall or very wide windows */
+body.modern #stage { background:
+  radial-gradient(ellipse at 50% 50%, rgba(40, 20, 4, 0.15) 30%, rgba(30, 14, 2, 0.75)),
+  url('/assets/models/textures/tnk_block/floor_lower.png') center / 900px auto,
+  #6b4524; }
 #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #ui { pointer-events: none; }
 #gl { cursor: none; }
@@ -13,3 +21,11 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-
 #debug .info { color: #9cf; font-size: 11px; }
 #screens { position: absolute; inset: 0; pointer-events: none; }
 #screens > .screen { position: absolute; inset: 0; pointer-events: auto; }
+/* in-game pause button (touch screens have no Esc / Start) */
+#pause-btn { position: absolute; z-index: 1; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
+  width: clamp(40px, 6vmin, 56px); height: clamp(40px, 6vmin, 56px); border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center;
+  color: #6b4320; background: linear-gradient(#fffaf0, #eedbb5); cursor: pointer; opacity: 0.85;
+  box-shadow: 0 0 0 2px rgba(110, 70, 25, 0.6), 0 3px 0 rgba(90, 55, 20, 0.8), 0 5px 10px rgba(0, 0, 0, 0.3); }
+#pause-btn:hover { opacity: 1; }
+#pause-btn[hidden] { display: none; }
+#pause-btn svg { width: 55%; height: 55%; display: block; }

@@ -9,6 +9,10 @@ export function registerScreen(id: string, factory: ScreenFactory) {
   registry.set(id, factory)
 }
 
+export function hasScreen(id: string) {
+  return registry.has(id)
+}
+
 export class Router {
   current: { id: string; screen: Screen; root: HTMLElement } | null = null
 

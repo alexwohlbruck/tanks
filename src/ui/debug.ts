@@ -22,7 +22,7 @@ export class DebugPanel {
   /** debug mode is on once the panel has been opened this session (or via ?debug) */
   enabled = false
 
-  constructor(private game: Game, private hud: Hud, parent: HTMLElement) {
+  constructor(private game: Game, private hud: Pick<Hud, 'debugStart'>, parent: HTMLElement) {
     this.el.id = 'debug'
     this.el.innerHTML = `
       <div class="t">Debug <span>(\` to hide)</span></div>
