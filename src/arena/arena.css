@@ -12,6 +12,9 @@
   --ink: #3b2512;
   --red: #cf2a31;
 }
+#screens > .screen.arena-ui.playing {
+  pointer-events: none;
+}
 body.arena-playing #gl {
   cursor: crosshair !important;
 }

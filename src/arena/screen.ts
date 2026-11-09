@@ -68,6 +68,7 @@ class ArenaScreen implements Screen {
 
   private renderJoin(error = '') {
     this.phase = 'join'
+    this.root.classList.remove('playing')
     document.body.classList.remove('arena-playing')
     const name = ArenaSession.savedName()
     this.root.innerHTML = `
@@ -146,6 +147,8 @@ class ArenaScreen implements Screen {
 
   private buildHud() {
     document.body.classList.add('arena-playing')
+    // the game under the HUD takes the mouse (aim, fire, mine); only cards and menus catch it
+    this.root.classList.add('playing')
     this.root.innerHTML = `
       <div class="ar-hud">
         <div class="ar-top"><div class="ar-timer"></div><div class="ar-score"></div></div>
