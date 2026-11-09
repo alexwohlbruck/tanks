@@ -204,6 +204,8 @@ export class SceneView {
     await this.tread.load(opts.hires ? m.hires : null)
     this.tread.setResolution(opts.treadPx)
     m.setTreadTexture(this.tread.texture)
+    // [tanks+] tile pieces for the new textures / lighting
+    await this.tiles.setOptions(opts, m.hires)
     this.quality = q
     this.options = opts
     this.applyLights()
