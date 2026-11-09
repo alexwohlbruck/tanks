@@ -32,7 +32,8 @@ bun run dev          # http://localhost:5300
 ```
 
 URL options: `?mission=N` start at mission N, `&p2=1` two players, `&gold=1` unlock
-missions 21-100 (normally requires the Tanks gold medal), `?webgl` force WebGL2.
+missions 21-100 (normally requires the Tanks gold medal), `?webgl` force WebGL2, `?classic` the
+original Wii Play screens in a 16:9 picture (also Settings > Classic Wii UI).
 
 Controls: WASD / arrows / left stick to drive (Nunchuk), mouse or right stick to aim
 (Wii Remote pointer), left click / J / RT to fire (B), right click / Space / E / LT to lay a
