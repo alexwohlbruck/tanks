@@ -39,6 +39,8 @@ for (const f of ['tnk_field_16_9', 'tnk_field_4_3']) {
     add(`${f}/${n}`, `${T}${f}/${n}.png`, { kind: 'smooth', scale: 4 })
   add(`${f}/tnk_tank_env`, `${T}${f}/tnk_tank_env.png`, { kind: 'smooth', scale: 4 })
 }
+// the floor model's lerp uses the tnk_block copies (models.ts floorMaterial)
+for (const n of ['floor_face', 'floor_lower']) add(`tnk_block/${n}`, `${T}tnk_block/${n}.png`, { kind: 'wood', scale: 2, amp: 0.03, sharpen: 0.3 })
 add('tnk_block/block.1', `${T}tnk_block/block.1.png`, { kind: 'wood', scale: 8, amp: 0.05 })
 add('tnk_block/block.2', `${T}tnk_block/block.2.png`, { kind: 'cork', scale: 8 })
 add('tnk_block/block_harf.1', `${T}tnk_block/block_harf.1.png`, { kind: 'hole', scale: 4 })

@@ -181,6 +181,8 @@ export class Effects {
   private group = new THREE.Group()
   private res = new Map<string, EmitterRes>()
   private textures = new Map<string, THREE.Texture>()
+  /** hi-res replacements by texture name (setTextureOverrides) */
+  private overrides = new Map<string, THREE.Texture>()
   private sys: EffectSystem | null = null
   private batches = new Map<string, Batch>()
   private order = new Map<string, number>()
@@ -238,6 +240,42 @@ export class Effects {
     for (const r of this.res.values()) if (!isChild.has(r.name)) visit(r.name, 128)
     for (const r of this.res.values()) visit(r.name, 128)
     for (const [n, s] of this.order) this.order.set(n, 1000 + (weight.get(n) ?? 128) * 64 + s)
+  }
+
+  /**
+   * Replace effect textures by name (hi-res set) or pass an empty map to restore the disc
+   * ones. The sprites are sampled in normalised UVs, so any resolution works.
+   */
+  setTextureOverrides(o: Map<string, THREE.Texture>) {
+    this.overrides = o
+    for (const b of this.batches.values()) {
+      const old = b.mesh.material as THREE.Material
+      b.mesh.material = this.material(b.res)
+      old.dispose()
+    }
+  }
+
+  private tex(name: string | null) {
+    return name ? (this.overrides.get(name) ?? this.textures.get(name) ?? null) : null
+  }
+
+  private material(res: EmitterRes) {
+    return makeMaterial(res, this.tex(res.textures[0]), this.tex(res.textures[1]))
+  }
+
+  /**
+   * Register a copy of emitter `src` (and nothing else) as `dst` with its colour layers
+   * remapped; used for the P3/P4 cursors, derived from the 1p/2p ones. Optionally swap its
+   * layer textures.
+   */
+  derive(src: string, dst: string, map: (rgba: [number, number, number, number]) => [number, number, number, number], textures?: (string | null)[]) {
+    const r = this.res.get(src)
+    if (!r) return false
+    const colors = new Uint8Array(r.colors)
+    for (let i = 0; i < colors.length; i += 4) colors.set(map([colors[i], colors[i + 1], colors[i + 2], colors[i + 3]]), i)
+    this.res.set(dst, { ...r, name: dst, colors, textures: textures ?? r.textures })
+    this.order.set(dst, this.order.get(src) ?? 1000)
+    return true
   }
 
   get loaded() {
@@ -304,9 +342,7 @@ export class Effects {
   }
 
   private makeBatch(res: EmitterRes) {
-    const t1 = res.textures[0] ? (this.textures.get(res.textures[0]) ?? null) : null
-    const t2 = res.textures[1] ? (this.textures.get(res.textures[1]) ?? null) : null
-    const mat = makeMaterial(res, t1, t2)
+    const mat = this.material(res)
     const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat)
     mesh.name = res.name
     mesh.frustumCulled = false

@@ -4,7 +4,7 @@ const zoom = `window.__zoom = (x, z, k) => { const c = app.view.camera; c.zoom =
 const out = process.env.OUT ?? '/tmp/claude-hires/z'
 const q = process.env.Q
 export const steps = [
-  ['wait', 7000],
+  ['wait', 11000],
   ...(q ? [['eval', `app.view.setQuality(${JSON.stringify(q)})`], ['wait', 2500]] : []),
   ['eval', zoom],
   ['eval', 'game.paused = true'],
