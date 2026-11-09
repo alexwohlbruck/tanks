@@ -15,6 +15,7 @@ const IDLE: PadState = {
   fire: false,
   mine: false,
   flare: false,
+  nuke: false,
   pause: false,
   confirm: false,
   back: false,

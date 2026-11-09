@@ -14,6 +14,7 @@ import { defaultTankVisual, registryVersion, tankVisual, tileFactory, type BaseM
 import { TilesView } from './tiles'
 import { TreadCapture } from './tread'
 import { BigField } from './bigfield'
+import { BlockShade } from './blockshade'
 
 // RPTnkScene::CreateCamerasAndScreens: orthographic view of the 832x456 (16:9) or 608x456 (4:3)
 // screen at scale 1.125, in world units. The Wii output is anamorphic, so the 16:9 view is
@@ -73,6 +74,10 @@ export class SceneView {
   private mineObjs = new Map<number, THREE.Object3D>()
   private markObjs = new Map<number, THREE.Object3D>()
   private blockGroup = new THREE.Group()
+  /** block shadows on the floor (replaces the disc's per-block decals) */
+  private shade = new BlockShade()
+  private shadeDirty = false
+  private shadeAt = 0
   private tileUpdates: ((frame: number) => void)[] = []
   private tileDisposers: (() => void)[] = []
   private fieldObj: THREE.Object3D | null = null
@@ -119,6 +124,7 @@ export class SceneView {
     this.scene.add(this.root)
     this.root.add(this.stage)
     this.stage.add(this.blockGroup)
+    this.stage.add(this.shade.mesh)
     this.setupLights()
     this.fx = new Effects(this.root)
     this.tiles = new TilesView(this.stage, this.fx)
@@ -267,6 +273,8 @@ export class SceneView {
     this.key.intensity = on ? KEY * Math.PI : 0
     this.hemi.visible = this.key.visible = on
     const shadows = on && this.options.shadows
+    // with shadow maps the floor layer keeps only its contact shade
+    this.shade.setCast(!shadows)
     this.renderer.shadowMap.enabled = shadows
     this.key.castShadow = shadows
     if (shadows && this.key.shadow.mapSize.x !== this.options.shadowMapSize) {
@@ -385,6 +393,11 @@ export class SceneView {
     return this.models.tank(this.enemyLook(type).look)
   }
 
+  /** [arena] a burned circle on the floor (a nuke), kept until the next map */
+  scorch(x: number, z: number, r: number) {
+    this.big?.scorch(x, z, r)
+  }
+
   /** a mine model (the arena's nuke pickups); `frame` the fuse's colour frame */
   mineModel() {
     return this.models.mine()
@@ -444,12 +457,7 @@ export class SceneView {
     this.tileUpdates = []
     for (const c of this.blockGroup.children) if ((c as THREE.InstancedMesh).isInstancedMesh) (c as THREE.InstancedMesh).dispose()
     this.blockGroup.clear()
-    const solid = (c: number, r: number) => {
-      const g = w.grid[r]?.[c]
-      return !!g && (g.kind === Cell.Block || g.kind === Cell.Cork)
-    }
     const blocks: { kind: number; height: number; x: number; z: number }[] = []
-    const shadows: { frame: number; forward: { x: number; z: number }; x: number; z: number }[] = []
     for (let r = 0; r < w.height; r++)
       for (let c = 0; c < w.width; c++) {
         const g = w.grid[r][c]
@@ -458,9 +466,19 @@ export class SceneView {
         // [tanks+] special tiles (glass, crates, gates, water ...) are drawn by TilesView
         if (g.kind === Cell.Empty || this.tiles.ownsCell(g.code)) continue
         blocks.push({ kind: g.kind === Cell.Cork ? 0 : 1, height: g.kind === Cell.Hole ? 1 : g.height, x: p.x, z: p.z })
-        if (g.kind !== Cell.Hole) shadows.push({ ...blockShadowFor(solid(c, r - 1), solid(c, r + 1), solid(c - 1, r), solid(c + 1, r)), x: p.x, z: p.z })
       }
-    this.blockGroup.add(this.models.blockInstances(blocks, shadows))
+    this.blockGroup.add(this.models.blockInstances(blocks, []))
+    // the floor shadows: now, or (blocks breaking in quick succession) at most every 250 ms
+    this.shadeDirty = true
+    if (performance.now() - this.shadeAt > 250) this.updateShade()
+  }
+
+  private updateShade() {
+    if (!this.world || !this.shadeDirty) return
+    this.shadeDirty = false
+    this.shadeAt = performance.now()
+    this.shade.setCast(!this.options.shadows)
+    this.shade.build(this.world, (code) => this.tiles.ownsCell(code))
   }
 
   private addTile(code: number, col: number, row: number, x: number, z: number) {
@@ -611,6 +629,7 @@ export class SceneView {
   }
 
   render() {
+    if (this.shadeDirty && performance.now() - this.shadeAt > 250) this.updateShade()
     this.tread.flush()
     this.big?.flush()
     // [arena] the fixed view pans with the player (and the key light's shadow box with it)
@@ -702,41 +721,6 @@ function shellMatrix(b: { pos: { x: number; y: number; z: number }; vel: { x: nu
   m.scale(new THREE.Vector3(1.5238097, 1.5238097, 1.5238097))
   m.setPosition(b.pos.x, b.pos.y, b.pos.z)
   return m
-}
-
-/**
- * RPTnkBlock::UpdateShadow. Flags 0/2/4/6 are the shadow's corners; a solid block
- * above(-z)/below(+z)/left(-x)/right(+x) clears two of them. The count of cleared
- * corners picks the SRT0 frame, and the free side picks the quad orientation.
- */
-function blockShadowFor(up: boolean, down: boolean, left: boolean, right: boolean) {
-  const f = [true, true, true, true, true, true, true, true]
-  if (up) f[0] = f[6] = false
-  if (down) f[2] = f[4] = false
-  if (left) f[0] = f[2] = false
-  if (right) f[4] = f[6] = false
-  const fwd = { x: 0, z: 1 }
-  const back = { x: 0, z: -1 }
-  const l = { x: -1, z: 0 }
-  const r = { x: 1, z: 0 }
-  const count = [0, 2, 4, 6].filter((i) => !f[i]).length
-  switch (count) {
-    case 2:
-      if (!f[0] && !f[2]) return { frame: 1, forward: l }
-      if (!f[2] && !f[4]) return { frame: 1, forward: fwd }
-      if (!f[4] && !f[6]) return { frame: 1, forward: r }
-      return { frame: 1, forward: back }
-    case 3:
-      if (f[0]) return { frame: 2, forward: fwd }
-      if (f[2]) return { frame: 2, forward: r }
-      if (f[4]) return { frame: 2, forward: back }
-      return { frame: 2, forward: l }
-    case 4:
-      return { frame: 3, forward: fwd }
-    default:
-      // 0 cleared corners; a lone neighbour clears 2 (handled above), so only 0 lands here
-      return { frame: 0, forward: fwd }
-  }
 }
 
 function syncSet<T extends { id: number }>(

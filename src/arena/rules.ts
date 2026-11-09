@@ -11,9 +11,12 @@
 //   - otherwise the match ends after MATCH_TICKS; the best score wins
 //   - INTERMISSION_TICKS of results, then a new map
 //   - pickups around the map turn you into one of the disc's special tanks for a while, or
-//     give an item: a nuke (a huge mine), a shield (takes one hit) or flares
+//     give an item: a shield (takes one hit) or flares
+//   - the arsenal: shells, mines, flares, and one nuke per player per match (a huge mine on
+//     its own button; it isn't given back when you respawn)
 //   - flares: the third weapon. Every tank carries one (it comes back after FLARE.recharge);
-//     a flare bursts around the tank and turns shells and rockets back on their shooter
+//     a flare launches a swarm of 10-15 tiny homing missiles that hunt down shells and rockets
+//     in flight (never tanks)
 //   - bots fill an arena up to its size's bot count and leave as players arrive
 
 export const ARENA_TPS = 60
@@ -74,34 +77,38 @@ export const PICKUP_INFO: Record<PickupKind, { name: string; color: string; dark
   sniper: { name: 'Sniper', color: '#3f5a2e', dark: '#1f2d16', trick: 'Laser sight, fast shells' },
 }
 /** items: pickups that give a weapon or a shield instead of a special tank */
-export type ItemKind = 'nuke' | 'shield' | 'flares'
-export const ITEM_KINDS: ItemKind[] = ['nuke', 'shield', 'flares']
+export type ItemKind = 'shield' | 'flares'
+export const ITEM_KINDS: ItemKind[] = ['shield', 'flares']
 export type AnyPickup = PickupKind | ItemKind
 export const isItem = (k: string): k is ItemKind => (ITEM_KINDS as string[]).includes(k)
 export const ITEM_INFO: Record<ItemKind, { name: string; color: string; dark: string; trick: string }> = {
-  nuke: { name: 'Nuke', color: '#f2c230', dark: '#7a5a08', trick: 'A huge mine: lay it, then run' },
   shield: { name: 'Shield', color: '#7fe0c2', dark: '#2a8a6e', trick: 'Takes one hit for you' },
-  flares: { name: 'Flares', color: '#ff7a2a', dark: '#9b3a0a', trick: '+2 flares: turn shells back' },
+  flares: { name: 'Flares', color: '#ff7a2a', dark: '#9b3a0a', trick: '+2 flares: missiles that shoot down shells' },
 }
 /** name / colours / what it does, for any pickup */
 export const pickupInfo = (k: AnyPickup) => (isItem(k) ? ITEM_INFO[k] : PICKUP_INFO[k])
 /** how often each pickup appears, against 1 for each special tank */
-export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, flares: 0.9, nuke: 0.6 }
+export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, flares: 0.9 }
 
 /** Nuke: a mine with a long fuse that no tank sets off (a shell or a blast can), and a blast
- * about three times a mine's */
-export const NUKE = { fuse: 170, blast: 230, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, max: 2 }
+ * almost four times a mine's that breaks every block in reach (wood too) and scorches the
+ * floor. Every player gets `perMatch` a match, kept through respawns. */
+export const NUKE = { fuse: 240, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
 /** Shield: lasts this long or until it takes a hit (then a moment of protection) */
 export const SHIELD = { ticks: 25 * 60, afterHit: 40 }
-/** Flares: a burst `radius` around the tank for `frames`; shells and rockets coming in are
- * turned back and become the flaring tank's. Every tank has `base` (recharged one at a time
- * every `recharge` ticks); a pickup adds `pickup`, up to `max`. */
-export const FLARE = { radius: 95, frames: 26, cooldown: 40, recharge: 22 * 60, base: 1, pickup: 2, max: 3 }
+/**
+ * Flares: one launches `swarm` (10-15) tiny missiles fanned out around the tank. Each locks
+ * on to the nearest shell in flight within `range` that isn't its tank's own (one not yet
+ * locked on to first), turns up to `turn` degrees a frame at up to `speed`, and destroys it
+ * on contact (`hit`); it burns out after `life` frames. Every tank has `base` flares
+ * (recharged one at a time every `recharge` ticks); a pickup adds `pickup`, up to `max`.
+ */
+export const FLARE = { swarm: [10, 15], speed: 6.5, launch: 2.5, turn: 16, range: 320, hit: 10, life: 90, cooldown: 40, recharge: 22 * 60, base: 1, pickup: 2, max: 3 }
 
 /**
  * Kill streaks: level 1 (x2) at 3 kills in a row, level 2 (x3) at 6; lost when destroyed.
  * Each level: +1 shell, +1 mine, +1 ricochet (shells that already ricochet), and the special
- * tank's trick grows (see powerStats); a nuke's blast and a flare's burst grow too.
+ * tank's trick grows (see powerStats); a nuke's blast and a flare's swarm grow too.
  */
 export const STREAK_LEVELS = [3, 6]
 export const streakLevel = (streak: number) => STREAK_LEVELS.filter((n) => streak >= n).length
@@ -149,9 +156,10 @@ export function powerStats(p: PickupKind | null, base: { speed: number; shellSpe
   return s
 }
 
-/** a nuke's blast and a flare's burst at a streak level */
+/** a nuke's blast, a flare's swarm size and missile range at a streak level */
 export const nukeBlast = (level: number) => NUKE.blast * (1 + 0.2 * level)
-export const flareRadius = (level: number) => FLARE.radius * (1 + 0.25 * level)
+export const flareSwarm = (level: number, rnd: number) => FLARE.swarm[0] + Math.floor(rnd * (FLARE.swarm[1] - FLARE.swarm[0] + 1)) + 3 * level
+export const flareRange = (level: number) => FLARE.range * (1 + 0.25 * level)
 
 /** map themes (src/arena/map.ts); between matches everyone votes for the next one */
 export type MapTheme = 'mixed' | 'cork' | 'pits' | 'maze'

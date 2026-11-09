@@ -35,7 +35,8 @@ import {
   PICKUP_WEIGHT,
   ITEM_KINDS,
   SHIELD,
-  flareRadius,
+  flareRange,
+  flareSwarm,
   nukeBlast,
   streakLevel,
   type AnyPickup,
@@ -47,8 +48,8 @@ import {
   type PickupKind,
 } from './rules'
 
-export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean; flare?: boolean }
-export const IDLE_INPUT: ArenaInput = { seq: 0, mx: 0, mz: 0, analog: false, ax: 0, az: 0, fire: false, mine: false, flare: false }
+export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean; flare?: boolean; nuke?: boolean }
+export const IDLE_INPUT: ArenaInput = { seq: 0, mx: 0, mz: 0, analog: false, ax: 0, az: 0, fire: false, mine: false, flare: false, nuke: false }
 
 type Accum = { p: [V3, V3]; v: [V3, V3] }
 const accum = (): Accum => ({ p: [v3(), v3()], v: [v3(), v3()] })
@@ -234,6 +235,7 @@ export type Player = {
   wantFire: boolean
   wantMine: boolean
   wantFlare: boolean
+  wantNuke: boolean
   joinedAt: number
   /** who destroyed this player last (spectated while waiting to respawn) */
   killedBy: Player | null
@@ -255,13 +257,12 @@ export type ATank = TankBody & {
   /** last tick this tank fired (the minimap shows recent shooters) */
   firedAt: number
   speed: number
-  /** items: nukes to lay, shield until (tick), flares and the tick the next one comes back,
-   * the current flare burst until (tick) and the next tick one may be fired */
+  /** nukes left this match (kept through respawns), shield until (tick), flares and the tick the next one comes back,
+   * and the next tick one may be fired */
   nukes: number
   shieldUntil: number
   flares: number
   flareBack: number
-  flareUntil: number
   flareReady: number
 }
 
@@ -286,6 +287,8 @@ export type AMine = {
    * null when its own fuse or a tank driving close did. Its kills are credited to them. */
   by: Player | null
 }
+/** a flare missile */
+export type AFlare = { id: number; owner: ATank; pos: V3; vel: V3; age: number; range: number; target: AShell | null; dead: boolean }
 export type APickup = { id: number; kind: AnyPickup; c: number; r: number; x: number; z: number }
 
 export type ArenaEvent =
@@ -296,8 +299,8 @@ export type ArenaEvent =
   /** `tk`: a teammate did it (scores nothing, costs the killer a point) */
   | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine' | 'nuke'; streak: number; layer: number; tk: boolean }
   | { t: 'shieldPop'; tank: number; x: number; z: number }
-  | { t: 'flare'; tank: number; x: number; z: number; r: number }
-  | { t: 'deflect'; x: number; z: number }
+  | { t: 'flare'; tank: number; x: number; z: number; n: number }
+  | { t: 'flareHit'; x: number; z: number }
   | { t: 'mineSet'; x: number; z: number }
   | { t: 'mineFuse'; id: number; x: number; z: number }
   | { t: 'boom'; x: number; z: number; nuke: boolean }
@@ -315,6 +318,7 @@ export class ArenaSim {
   players: Player[] = []
   tanks: ATank[] = []
   shells: AShell[] = []
+  flareShots: AFlare[] = []
   mines: AMine[] = []
   pickups: APickup[] = []
   events: ArenaEvent[] = []
@@ -356,6 +360,7 @@ export class ArenaSim {
     this.votes.clear()
     this.field = new ArenaField(this.map)
     this.shells = []
+    this.flareShots = []
     this.mines = []
     this.pickups = []
     this.broken = []
@@ -368,6 +373,7 @@ export class ArenaSim {
     for (const p of this.players) {
       p.kills = p.deaths = p.score = p.streak = p.best = 0
       p.killedBy = null
+      p.tank.nukes = NUKE.perMatch
       this.spawn(p.tank)
     }
     this.events.push({ t: 'match', state: 'play' })
@@ -389,14 +395,13 @@ export class ArenaSim {
       burst: 0,
       firedAt: -999,
       speed: 0,
-      nukes: 0,
+      nukes: NUKE.perMatch,
       shieldUntil: 0,
       flares: FLARE.base,
       flareBack: 0,
-      flareUntil: 0,
       flareReady: 0,
     }) as ATank
-    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, joinedAt: this.tick, killedBy: null, wins: 0 }
+    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, wantNuke: false, joinedAt: this.tick, killedBy: null, wins: 0 }
     tank.player = p
     this.players.push(p)
     this.tanks.push(tank)
@@ -500,10 +505,8 @@ export class ArenaSim {
     t.power = null
     t.burst = 0
     t.speed = 0
-    t.nukes = 0
     t.shieldUntil = 0
     t.flares = Math.max(t.flares, FLARE.base)
-    t.flareUntil = 0
     t.player.input = { ...IDLE_INPUT, seq: t.player.input.seq, ax: pos.x + f.x * 100, az: pos.z + f.z * 100 }
     this.events.push({ t: 'spawn', tank: t.id, x: pos.x, z: pos.z })
   }
@@ -524,7 +527,7 @@ export class ArenaSim {
       s.pos.x += s.vel.x
       s.pos.z += s.vel.z
     }
-    this.flares(live)
+    this.stepFlares()
     // ClearHitInfo
     for (const t of live) clearAccum(t.acc)
     for (const s of this.shells) clearAccum(s.acc), (s.hitWall = false)
@@ -598,32 +601,51 @@ export class ArenaSim {
     return streakLevel(t.player.streak)
   }
 
-  /** flare bursts: shells coming into one turn back, and become the flaring tank's */
-  private flares(live: ATank[]) {
-    for (const t of live) {
-      if (this.tick >= t.flareUntil) continue
-      const R = flareRadius(this.level(t))
-      for (const s of this.shells) {
-        if (s.dead || s.owner === t) continue
-        const dx = s.pos.x - t.pos.x, dz = s.pos.z - t.pos.z
-        const d = Math.hypot(dx, dz)
-        if (d > R || d < 1) continue
-        const nx = dx / d, nz = dz / d
-        const vn = s.vel.x * nx + s.vel.z * nz
-        if (vn >= 0) continue
-        // mirror off the burst, pushed out to its edge
-        s.vel.x -= 2 * vn * nx
-        s.vel.z -= 2 * vn * nz
-        s.pos.x = t.pos.x + nx * R
-        s.pos.z = t.pos.z + nz * R
-        s.owner = t
-        s.pid = t.player.pid
-        s.team = t.player.team
-        s.age = 0
-        s.bounces = Math.max(s.bounces, 1)
-        this.events.push({ t: 'deflect', x: s.pos.x, z: s.pos.z })
+  /** flare missiles: lock on to a shell in flight, chase it, destroy both on contact */
+  private stepFlares() {
+    const locked = new Set<AShell>(this.flareShots.map((f) => f.target).filter((x): x is AShell => !!x && !x.dead))
+    for (const f of this.flareShots) {
+      f.age++
+      if (f.target?.dead) f.target = null
+      if (!f.target && f.age > 4) {
+        // the nearest shell not yet locked on to (else the nearest)
+        let best: AShell | null = null
+        let bestFree: AShell | null = null
+        let bd = f.range
+        let bdFree = f.range
+        for (const s of this.shells) {
+          if (s.dead || s.owner === f.owner) continue
+          const d = Math.hypot(s.pos.x - f.pos.x, s.pos.z - f.pos.z)
+          if (d < bd) (bd = d), (best = s)
+          if (d < bdFree && !locked.has(s)) (bdFree = d), (bestFree = s)
+        }
+        best = bestFree ?? best
+        if (best) locked.add((f.target = best))
       }
+      const sp = Math.min(FLARE.speed, Math.hypot(f.vel.x, f.vel.z) + 0.25)
+      let a = Math.atan2(f.vel.z, f.vel.x)
+      if (f.target) {
+        // aim where the shell will be
+        const s = f.target
+        const k = Math.hypot(s.pos.x - f.pos.x, s.pos.z - f.pos.z) / (sp + 1)
+        let diff = Math.atan2(s.pos.z + s.vel.z * k - f.pos.z, s.pos.x + s.vel.x * k - f.pos.x) - a
+        while (diff > Math.PI) diff -= 2 * Math.PI
+        while (diff < -Math.PI) diff += 2 * Math.PI
+        const max = (FLARE.turn * Math.PI) / 180
+        a += Math.max(-max, Math.min(max, diff))
+      }
+      f.vel.x = Math.cos(a) * sp
+      f.vel.z = Math.sin(a) * sp
+      f.pos.x += f.vel.x
+      f.pos.z += f.vel.z
+      const s = f.target
+      if (s && Math.hypot(s.pos.x - f.pos.x, s.pos.z - f.pos.z) < FLARE.hit) {
+        s.dead = true
+        f.dead = true
+        this.events.push({ t: 'flareHit', x: s.pos.x, z: s.pos.z })
+      } else if (f.age >= FLARE.life || this.field.pointInBlock(f.pos.x, f.pos.z) || !this.field.isInside(f.pos)) f.dead = true
     }
+    this.flareShots = this.flareShots.filter((f) => !f.dead)
   }
 
   private control(t: ATank) {
@@ -637,17 +659,24 @@ export class ArenaSim {
     const fire = p.wantFire
     const mine = p.wantMine
     const flare = p.wantFlare
-    p.wantFire = p.wantMine = p.wantFlare = false
+    const nuke = p.wantNuke
+    p.wantFire = p.wantMine = p.wantFlare = p.wantNuke = false
     if (this.state !== 'play') return
     if (flare && t.flares > 0 && this.tick >= t.flareReady) {
       t.flares--
-      t.flareUntil = this.tick + FLARE.frames
       t.flareReady = this.tick + FLARE.cooldown
       t.protectUntil = 0
-      this.events.push({ t: 'flare', tank: t.id, x: t.pos.x, z: t.pos.z, r: flareRadius(this.level(t)) })
+      // the swarm fans out all round the tank
+      const L = this.level(t)
+      const n = flareSwarm(L, this.rnd())
+      const a0 = this.rnd() * Math.PI * 2
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (i / n) * Math.PI * 2
+        this.flareShots.push({ id: this.id(), owner: t, pos: v3(t.pos.x + Math.cos(a) * 16, 0, t.pos.z + Math.sin(a) * 16), vel: v3(Math.cos(a) * FLARE.launch, 0, Math.sin(a) * FLARE.launch), age: 0, range: flareRange(L), target: null, dead: false })
+      }
+      this.events.push({ t: 'flare', tank: t.id, x: t.pos.x, z: t.pos.z, n })
     }
-    if (mine && t.nukes > 0 && pc.mineTimer === 0) {
-      // a nuke instead of a mine
+    if (nuke && t.nukes > 0 && pc.mineTimer === 0) {
       t.nukes--
       this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: true, fuseLit: true, timer: NUKE.fuse, blast: MINE.blastIdle, dead: false, by: null, nuke: true, blastMax: nukeBlast(this.level(t)) })
       this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
@@ -885,18 +914,20 @@ export class ArenaSim {
             if (!this.blastHits(m, t)) continue
             if (Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) <= m.blast + TANK.mineRadius && !hits.has(t)) hits.set(t, m)
           }
-          // cork blocks inside the blast break (RPTnkBlock::CollideWithField)
+          // cork blocks inside the blast break (RPTnkBlock::CollideWithField); a nuke breaks
+          // wood blocks too (never the border)
           const [c0, r0] = cellOf(this.map, m.pos.x, m.pos.z)
           const reach = Math.ceil(m.blast / 35) + 1
           for (let r = r0 - reach; r <= r0 + reach; r++)
             for (let c = c0 - reach; c <= c0 + reach; c++) {
               const code = this.field.at(c, r)
-              if (code < 100 || code > 107 || c <= 0 || r <= 0 || c >= this.map.cols - 1 || r >= this.map.rows - 1) continue
+              const wood = code >= 201 && code <= 207
+              if (!((code >= 100 && code <= 107) || (wood && m.nuke)) || c <= 0 || r <= 0 || c >= this.map.cols - 1 || r >= this.map.rows - 1) continue
               const p = cellPos(this.map, c, r)
               if (Math.hypot(p.x - m.pos.x, p.z - m.pos.z) <= m.blast + 17.5) {
                 this.field.code[r * this.map.cols + c] = 0
                 this.broken.push([c, r])
-                this.events.push({ t: 'break', c, r, h: code - 99 })
+                this.events.push({ t: 'break', c, r, h: wood ? code - 199 : code - 99 })
               }
             }
           // shells caught in the blast
@@ -914,9 +945,7 @@ export class ArenaSim {
     t.vel = v3()
     t.power = null
     t.burst = 0
-    t.nukes = 0
     t.shieldUntil = 0
-    t.flareUntil = 0
     t.respawnAt = this.tick + RESPAWN_TICKS
     v.deaths++
     v.streak = 0
@@ -947,8 +976,7 @@ export class ArenaSim {
     for (const k of this.pickups) {
       for (const t of live) {
         if (Math.hypot(t.pos.x - k.x, t.pos.z - k.z) > PICKUP_RADIUS + TANK.fieldRadius) continue
-        if (k.kind === 'nuke') t.nukes = Math.min(NUKE.max, t.nukes + 1)
-        else if (k.kind === 'shield') t.shieldUntil = this.tick + SHIELD.ticks
+        if (k.kind === 'shield') t.shieldUntil = this.tick + SHIELD.ticks
         else if (k.kind === 'flares') t.flares = Math.min(FLARE.max + this.level(t), t.flares + FLARE.pickup)
         else {
           t.power = k.kind

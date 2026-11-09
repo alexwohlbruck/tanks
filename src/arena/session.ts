@@ -16,7 +16,7 @@ import { axesFromForward, v3 } from '../sim/vec'
 import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank } from '../sim/world'
 import * as THREE from 'three/webgpu'
 import { generateMap, type ArenaMap } from './map'
-import { ARENA_PROTO, TF_ALIVE, TF_FLARE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
+import { ARENA_PROTO, TF_ALIVE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
 import { EMOTE_TICKS, ITEM_INFO, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, isItem, type AnyPickup, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
 import { paramsFor } from '../sim/stats'
 import type { BaseModel } from '../render/registry'
@@ -88,15 +88,17 @@ export class ArenaSession implements Session {
   private markId = 1
   private pickups: { id: number; x: number; z: number; kind: AnyPickup }[] = []
   /** live nukes (their danger rings) and recent big moments for the screen to draw:
-   * nuke blasts and flare bursts, by start time (ms) */
+   * nuke blasts and flare launches, by start time (ms); flare missiles in flight */
   nukes: { id: number; x: number; z: number; lit: boolean }[] = []
   bursts: { kind: 'nuke' | 'flare'; x: number; z: number; r: number; at: number }[] = []
+  flareShots: { id: number; x: number; z: number; vx: number; vz: number }[] = []
   /** a short camera shake (a nuke nearby), in world units, decaying */
   shake = 0
   private pingTimer: ReturnType<typeof setInterval>
   private lastFire = false
   private lastMine = false
   private lastFlare = false
+  private lastNuke = false
 
   /** `invite`: join that arena, on that player's team (an invite link) */
   constructor(
@@ -353,8 +355,10 @@ export class ArenaSession implements Session {
     this.lastMine = pad.mine
     const flare = !blocked && pad.flare && !this.lastFlare
     this.lastFlare = pad.flare
-    const inp: ArenaInput = { seq: ++this.seq, mx: mv.moveX, mz: mv.moveY, analog: mv.analog, ax: this.aim.x, az: this.aim.z, fire, mine, flare }
-    this.send({ t: 'i', s: inp.seq, mx: r3(inp.mx), mz: r3(inp.mz), an: inp.analog ? 1 : 0, ax: Math.round(inp.ax), az: Math.round(inp.az), f: fire ? 1 : 0, m: mine ? 1 : 0, fl: flare ? 1 : 0 })
+    const nuke = !blocked && pad.nuke && !this.lastNuke
+    this.lastNuke = pad.nuke
+    const inp: ArenaInput = { seq: ++this.seq, mx: mv.moveX, mz: mv.moveY, analog: mv.analog, ax: this.aim.x, az: this.aim.z, fire, mine, flare, nuke }
+    this.send({ t: 'i', s: inp.seq, mx: r3(inp.mx), mz: r3(inp.mz), an: inp.analog ? 1 : 0, ax: Math.round(inp.ax), az: Math.round(inp.az), f: fire ? 1 : 0, m: mine ? 1 : 0, fl: flare ? 1 : 0, nk: nuke ? 1 : 0 })
     if (!alive || !this.field) {
       this.predicting = false
       this.inputs = []
@@ -457,12 +461,9 @@ export class ArenaSession implements Session {
     return !!(((t.ai?.flags as number) ?? 0) & TF_STEALTH)
   }
 
-  /** a tank's shield is up / a flare is bursting / its kill-streak level */
+  /** a tank's shield is up / its kill-streak level */
   shieldOf(t: Tank) {
     return !!(((t.ai?.flags as number) ?? 0) & TF_SHIELD)
-  }
-  flaring(t: Tank) {
-    return !!(((t.ai?.flags as number) ?? 0) & TF_FLARE)
   }
   levelOf(t: Tank) {
     return (((t.ai?.flags as number) ?? 0) >> TF_LEVEL_SHIFT) & 3
@@ -573,6 +574,13 @@ export class ArenaSession implements Session {
       const vx = near ? n![3] : s[3]
       const vz = near ? n![4] : s[4]
       return { id: s[0], pos: v3(x, TANK.bodyHeight, z), vel: v3(vx, 0, vz), smokeType: s[5] } as unknown as Shell
+    })
+    // flare missiles
+    const bF = new Map(B?.F.map((r) => [r[0], r]) ?? [])
+    this.flareShots = A.F.map((f) => {
+      const n = bF.get(f[0])
+      const near = n && Math.hypot(n[1] - f[1], n[2] - f[2]) < 40
+      return { id: f[0], x: near ? lerp(f[1], n![1]) : f[1], z: near ? lerp(f[2], n![2]) : f[2], vx: near ? n![3] : f[3], vz: near ? n![4] : f[4] }
     })
     // a nuke is drawn as a big mine
     w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : 1 }) as unknown as Mine)
@@ -706,6 +714,7 @@ export class ArenaSession implements Session {
               sim.push({ t: 'mineExplode', mine: { pos: v3(e[1] + Math.cos(a) * NUKE.blast * 0.55, 0, e[2] + Math.sin(a) * NUKE.blast * 0.55), arenaScale: 1.2 } as unknown as Mine })
             }
             this.bursts.push({ kind: 'nuke', x: e[1], z: e[2], r: NUKE.blast, at: performance.now() })
+            this.view.scorch(e[1], e[2], NUKE.blast)
             this.sound('RP_TNK_SE_HIT', e[1], e[2], 1)
             const f = this.view.follow ?? { x: 0, z: 0 }
             this.shake = Math.max(this.shake, 14 * Math.max(0, 1 - Math.hypot(e[1] - f.x, e[2] - f.z) / 1400))
@@ -718,12 +727,14 @@ export class ArenaSession implements Session {
           if (e[1] === this.tankId) this.banner = { text: 'Shield down!', until: performance.now() + 1400 }
           break
         case 'flare':
-          this.bursts.push({ kind: 'flare', x: e[2], z: e[3], r: e[4], at: performance.now() })
+          this.bursts.push({ kind: 'flare', x: e[2], z: e[3], r: 45, at: performance.now() })
           this.sound('RP_TNK_SE_SHOOT_ENEMY8', e[2], e[3], 1)
+          this.sound('RP_TNK_SE_SHOOT_ENEMY4', e[2], e[3], 0.7)
           break
-        case 'defl':
-          sim.push({ t: 'ricochet', bullet: {} as Shell, pos: v3(e[1], TANK.bodyHeight, e[2]), super: false })
-          this.sound('RP_TNK_SE_REFLECT', e[1], e[2], 1)
+        case 'fhit':
+          // a missile got a shell
+          sim.push({ t: 'bulletDie', bullet: {} as Shell, pos: v3(e[1], TANK.bodyHeight, e[2]), reason: 'wall' })
+          this.sound('RP_TNK_SE_BROKEN', e[1], e[2], 0.8)
           break
         case 'brk': {
           const [, c, r, h] = e
@@ -824,7 +835,7 @@ const STREAKS: Record<number, string> = { 3: 'Triple!', 5: 'Rampage!', 6: 'On fi
 /** the streak levels (rules STREAK_LEVELS) */
 const LEVEL_UP: Record<number, string> = { 3: 'Power ×2', 6: 'Power ×3' }
 /** a nuke is drawn as a mine this much bigger */
-const NUKE_SCALE = 2.4
+const NUKE_SCALE = 3
 const NUKE_ICON = '<svg class="how" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" fill="#f2c230" stroke="#5b3a19" stroke-width="1.6"/><path d="M12 12L7 3.5a10 10 0 0 1 10 0zM12 12l9.8 1.5a10 10 0 0 1-5 8.6zM12 12l-4.8 9.1a10 10 0 0 1-5-8.6z" fill="#2a1a0a"/><circle cx="12" cy="12" r="2" fill="#f2c230" stroke="#2a1a0a"/></svg>'
 /** RPTnkTank::PlayFireSe per enemy type (3 / 7 / 9 fire rockets: their flight loop plays) */
 const SHOT_SE: Record<number, string> = { 4: 'RP_TNK_SE_SHOOT_ENEMY4', 5: 'RP_TNK_SE_SHOOT_ENEMY5', 6: 'RP_TNK_SE_SHOOT_ENEMY6', 8: 'RP_TNK_SE_SHOOT_ENEMY8' }

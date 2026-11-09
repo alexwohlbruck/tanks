@@ -2,9 +2,11 @@
 // tiled at their original scale (one texture repeat per 840 x 665 units, like tnk_field_16_9),
 // with the tread-mark capture split into chunks so a stamp only re-uploads the chunk it lands
 // in. Around it, the lower floor texture darkened, so the edge of the world isn't a void.
+// Scorch marks (nukes) share the capture: red holds the tread marks as before, green / red is
+// how unburned the floor is (a scorch multiplies green only, so later tread marks keep it).
 
 import * as THREE from 'three/webgpu'
-import { mix, texture, uv, vec3, vec4 } from 'three/tsl'
+import { clamp, float, max, mix, texture, uv, vec3, vec4 } from 'three/tsl'
 import type { Models } from './models'
 import type { RenderOptions } from './quality'
 import type { TreadCapture } from './tread'
@@ -61,7 +63,11 @@ export class BigField {
       ;(c.mesh.material as THREE.Material | undefined)?.dispose?.()
       const m = lit ? new THREE.MeshLambertNodeMaterial() : new THREE.MeshBasicNodeMaterial()
       const k = texture(c.tex, uv())
-      m.colorNode = vec4(mix(texture(lower, uv(1)).rgb, texture(face, uv(1)).rgb, k.r), 1)
+      const floor = mix(texture(lower, uv(1)).rgb, texture(face, uv(1)).rgb, k.r)
+      // burned: towards charcoal, a little warm at the rim
+      const burn = clamp(float(1).sub(k.g.div(max(k.r, 0.08))), 0, 1)
+      const char = mix(vec3(0.33, 0.2, 0.11), vec3(0.06, 0.05, 0.045), burn)
+      m.colorNode = vec4(mix(floor, floor.mul(char), burn), 1)
       c.mesh.material = m
     }
     // the world beyond the border
@@ -96,6 +102,36 @@ export class BigField {
       g.setTransform(PX, 0, 0, PX, (x - c.x0) * PX, (z - c.z0) * PX)
       g.rotate(Math.atan2(dirZ, dirX) + Math.PI / 2)
       g.drawImage(im, -15, -15, 30, 30)
+      c.dirty = true
+    }
+  }
+
+  /** a burned circle of radius `r`: dark in the middle, ragged at the edge */
+  scorch(x: number, z: number, r: number) {
+    const blobs: [number, number, number, number][] = [[0, 0, r * 0.95, 0.95]]
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2
+      const d = r * (0.45 + Math.random() * 0.45)
+      blobs.push([Math.cos(a) * d, Math.sin(a) * d, r * (0.2 + Math.random() * 0.25), 0.55 + Math.random() * 0.3])
+    }
+    for (const c of this.chunks) {
+      if (x + r * 1.3 < c.x0 || x - r * 1.3 > c.x0 + c.w || z + r * 1.3 < c.z0 || z - r * 1.3 > c.z0 + c.d) continue
+      const g = c.ctx
+      g.save()
+      g.setTransform(PX, 0, 0, PX, (x - c.x0) * PX, (z - c.z0) * PX)
+      g.globalCompositeOperation = 'multiply'
+      for (const [bx, bz, br, k] of blobs) {
+        const grad = g.createRadialGradient(bx, bz, 0, bx, bz, br)
+        const lo = Math.round(255 * (1 - k))
+        grad.addColorStop(0, `rgb(255,${lo},${lo})`)
+        grad.addColorStop(0.55, `rgb(255,${Math.round(lo + (255 - lo) * 0.35)},${Math.round(lo + (255 - lo) * 0.35)})`)
+        grad.addColorStop(1, 'rgb(255,255,255)')
+        g.fillStyle = grad
+        g.beginPath()
+        g.arc(bx, bz, br, 0, Math.PI * 2)
+        g.fill()
+      }
+      g.restore()
       c.dirty = true
     }
   }

@@ -4,6 +4,7 @@
 //   B (fire)       -> left click / J / gamepad RT, RB or A
 //   A (mine)       -> right click / Space / E / Shift / K / gamepad LT, LB or X
 //   flare (arena)  -> F / Q / middle click / gamepad Y
+//   nuke (arena)   -> N / R / gamepad B
 //   + (pause)      -> Escape / P / Start
 // Keyboard+mouse and each gamepad are separate devices, so two players can play. Touch
 // controls (src/ui/touch.ts: drive stick, aim stick, mine button) count as part of the
@@ -19,8 +20,9 @@ export type PadState = {
   aimStick: { x: number; y: number } | null
   fire: boolean
   mine: boolean
-  /** the arena's flare */
+  /** the arena's flare and nuke */
   flare: boolean
+  nuke: boolean
   pause: boolean
   confirm: boolean
   back: boolean
@@ -39,6 +41,7 @@ const empty = (): PadState => ({
   fire: false,
   mine: false,
   flare: false,
+  nuke: false,
   pause: false,
   confirm: false,
   back: false,
@@ -49,11 +52,11 @@ const empty = (): PadState => ({
 })
 
 /** rebindable keyboard controls (KeyboardEvent.code lists); the app replaces them from settings */
-export type KeyBindings = { up: string[]; down: string[]; left: string[]; right: string[]; fire: string[]; mine: string[]; flare: string[]; pause: string[] }
+export type KeyBindings = { up: string[]; down: string[]; left: string[]; right: string[]; fire: string[]; mine: string[]; flare: string[]; nuke: string[]; pause: string[] }
 
 /** the touch controls as Input reads them (src/ui/touch.ts) */
 export interface TouchSource {
-  poll(): { moveX: number; moveY: number; aimStick: { x: number; y: number } | null; fire: boolean; mine: boolean; flare?: boolean } | null
+  poll(): { moveX: number; moveY: number; aimStick: { x: number; y: number } | null; fire: boolean; mine: boolean; flare?: boolean; nuke?: boolean } | null
 }
 
 type GamepadSlot = { index: number; prev: boolean[]; pointer: { x: number; y: number } }
@@ -80,6 +83,7 @@ export class Input {
     fire: ['KeyJ'],
     mine: ['Space', 'KeyE', 'ShiftLeft', 'ShiftRight', 'KeyK'],
     flare: ['KeyF', 'KeyQ', 'KeyL'],
+    nuke: ['KeyN', 'KeyR'],
     pause: ['Escape', 'KeyP'],
   }
 
@@ -144,6 +148,7 @@ export class Input {
       fire: this.mousePressed.has(0) || p(...b.fire),
       mine: this.mousePressed.has(2) || p(...b.mine),
       flare: this.mousePressed.has(1) || p(...(b.flare ?? [])),
+      nuke: p(...(b.nuke ?? [])),
       pause: p(...b.pause) || this.pauseQueued,
       confirm: p('Enter', 'Space', 'KeyZ') || this.mousePressed.has(0),
       back: p('Backspace', 'KeyX'),
@@ -171,6 +176,7 @@ export class Input {
       s.fire ||= t.fire
       s.mine ||= t.mine
       s.flare ||= !!t.flare
+      s.nuke ||= !!t.nuke
     }
     return s
   }
@@ -202,6 +208,7 @@ export class Input {
       fire: edge(7) || edge(5) || edge(0),
       mine: edge(6) || edge(4) || edge(2),
       flare: edge(3),
+      nuke: edge(1),
       pause: edge(9),
       confirm: edge(0),
       back: edge(1),
@@ -245,6 +252,7 @@ export class Input {
       fire: a.fire || b.fire,
       mine: a.mine || b.mine,
       flare: a.flare || b.flare,
+      nuke: a.nuke || b.nuke,
       pause: a.pause || b.pause,
       confirm: a.confirm || b.confirm,
       back: a.back || b.back,

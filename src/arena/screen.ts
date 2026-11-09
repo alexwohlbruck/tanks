@@ -12,8 +12,9 @@ import { logo, tankIcon } from '../ui/web/art'
 import { backButton, band, button, type WebApp } from '../ui/web/base'
 import { h } from '../ui/web/dom'
 import { Nav } from '../ui/web/nav'
+import { keyName, settings } from '../ui/web/settings'
 import type { Board } from './protocol'
-import { ARENA_SIZES, EMOTES, FFA_COLORS, FLARE, ITEM_INFO, ITEM_KINDS, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SHIELD, SIZES, STREAK_LEVELS, TEAM_COLORS, TEAM_NAMES, THEME_INFO, flareRadius, isItem, pickupInfo, sizeOf, type AnyPickup, type ArenaMode, type ArenaSize, type ItemKind, type MapTheme } from './rules'
+import { ARENA_SIZES, EMOTES, FFA_COLORS, FLARE, ITEM_INFO, ITEM_KINDS, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SHIELD, SIZES, STREAK_LEVELS, TEAM_COLORS, TEAM_NAMES, THEME_INFO, isItem, pickupInfo, sizeOf, type AnyPickup, type ArenaMode, type ArenaSize, type ItemKind, type MapTheme } from './rules'
 import { TANK } from '../sim/consts'
 import type { Tank } from '../sim/world'
 import { ArenaSession } from './session'
@@ -34,7 +35,7 @@ const SHELL_SVG = '<svg viewBox="0 0 10 24" class="ar-shell"><path d="M5 1C8 4 9
 const NUKE_SVG = '<svg viewBox="0 0 24 24" class="ar-item ar-nuke"><circle cx="12" cy="12" r="10.5" fill="#f2c230" stroke="#5b3a19" stroke-width="1.6"/><path d="M12 12L7 3.5a10 10 0 0 1 10 0zM12 12l9.8 1.5a10 10 0 0 1-5 8.6zM12 12l-4.8 9.1a10 10 0 0 1-5-8.6z" fill="#2a1a0a"/><circle cx="12" cy="12" r="2" fill="#f2c230" stroke="#2a1a0a"/></svg>'
 const SHIELD_SVG = '<svg viewBox="0 0 24 24" class="ar-item ar-shieldi"><path d="M12 1.8l8.5 3.2v6.2c0 5.3-3.6 9.4-8.5 11-4.9-1.6-8.5-5.7-8.5-11V5z" fill="#7fe0c2" stroke="#1f5e4b" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 4.6l5.6 2.1v4.6c0 3.6-2.3 6.5-5.6 7.8z" fill="#fff" opacity="0.45"/></svg>'
 const FLARE_SVG = '<svg viewBox="0 0 24 24" class="ar-item ar-flare"><path d="M12 2l2.2 6.3L20.5 6l-3.6 5.4L22 14l-6 .9 1.2 6.6L12 17l-5.2 4.5L8 14.9 2 14l5.1-2.6L3.5 6l6.3 2.3z" fill="#ff8a2a" stroke="#5b3a19" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="3" fill="#fff3c4"/></svg>'
-const ITEM_SVG: Record<ItemKind, string> = { nuke: NUKE_SVG, shield: SHIELD_SVG, flares: FLARE_SVG }
+const ITEM_SVG: Record<ItemKind, string> = { shield: SHIELD_SVG, flares: FLARE_SVG }
 const MINE_SVG = '<svg viewBox="0 0 24 24" class="ar-mine"><circle cx="12" cy="13" r="9.5" fill="#e8c33a" stroke="#5b3a19" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="#cf2a31" stroke="#5b3a19" stroke-width="1.2"/></svg>'
 
 const SIZE_KEY = 'tanks-arena-size'
@@ -67,7 +68,7 @@ class ArenaScreen implements Screen {
   private rings = new Map<number, THREE.Object3D>()
   private lasers = new Map<Tank, THREE.Mesh>()
   private bubbles = new Map<Tank, THREE.Object3D>()
-  private flareDiscs = new Map<Tank, THREE.Mesh>()
+  private missiles = new Map<number, { o: THREE.Object3D; trail: { x: number; z: number }[] }>()
   private nukeRings = new Map<number, THREE.Object3D>()
   private burstObjs = new Map<object, THREE.Object3D>()
   private poll: ReturnType<typeof setInterval> | null = null
@@ -230,11 +231,12 @@ class ArenaScreen implements Screen {
                 h('li', null, 'You come back near the fighting, out of sight of enemies.'),
                 h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
                 h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. More shells, mines and ricochets, and a stronger special tank, until you're hit.`),
-                h('li', null, `Flares turn incoming shells and rockets back at the shooter. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
+                h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run. You keep it when you're hit; a new one comes with the next match.`),
+                h('li', null, `A flare launches ${FLARE.swarm[0]}-${FLARE.swarm[1]} tiny homing missiles that shoot down shells and rockets in flight. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
                 h('li', null, 'The minimap shows teammates, and enemies right after they fire.'),
               ),
             ),
-            h('div.foot-hint', null, 'WASD drive · mouse aim · click fire · Space mine · F flare · wheel zoom · V first person · Tab scores'),
+            h('div.foot-hint', null, 'WASD drive · mouse aim · click fire · Space mine · F flare · N nuke · wheel zoom · V first person · Tab scores'),
           ),
         ),
       ),
@@ -478,19 +480,26 @@ class ArenaScreen implements Screen {
         const w = s.spectating !== null ? s.nameOf(s.spectating) : undefined
         this.set('respawn', `<span>Back in ${Math.max(1, Math.ceil(you.respawn / 60))}${w ? ` · watching ${esc(w.name)}` : ''}</span>`)
       }
+      // the arsenal: one slot per weapon, with its key
       const pips = (n: number, max: number, svg: string) => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">${svg}</i>`).join('')
-      const flareRow = `<div class="row items">${pips(you.flares, you.flareMax, FLARE_SVG)}${you.flareBack ? `<small>${Math.ceil(you.flareBack / 60)}s</small>` : ''}${you.nukes ? pips(you.nukes, you.nukes, NUKE_SVG) : ''}</div>`
-      this.set('ammo', `<div class="row">${pips(you.shells, you.maxShells, SHELL_SVG)}</div><div class="row">${pips(you.mines, you.maxMines, MINE_SVG)}</div>${flareRow}`)
-      const cards: string[] = []
+      const key = (a: 'mine' | 'flare' | 'nuke') => esc(settings.keys[a]?.[0] ? keyName(settings.keys[a][0]) : '')
+      this.set(
+        'ammo',
+        `<div class="ar-slot"><div class="pips">${pips(you.shells, you.maxShells, SHELL_SVG)}</div><kbd>Click</kbd></div>` +
+          `<div class="ar-slot"><div class="pips">${pips(you.mines, you.maxMines, MINE_SVG)}</div><kbd>${key('mine')}</kbd></div>` +
+          `<div class="ar-slot"><div class="pips">${pips(you.flares, you.flareMax, FLARE_SVG)}</div><kbd>${key('flare')}</kbd>${you.flareBack ? `<span class="back">${Math.ceil(you.flareBack / 60)}</span>` : ''}</div>` +
+          `<div class="ar-slot nuke ${you.nukes ? '' : 'used'}" title="${you.nukes ? 'Your nuke for this match' : 'Nuke used: you get a new one next match'}"><div class="pips">${NUKE_SVG}</div><kbd>${key('nuke')}</kbd></div>`,
+      )
+      const chips: string[] = []
       if (you.power) {
         const info = PICKUP_INFO[you.power]
-        cards.push(`<div class="ar-pw pw-power" style="--c:${info.color};--d:${info.dark}">${icoHtml(info.color, info.dark)}<div><b>${info.name} tank</b><small>${info.trick}</small><u><i></i></u></div></div>`)
+        chips.push(`<div class="ar-chip pw-power" style="--c:${info.color};--d:${info.dark}" title="${info.trick}">${icoHtml(info.color, info.dark)}<div><b>${info.name}</b><u><i></i></u></div></div>`)
       }
-      if (you.shield > 0 && you.alive) cards.push(`<div class="ar-pw pw-shield" style="--c:${ITEM_INFO.shield.color};--d:${ITEM_INFO.shield.dark}">${SHIELD_SVG}<div><b>Shield</b><small>takes one hit</small><u><i></i></u></div></div>`)
-      if (you.level > 0 && you.alive) cards.push(`<div class="ar-pw pw-streak" style="--c:#e8901c;--d:#8a4a08"><span class="ar-mult">×${you.level + 1}</span><div><b>${you.streak} in a row</b><small>${you.level < STREAK_LEVELS.length ? `×${you.level + 2} at ${STREAK_LEVELS[you.level]}` : 'full power'}</small></div></div>`)
-      if (!cards.length && you.protect && you.alive) cards.push(`<div class="ar-pw dim"><div><b>Protected</b><small>until you fire</small></div></div>`)
-      this.set('power', cards.join(''))
-      // the time bars move every frame: set their widths without rebuilding the cards
+      if (you.shield > 0 && you.alive) chips.push(`<div class="ar-chip pw-shield" style="--c:${ITEM_INFO.shield.color};--d:${ITEM_INFO.shield.dark}">${SHIELD_SVG}<div><b>Shield</b><u><i></i></u></div></div>`)
+      if (you.level > 0 && you.alive) chips.push(`<div class="ar-chip pw-streak" style="--c:#e8901c;--d:#8a4a08"><span class="ar-mult">×${you.level + 1}</span><div><b>${you.streak} streak</b><small>${you.level < STREAK_LEVELS.length ? `×${you.level + 2} at ${STREAK_LEVELS[you.level]}` : 'full power'}</small></div></div>`)
+      if (!chips.length && you.protect && you.alive) chips.push(`<div class="ar-chip dim"><div><b>Protected</b><small>until you fire</small></div></div>`)
+      this.set('power', chips.join(''))
+      // the time bars move every frame: set their widths without rebuilding the chips
       const bar = (sel: string, f: number) => {
         const el = this.els.power.querySelector<HTMLElement>(`${sel} u i`)
         if (el) el.style.width = `${(Math.max(0, Math.min(1, f)) * 100).toFixed(1)}%`
@@ -697,12 +706,7 @@ class ArenaScreen implements Screen {
   private itemModel(k: AnyPickup): THREE.Object3D {
     if (!isItem(k)) return this.app.view.tankModelOf(PICKUP_TYPE[k]).root
     const g = new THREE.Group()
-    if (k === 'nuke') {
-      const m = this.app.view.mineModel()
-      m.scale.setScalar(1.9)
-      this.app.view.mineFrame(m, 6)
-      g.add(m)
-    } else if (k === 'shield') {
+    if (k === 'shield') {
       const b = new THREE.Mesh(new THREE.SphereGeometry(19, 24, 16), bubbleMat())
       b.position.y = 16
       const core = new THREE.Mesh(new THREE.OctahedronGeometry(8), new THREE.MeshBasicNodeMaterial({ color: 0x2fb38c }))
@@ -773,38 +777,43 @@ class ArenaScreen implements Screen {
         this.fx.remove(o)
         this.lasers.delete(k)
       }
-    // shields: a bubble around the tank; flares: a bright disc while they burst
+    // shields: a bubble around the tank
     const bubbled = new Set<Tank>()
-    const flaring = new Set<Tank>()
     for (const tk of s.world?.tanks ?? []) {
-      if (!tk.alive || s.hidden(tk)) continue
-      if (s.shieldOf(tk)) {
-        bubbled.add(tk)
-        let o = this.bubbles.get(tk)
-        if (!o) {
-          o = new THREE.Mesh(new THREE.SphereGeometry(30, 28, 18), bubbleMat())
-          this.fx.add(o)
-          this.bubbles.set(tk, o)
-        }
-        o.position.set(tk.pos.x, 14, tk.pos.z)
-        o.scale.setScalar(1 + 0.03 * Math.sin(t * 6))
+      if (!tk.alive || s.hidden(tk) || !s.shieldOf(tk)) continue
+      bubbled.add(tk)
+      let o = this.bubbles.get(tk)
+      if (!o) {
+        o = new THREE.Mesh(new THREE.SphereGeometry(30, 28, 18), bubbleMat())
+        this.fx.add(o)
+        this.bubbles.set(tk, o)
       }
-      if (s.flaring(tk)) {
-        flaring.add(tk)
-        let o = this.flareDiscs.get(tk)
-        if (!o) {
-          o = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicNodeMaterial({ color: 0xff9a3a, transparent: true, opacity: 0.3, depthWrite: false }))
-          o.rotation.x = -Math.PI / 2
-          this.fx.add(o)
-          this.flareDiscs.set(tk, o)
-        }
-        o.scale.setScalar(flareRadius(s.levelOf(tk)))
-        o.position.set(tk.pos.x, 1, tk.pos.z)
-        ;(o.material as THREE.MeshBasicNodeMaterial).opacity = 0.22 + 0.12 * Math.sin(t * 40)
-      }
+      o.position.set(tk.pos.x, 14, tk.pos.z)
+      o.scale.setScalar(1 + 0.03 * Math.sin(t * 6))
     }
     for (const [k, o] of this.bubbles) if (!bubbled.has(k)) (this.fx.remove(o), this.bubbles.delete(k))
-    for (const [k, o] of this.flareDiscs) if (!flaring.has(k)) (this.fx.remove(o), this.flareDiscs.delete(k))
+    // flare missiles: a tiny glowing dart with a short fading trail
+    const flying = new Set<number>()
+    for (const f of s.flareShots) {
+      flying.add(f.id)
+      let m = this.missiles.get(f.id)
+      if (!m) {
+        m = { o: missileObject(), trail: [] }
+        this.fx.add(m.o)
+        this.missiles.set(f.id, m)
+      }
+      m.trail.unshift({ x: f.x, z: f.z })
+      if (m.trail.length > 10) m.trail.pop()
+      const [dart, ...puffs] = m.o.children
+      dart.position.set(f.x, TANK.bodyHeight, f.z)
+      dart.rotation.y = Math.atan2(f.vx, f.vz)
+      puffs.forEach((p, i) => {
+        const q = m!.trail[Math.min(m!.trail.length - 1, (i + 1) * 2)]
+        p.position.set(q.x, TANK.bodyHeight, q.z)
+        p.scale.setScalar(1 - i * 0.22)
+      })
+    }
+    for (const [k, m] of this.missiles) if (!flying.has(k)) (this.fx.remove(m.o), this.missiles.delete(k))
     // a nuke on the ground: its blast radius, blinking red
     const nk = new Set<number>()
     for (const n of s.nukes) {
@@ -882,6 +891,30 @@ class ArenaScreen implements Screen {
 function flip(el: SVGSVGElement) {
   el.classList.add('flip')
   return el
+}
+
+let missileMats: THREE.MeshBasicNodeMaterial[] | null = null
+/** a flare missile: a red-orange dart with a white-hot tip and a glowing exhaust trail */
+function missileObject() {
+  const [body, tip, puff] = (missileMats ??= [
+    new THREE.MeshBasicNodeMaterial({ color: 0xff4a12 }),
+    new THREE.MeshBasicNodeMaterial({ color: 0xffffe0 }),
+    new THREE.MeshBasicNodeMaterial({ color: 0xffa020, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }),
+  ])
+  const g = new THREE.Group()
+  const dart = new THREE.Group()
+  const b = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 11, 8), body)
+  b.rotation.x = Math.PI / 2
+  const h = new THREE.Mesh(new THREE.ConeGeometry(2.8, 5, 8), tip)
+  h.rotation.x = Math.PI / 2
+  h.position.z = 8
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(4.5, 10, 8), puff)
+  glow.position.z = -6
+  dart.add(b, h, glow)
+  dart.scale.setScalar(1.25)
+  g.add(dart)
+  for (let i = 0; i < 4; i++) g.add(new THREE.Mesh(new THREE.SphereGeometry(3.6, 8, 6), puff))
+  return g
 }
 
 let bubble: THREE.MeshBasicNodeMaterial | null = null

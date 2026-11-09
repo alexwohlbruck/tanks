@@ -2,8 +2,8 @@
 // one hunts players 1-2 on a 22 x 17 field); a small brain for a big map with teams:
 //   - hunt the nearest enemy it can reach (grid BFS path), keep a fighting distance
 //   - fire on a clear line, or bank a shot off one wall when that line is blocked
-//   - dodge shells heading its way (teammates' too: every shell hits), flare the ones it can't
-//     dodge, back away from armed mines and nukes
+//   - dodge shells heading its way (teammates' too: every shell hits), flare when several
+//     are coming or one is about to hit, back away from armed mines and nukes
 //   - mines with a reason (see mineSense): behind it when chased, in a corridor an enemy is
 //     coming down, against cork in its way, in a close fight; never near a teammate or on top
 //     of another mine. Shoots mines that have an enemy next to them. Nukes go down where
@@ -239,6 +239,7 @@ export function botThink(sim: ArenaSim, p: Player) {
   let mx = 0
   let mz = 0
   // threats first: shells heading this way, armed mines nearby
+  let incoming = 0
   for (const s of sim.shells) {
     if (s.owner === t && s.age < 30) continue
     const dx = t.pos.x - s.pos.x, dz = t.pos.z - s.pos.z
@@ -249,9 +250,11 @@ export function botThink(sim: ArenaSim, p: Player) {
     if (dx * vx + dz * vz <= 0) continue
     const side = -dx * vz + dz * vx
     if (Math.abs(side) > 40) continue
-    // too close to step aside: a flare turns it back (now and then a bot is too slow)
+    // a flare's missiles shoot it down: when it's about to hit, or two are coming (now and
+    // then a bot is too slow)
     const along = dx * vx + dz * vz
-    if (Math.abs(side) < 28 && along / sp < 22 && t.flares > 0 && now >= t.flareReady && Math.random() < 0.5) p.wantFlare = true
+    incoming++
+    if ((along / sp < 40 || incoming >= 2) && t.flares > 0 && now >= t.flareReady && Math.random() < 0.3) p.wantFlare = true
     // step out of the line, away from the side it would pass
     const k = side >= 0 ? 1 : -1
     mx += -vz * k * 2
@@ -288,6 +291,7 @@ export function botThink(sim: ArenaSim, p: Player) {
   if (!mx && !mz) {
     // fighting distance: close in along the path, hold and strafe near, back off when too close
     let goal: [number, number] | null = null
+    let loot: { c: number; r: number } | null = null
     const dist = e ? Math.hypot(e.pos.x - t.pos.x, e.pos.z - t.pos.z) : 0
     const seen = e && clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)
     const from = b.fleeFrom ?? e?.pos
@@ -300,7 +304,8 @@ export function botThink(sim: ArenaSim, p: Player) {
       mx = -uz * b.strafe - ux * (dist < 150 ? 1 : 0)
       mz = ux * b.strafe - uz * (dist < 150 ? 1 : 0)
       if (Math.random() < 0.01) b.strafe = -b.strafe
-    } else if (e) goal = cellOf(sim.map, e.pos.x, e.pos.z)
+    } else if ((loot = pickupNear(sim, t, e ? dist : 1e9))) goal = [loot.c, loot.r]
+    else if (e) goal = cellOf(sim.map, e.pos.x, e.pos.z)
     else if (!b.goal || !b.path.length) {
       const o = sim.map.open[Math.floor(Math.random() * sim.map.open.length)]
       goal = o
@@ -362,12 +367,12 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   const st = sim.stats(t)
   if (t.pc.mineTimer > 0) return
   const safe = (r: number) => !friends.some((f) => dist(f) < r + 30)
-  // ---- a nuke: where two enemies are in reach (or one, now and then), then run
+  // ---- the match's one nuke: saved for two enemies in reach (rarely one), then run
   if (t.nukes > 0) {
     const R = NUKE.blast * 0.8
     const near = enemies.filter((o) => dist(o) < R).length
-    if ((near >= 2 || (near === 1 && Math.random() < 0.15)) && safe(NUKE.blast)) {
-      p.wantMine = true
+    if ((near >= 2 || (near === 1 && Math.random() < 0.02)) && safe(NUKE.blast)) {
+      p.wantNuke = true
       b.fleeUntil = now + NUKE.fuse - 10
       b.fleeFrom = { x: t.pos.x, z: t.pos.z }
       return
@@ -404,4 +409,16 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
       if (closer && Math.random() < (b.path.length ? 0.1 : 0.5)) return lay(90)
     }
   }
+}
+
+/** a pickup worth the detour: one closer than the fight */
+function pickupNear(sim: ArenaSim, t: ATank, fight: number) {
+  let best: { c: number; r: number } | null = null
+  let bd = Infinity
+  for (const k of sim.pickups) {
+    const d = Math.hypot(k.x - t.pos.x, k.z - t.pos.z)
+    const reach = Math.min(450, fight * 0.7)
+    if (d < reach && d < bd) (bd = d), (best = k)
+  }
+  return best
 }

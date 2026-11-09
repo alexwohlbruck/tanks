@@ -17,7 +17,7 @@ import { register } from '../index'
 import { json, type WsData } from '../module'
 import { ipOf, loadGameData } from './rooms'
 import { addStats, emptyDelta, isStatId, leaders, playerStats, type StatDelta } from '../arena/stats'
-import { TF_ALIVE, TF_FLARE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH } from '../../src/arena/protocol'
+import { TF_ALIVE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH } from '../../src/arena/protocol'
 
 const MAX_ARENAS = Number(process.env.ARENAS_MAX ?? 16)
 const MAX_QUEUE = 6
@@ -208,11 +208,11 @@ class Arena {
           (hidden ? TF_STEALTH : 0) |
           (pw << TF_POWER_SHIFT) |
           (s.tick < t.shieldUntil && !hidden ? TF_SHIELD : 0) |
-          (s.tick < t.flareUntil ? TF_FLARE : 0) |
           (s.level(t) << TF_LEVEL_SHIFT)
         return [t.id, r1(t.pos.x), r1(t.pos.z), Math.round(b * 1000) / 1000, Math.round(tu * 1000) / 1000, flags, t.player.pid] as [number, number, number, number, number, number, number]
       })
     const S = s.shells.filter((x) => near(x.pos.x, x.pos.z)).map((x) => [x.id, r1(x.pos.x), r1(x.pos.z), r1(x.vel.x * 10) / 10, r1(x.vel.z * 10) / 10, x.smoke] as [number, number, number, number, number, number])
+    const F = s.flareShots.filter((f) => near(f.pos.x, f.pos.z)).map((f) => [f.id, r1(f.pos.x), r1(f.pos.z), r1(f.vel.x), r1(f.vel.z)] as [number, number, number, number, number])
     const M = s.mines.filter((m) => m.state !== 2 && near(m.pos.x, m.pos.z)).map((m) => [m.id, r1(m.pos.x), r1(m.pos.z), m.fuseLit ? 1 : 0, m.nuke ? 1 : 0] as [number, number, number, number, number])
     const K = s.pickups.map((k) => [k.id, k.x, k.z, k.kind] as [number, number, number, (typeof k)['kind']])
     const t = p.tank
@@ -249,7 +249,7 @@ class Arena {
       streak: p.streak,
       spec: !t.alive && p.killedBy?.tank.alive && s.players.includes(p.killedBy) ? p.killedBy.tank.id : 0,
     }
-    send(c, { t: 's', k: s.tick, T, S, M, K, E: c.pending, you })
+    send(c, { t: 's', k: s.tick, T, S, F, M, K, E: c.pending, you })
     c.pending = []
   }
 
@@ -364,9 +364,9 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
     case 'shieldPop':
       return ['shpop', e.tank, r1(e.x), r1(e.z)]
     case 'flare':
-      return ['flare', e.tank, r1(e.x), r1(e.z), Math.round(e.r)]
-    case 'deflect':
-      return ['defl', r1(e.x), r1(e.z)]
+      return ['flare', e.tank, r1(e.x), r1(e.z), e.n]
+    case 'flareHit':
+      return ['fhit', r1(e.x), r1(e.z)]
     case 'spawn':
       return ['spawn', e.tank, r1(e.x), r1(e.z)]
   }
@@ -391,6 +391,7 @@ function nextInput(c: Client) {
     p.wantFire ||= i.fire
     p.wantMine ||= i.mine
     p.wantFlare ||= !!i.flare
+    p.wantNuke ||= !!i.nuke
     return
   }
   const stale = ++c.empty > STALE_TICKS
@@ -403,6 +404,7 @@ function mergeOldest(c: Client) {
   b.fire ||= a.fire
   b.mine ||= a.mine
   b.flare ||= a.flare
+  b.nuke ||= a.nuke
   c.queue.shift()
 }
 
@@ -484,7 +486,7 @@ function onMessage(c: Client, raw: string | Buffer) {
       // 'end': finish the match now (results + map vote)
       if (m.power === 'end') return void (c.arena!.sim.phaseEnd = c.arena!.sim.tick)
       // items, and a kill streak (+3)
-      if (m.power === 'nuke') return void (t.nukes = NUKE.max)
+      if (m.power === 'nuke') return void (t.nukes = NUKE.perMatch)
       if (m.power === 'shield') return void (t.shieldUntil = c.arena!.sim.tick + SHIELD.ticks)
       if (m.power === 'flares') return void (t.flares = FLARE.max)
       if (m.power === 'streak') return void (c.player!.streak += 3)
@@ -499,7 +501,7 @@ function onMessage(c: Client, raw: string | Buffer) {
       if (seq <= c.lastRecv) return
       c.lastRecv = seq
       const W = 5000
-      c.queue.push({ seq, mx: num(m.mx, -1, 1), mz: num(m.mz, -1, 1), analog: !!m.an, ax: num(m.ax, -W, W), az: num(m.az, -W, W), fire: !!m.f, mine: !!m.m, flare: !!m.fl })
+      c.queue.push({ seq, mx: num(m.mx, -1, 1), mz: num(m.mz, -1, 1), analog: !!m.an, ax: num(m.ax, -W, W), az: num(m.az, -W, W), fire: !!m.f, mine: !!m.m, flare: !!m.fl, nuke: !!m.nk })
       while (c.queue.length > MAX_QUEUE) mergeOldest(c)
       return
     }

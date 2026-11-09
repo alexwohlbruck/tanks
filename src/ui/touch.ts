@@ -9,7 +9,7 @@
 //                where the turret already points; sliding back to the centre before letting go
 //                cancels the shot. The aim stays where it was left.
 //   MINE         lays a mine
-//   FLARE        the arena's flare (shown in the arena only)
+//   FLARE, NUKE  the arena's flare and nuke (shown in the arena only)
 //
 // Phones held upright get a hint to turn sideways (and a fullscreen button where the browser
 // has one); in landscape a small fullscreen button sits by the pause button.
@@ -27,10 +27,11 @@ const TAP_MS = 320
 /** drive stick dead zone (fraction of the radius) */
 const MOVE_DEAD = 0.12
 
-export type TouchState = { moveX: number; moveY: number; aimStick: { x: number; y: number } | null; fire: boolean; mine: boolean; flare: boolean }
+export type TouchState = { moveX: number; moveY: number; aimStick: { x: number; y: number } | null; fire: boolean; mine: boolean; flare: boolean; nuke: boolean }
 
 type Stick = { base: HTMLElement; knob: HTMLElement; id: number | null; ox: number; oy: number; r: number; dx: number; dy: number; t0: number }
 
+const NUKE_SVG = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" fill="#f2c230" stroke="#5b3a19" stroke-width="1.6"/><path d="M12 12L7 3.5a10 10 0 0 1 10 0zM12 12l9.8 1.5a10 10 0 0 1-5 8.6zM12 12l-4.8 9.1a10 10 0 0 1-5-8.6z" fill="#2a1a0a"/><circle cx="12" cy="12" r="2" fill="#f2c230" stroke="#2a1a0a"/></svg>'
 const FLARE_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L20.5 6l-3.6 5.4L22 14l-6 .9 1.2 6.6L12 17l-5.2 4.5L8 14.9 2 14l5.1-2.6L3.5 6l6.3 2.3z" fill="#ff8a2a" stroke="#5b3a19" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="3" fill="#fff3c4"/></svg>'
 const MINE_SVG =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="9.5" fill="#e8c33a" stroke="#5b3a19" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="#cf2a31" stroke="#5b3a19" stroke-width="1.2"/><path d="M12 3.5v-2" stroke="#5b3a19" stroke-width="1.6" stroke-linecap="round"/></svg>'
@@ -69,6 +70,7 @@ export class TouchControls {
   private firePulse = false
   private minePulse = false
   private flarePulse = false
+  private nukePulse = false
   private used = false
 
   constructor(parent: HTMLElement, before: Node | null) {
@@ -80,6 +82,7 @@ export class TouchControls {
       <div class="tc-stick tc-aim"><b class="tc-dir"></b><i class="tc-knob">${AIM_SVG}</i><span class="tc-label">Aim · release to fire</span></div>
       <button type="button" class="tc-mine" aria-label="Lay a mine">${MINE_SVG}<span>Mine</span></button>
       <button type="button" class="tc-mine tc-flare" aria-label="Fire a flare">${FLARE_SVG}<span>Flare</span></button>
+      <button type="button" class="tc-mine tc-nuke" aria-label="Lay your nuke">${NUKE_SVG}<span>Nuke</span></button>
       <div class="tc-rotate"><i>${ROTATE_SVG}</i><span>Turn sideways for a bigger view</span><button type="button" class="tc-fs">Fullscreen</button><button type="button" class="tc-x" aria-label="Dismiss">×</button></div>
       <button type="button" class="tc-fs tc-fs-corner" aria-label="Fullscreen">${FS_SVG}</button>`
     parent.insertBefore(root, before)
@@ -120,17 +123,22 @@ export class TouchControls {
     this.mineBtn.addEventListener('pointerup', release)
     this.mineBtn.addEventListener('pointercancel', release)
     this.mineBtn.addEventListener('pointerleave', release)
-    const flareBtn = root.querySelector<HTMLElement>('.tc-flare')!
-    flareBtn.addEventListener('pointerdown', (e) => {
-      e.stopPropagation()
-      e.preventDefault()
-      if (e.pointerType === 'mouse') return
-      this.flarePulse = true
-      navigator.vibrate?.(12)
-      flareBtn.classList.add('on')
-      this.used = true
-    })
-    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) flareBtn.addEventListener(ev, () => flareBtn.classList.remove('on'))
+    // the arena's extra weapons
+    const extra = (sel: string, press: () => void) => {
+      const btn = root.querySelector<HTMLElement>(sel)!
+      btn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        if (e.pointerType === 'mouse') return
+        press()
+        navigator.vibrate?.(12)
+        btn.classList.add('on')
+        this.used = true
+      })
+      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) btn.addEventListener(ev, () => btn.classList.remove('on'))
+    }
+    extra('.tc-flare', () => (this.flarePulse = true))
+    extra('.tc-nuke', () => (this.nukePulse = true))
     // the first touch anywhere turns the controls on; a real mouse turns them off
     addEventListener(
       'pointerdown',
@@ -170,7 +178,7 @@ export class TouchControls {
       this.release(this.aim)
       this.armed = false
       this.root.classList.remove('armed')
-      this.firePulse = this.minePulse = this.flarePulse = false
+      this.firePulse = this.minePulse = this.flarePulse = this.nukePulse = false
     }
   }
 
@@ -205,8 +213,9 @@ export class TouchControls {
       fire: this.firePulse,
       mine: this.minePulse,
       flare: this.flarePulse,
+      nuke: this.nukePulse,
     }
-    this.firePulse = this.minePulse = this.flarePulse = false
+    this.firePulse = this.minePulse = this.flarePulse = this.nukePulse = false
     return s
   }
 
