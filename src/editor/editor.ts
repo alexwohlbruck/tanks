@@ -95,10 +95,14 @@ class Editor implements Screen {
     const p = params ?? {}
     let d: Draft | null = null
     if (typeof p.draft === 'string') d = loadDraft(p.draft)
+    // from the store: your own pack reopens its draft; anything else becomes a new draft
+    if (!d && typeof p.storeId === 'string') d = listDrafts().find((x) => x.storeId === p.storeId) ?? null
     if (!d && p.pack) {
       d = newDraft(JSON.parse(JSON.stringify(p.pack)) as LevelPack)
       if (typeof p.storeId === 'string') d.storeId = p.storeId
+      else d.pack.name = `${d.pack.name} (remix)`.slice(0, 48)
       delete d.pack.id
+      delete d.pack.author
     }
     if (!d) {
       const cur = currentDraft()
@@ -1118,7 +1122,7 @@ class Editor implements Screen {
           const before = JSON.stringify(this.level)
           const cur = this.level
           Object.assign(cur, { cells: l.cells, enemies: l.enemies, facing: l.facing, bonus: l.bonus })
-          if (!cur.name || /^Level \d+$/.test(cur.name)) cur.name = l.name
+          if (!cur.name || /^(Level \d+|Mission \d+|Disc map \d+)$/.test(cur.name)) cur.name = l.name
           if (M.commit(cur, before)) this.changed()
           this.renderRight()
         } else this.addLevel(l)

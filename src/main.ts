@@ -1,6 +1,7 @@
 import { App } from './app/app'
 // screens (each registers itself)
 import './editor'
+import './store'
 
 const app = new App(
   document.getElementById('stage')!,
