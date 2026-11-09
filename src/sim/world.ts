@@ -158,12 +158,12 @@ export class World {
   /** [tanks+] added tank types / tiles / rules of the loaded level; null for the original missions */
   plus: Plus | null = null
 
-  constructor(players: number, opts: { aspect?: '16_9' | '4_3'; rng?: RPRandom; enemyCap?: number } = {}) {
+  constructor(players: number, opts: { aspect?: '16_9' | '4_3'; rng?: RPRandom; enemyCap?: number; size?: { cols: number; rows: number } } = {}) {
     this.enemyCap = Math.min(MAX_ENEMIES, opts.enemyCap ?? POOL.enemies)
     this.players = players
     this.twoPlayerMode = players >= 2
     this.rng = opts.rng ?? new RPRandom(1)
-    this.field = new Field(opts.aspect ?? '16_9')
+    this.field = new Field(opts.aspect ?? '16_9', opts.size)
     this.width = this.field.cols
     this.height = this.field.rows
     // custom levels (more than the original 8 enemy slots) get bigger pools; the original's

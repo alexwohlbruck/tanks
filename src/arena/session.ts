@@ -1,0 +1,587 @@
+// ArenaSession: the client side of the arena (src/arena/rules.ts). Mirrors what the server
+// sends into a World for the existing renderer and effects, like NetSession does for rooms:
+//   - snapshots (20 Hz) go on a timeline played ~120 ms behind the server: other tanks and
+//     shells are interpolated, events fire when the playhead reaches them
+//   - the own tank is predicted with the same drive + field collision code as the server
+//     (driveTank / collideTank), reconciled against the server state of the last applied input
+//   - the camera pans with the own tank; first person (V) works as in local play
+
+import type { Pads, Session } from '../app/types'
+import { fpvMove } from '../app/session'
+import type { PadState } from '../input'
+import type { Audio } from '../audio/audio'
+import type { SceneView } from '../render/scene'
+import { TANK } from '../sim/consts'
+import { axesFromForward, v3 } from '../sim/vec'
+import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank } from '../sim/world'
+import * as THREE from 'three/webgpu'
+import { generateMap, type ArenaMap } from './map'
+import { ARENA_PROTO, TF_ALIVE, TF_PROTECT, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
+import { TEAM_COLORS, TURBO_SPEED, type ArenaMode, type PickupKind } from './rules'
+import { ArenaField, collideTank, driveTank, newBody, type ArenaInput, type TankBody } from './sim'
+
+type Snap = Extract<S2C, { t: 's' }>
+type Feed = { at: number; text: string; html: string }
+
+const DELAY = 7
+const SNAP_DIST = 48
+const NAME_KEY = 'tanks-net-name'
+
+export function arenaUrl() {
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/arena`
+}
+
+export class ArenaSession implements Session {
+  readonly kind = 'arena'
+  cursors = [0, 1, 2, 3].map(() => ({ x: 0, y: 0, clamped: false, far: false, visible: false }))
+  status: 'connecting' | 'online' | 'closed' = 'connecting'
+  error = ''
+  mode: ArenaMode
+  pid = 0
+  tankId = 0
+  map: ArenaMap | null = null
+  field: ArenaField | null = null
+  world: World | null = null
+  board: Board | null = null
+  you: YouRec | null = null
+  feed: Feed[] = []
+  /** big centre messages (streaks, match end) */
+  banner: { text: string; until: number } | null = null
+  rtt = 0
+  /** first person heading (set by the app while the view is on) */
+  fpv: { player: number; yaw: number } | null = null
+  /** the in-game menu is open: no input */
+  inputBlocked = false
+  onPause: (() => void) | null = null
+  /** mouse wheel zoom of the following camera */
+  zoom = 0.85
+  /** set when the server changes the map (screen redraws its minimap) */
+  mapVersion = 0
+
+  private ws: WebSocket
+  private snaps: Snap[] = []
+  private a: Snap | null = null
+  private localTick = 0
+  private offset: number | null = null
+  private body: TankBody = newBody()
+  private inputs: ArenaInput[] = []
+  private seq = 0
+  private aim = { x: 0, z: 0 }
+  private err = { x: 0, z: 0 }
+  private predicting = false
+  private mirror = new Map<number, Tank>()
+  private free: Tank[] = []
+  private names = new Map<number, { name: string; team: number; color: string }>()
+  private treadOdo = new Map<Tank, { x: number; z: number; d: number }>()
+  private marks: { id: number; x: number; z: number; color: number }[] = []
+  private markId = 1
+  private pickups: { id: number; x: number; z: number; kind: PickupKind }[] = []
+  private pingTimer: ReturnType<typeof setInterval>
+  private lastFire = false
+  private lastMine = false
+
+  constructor(
+    private view: SceneView,
+    private audio: Audio,
+    name: string,
+    mode: ArenaMode,
+  ) {
+    this.mode = mode
+    try {
+      localStorage.setItem(NAME_KEY, name)
+    } catch {}
+    this.ws = new WebSocket(arenaUrl())
+    this.ws.onopen = () => {
+      this.status = 'online'
+      this.send({ t: 'join', v: ARENA_PROTO, name, mode })
+    }
+    this.ws.onclose = () => {
+      this.status = 'closed'
+      if (!this.error) this.error = 'Disconnected from the server.'
+    }
+    this.ws.onmessage = (e) => this.onMessage(JSON.parse(String(e.data)) as S2C)
+    this.pingTimer = setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000)
+    view.tankLook = (t) => this.lookOf(t)
+  }
+
+  static savedName() {
+    try {
+      return localStorage.getItem(NAME_KEY) ?? ''
+    } catch {
+      return ''
+    }
+  }
+
+  private send(m: C2S) {
+    if (this.ws.readyState === 1) this.ws.send(JSON.stringify(m))
+  }
+
+  dispose() {
+    clearInterval(this.pingTimer)
+    this.send({ t: 'leave' })
+    this.ws.close()
+    this.view.follow = null
+    this.view.tankLook = null
+    this.view.fpv = null
+    this.audio.stopMusic(0.5)
+  }
+
+  // ---- messages ---------------------------------------------------------------------------
+
+  private onMessage(m: S2C) {
+    switch (m.t) {
+      case 'welcome':
+        this.pid = m.pid
+        this.tankId = m.tank
+        this.mode = m.mode
+        this.loadMap(m.seed, m.broken)
+        this.audio.playMusic('RP_TNK_BGM_LOOP2')
+        return
+      case 'map':
+        this.loadMap(m.seed, [])
+        this.marks = []
+        this.audio.playMusic('RP_TNK_BGM_LOOP2')
+        return
+      case 'board':
+        this.board = m
+        for (const p of m.players) this.names.set(p[0], { name: p[1], team: p[2], color: p[3] })
+        return
+      case 's':
+        this.onSnap(m)
+        return
+      case 'pong':
+        this.rtt = this.rtt ? this.rtt * 0.8 + (performance.now() - m.c) * 0.2 : performance.now() - m.c
+        return
+      case 'error':
+        this.error = m.message
+        return
+    }
+  }
+
+  private loadMap(seed: number, broken: [number, number][]) {
+    const map = generateMap(seed, this.mode)
+    for (const [c, r] of broken) map.cells[r][c] = 0
+    this.map = map
+    this.field = new ArenaField(map)
+    const w = new World(1, { size: { cols: map.cols, rows: map.rows }, enemyCap: 100 })
+    w.grid = map.cells.map((row) => row.map((code) => ({ kind: cellKind(code), code, height: cellHeight(code) })))
+    for (const t of [...w.playerTanks, ...w.enemyTanks]) t.age = -999
+    w.tanks = []
+    this.world = w
+    this.mirror.clear()
+    this.free = [...w.enemyTanks]
+    this.snaps = []
+    this.a = null
+    this.inputs = []
+    this.predicting = false
+    this.view.setWorld(w)
+    this.mapVersion++
+  }
+
+  private onSnap(s: Snap) {
+    const o = s.k - this.localTick
+    if (this.offset === null || Math.abs(o - this.offset) > 30) this.offset = o
+    else this.offset += (o - this.offset) * 0.05
+    this.snaps.push(s)
+    this.you = s.you
+    this.reconcile(s.you)
+  }
+
+  // ---- per frame --------------------------------------------------------------------------
+
+  step(pads: Pads) {
+    this.localTick++
+    const w = this.world
+    if (!w || this.offset === null) return
+    const pad = pads.merged
+    this.localInput(pad)
+    // playhead
+    const rt = this.localTick + this.offset - DELAY
+    while (this.snaps.length && this.snaps[0].k <= rt) {
+      const s = this.snaps.shift()!
+      this.applyEvents(s.E)
+      this.a = s
+    }
+    this.applyContinuous(rt, w)
+    w.frame++
+    // the camera follows the own tank (or where it was destroyed)
+    const me = w.playerTanks[0]
+    if (me.active) this.view.follow = { x: me.pos.x, z: me.pos.z }
+    else if (this.a?.you && !this.view.follow) this.view.follow = { x: this.a.you.x, z: this.a.you.z }
+    this.view.followZoom = this.zoom
+    if (this.banner && performance.now() > this.banner.until) this.banner = null
+  }
+
+  hudInput(pad: PadState) {
+    if (pad.pause && !this.inputBlocked) {
+      this.onPause?.()
+      return true
+    }
+    return false
+  }
+
+  /** the own tank for first person */
+  fpvTank(): Tank | null {
+    const t = this.world?.playerTanks[0]
+    return t && t.active ? t : null
+  }
+
+  // ---- input & prediction -----------------------------------------------------------------
+
+  private localInput(pad: PadState) {
+    const you = this.you
+    const blocked = this.inputBlocked
+    const alive = !!you?.alive
+    const b = this.body
+    // aim: the pointer on the turret plane, the right stick around the tank, or the view
+    if (this.fpv) {
+      this.aim = { x: b.pos.x + Math.cos(this.fpv.yaw) * 400, z: b.pos.z + Math.sin(this.fpv.yaw) * 400 }
+    } else if (pad.aimStick && !blocked) {
+      this.aim = { x: b.pos.x + pad.aimStick.x * 250, z: b.pos.z + pad.aimStick.y * 250 }
+    } else if (pad.pointer && !blocked) {
+      const p = this.pointerToWorld(pad.pointer.x, pad.pointer.y)
+      if (p) this.aim = p
+    }
+    const mv = blocked ? { ...pad, moveX: 0, moveY: 0 } : this.fpv ? fpvMove(pad, this.fpv.yaw) : pad
+    const fire = !blocked && pad.fire && !this.lastFire
+    const mine = !blocked && pad.mine && !this.lastMine
+    this.lastFire = pad.fire
+    this.lastMine = pad.mine
+    const inp: ArenaInput = { seq: ++this.seq, mx: mv.moveX, mz: mv.moveY, analog: mv.analog, ax: this.aim.x, az: this.aim.z, fire, mine }
+    this.send({ t: 'i', s: inp.seq, mx: r3(inp.mx), mz: r3(inp.mz), an: inp.analog ? 1 : 0, ax: Math.round(inp.ax), az: Math.round(inp.az), f: fire ? 1 : 0, m: mine ? 1 : 0 })
+    if (!alive || !this.field) {
+      this.predicting = false
+      this.inputs = []
+      return
+    }
+    this.inputs.push(inp)
+    if (this.inputs.length > 120) this.inputs.shift()
+    if (this.predicting) this.predictStep(inp)
+    this.err.x *= 0.85
+    this.err.z *= 0.85
+  }
+
+  private predictStep(inp: ArenaInput) {
+    const b = this.body
+    b.pos.x += b.vel.x
+    b.pos.z += b.vel.z
+    for (const k of [b.acc.p[0], b.acc.p[1], b.acc.v[0], b.acc.v[1]]) k.x = k.y = k.z = 0
+    collideTank(this.field!, b)
+    b.pos.x += b.acc.p[0].x + b.acc.p[1].x
+    b.pos.z += b.acc.p[0].z + b.acc.p[1].z
+    b.vel.x += b.acc.v[0].x + b.acc.v[1].x
+    b.vel.z += b.acc.v[0].z + b.acc.v[1].z
+    driveTank(b, inp, this.you?.power === 'speed' ? TURBO_SPEED : 1)
+  }
+
+  /** server state of the own tank after input `you.a`: replay what came after */
+  private reconcile(you: YouRec) {
+    if (!you.alive || !this.field) {
+      this.predicting = false
+      return
+    }
+    const b = this.body
+    const before = this.predicting ? { x: b.pos.x, z: b.pos.z } : null
+    b.pos.x = you.x
+    b.pos.z = you.z
+    b.vel.x = you.vx
+    b.vel.z = you.vz
+    axesFromForward(b.rot, v3(you.fx, 0, you.fz))
+    b.pc.speed = you.sp
+    b.pc.sign = you.sg
+    b.pc.freeze = you.fr
+    this.inputs = this.inputs.filter((i) => i.seq > you.a)
+    for (const i of this.inputs) this.predictStep(i)
+    if (before) {
+      const dx = before.x - b.pos.x, dz = before.z - b.pos.z
+      if (Math.hypot(dx + this.err.x, dz + this.err.z) > SNAP_DIST) this.err = { x: 0, z: 0 }
+      else this.err = { x: this.err.x + dx, z: this.err.z + dz }
+    }
+    this.predicting = true
+  }
+
+  private ray = new THREE.Raycaster()
+  private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TANK.bodyHeight)
+  private pointerToWorld(px: number, py: number) {
+    const cam = this.view.camera
+    this.ray.setFromCamera(new THREE.Vector2(px * 2 - 1, 1 - py * 2), cam)
+    const out = new THREE.Vector3()
+    return this.ray.ray.intersectPlane(this.plane, out) ? { x: out.x, z: out.z } : null
+  }
+
+  // ---- mirror -----------------------------------------------------------------------------
+
+  private tankFor(id: number): Tank | null {
+    const w = this.world!
+    if (id === this.tankId) return w.playerTanks[0]
+    let t = this.mirror.get(id)
+    if (!t) {
+      t = this.free.pop()
+      if (!t) return null
+      t.ai = { arenaId: id }
+      this.mirror.set(id, t)
+    }
+    return t
+  }
+
+  private lookOf(t: Tank): { base: '1p' | '2p'; color?: string } {
+    const pid = t === this.world?.playerTanks[0] ? this.pid : (t.ai?.pid as number | undefined)
+    const p = pid !== undefined ? this.names.get(pid) : undefined
+    if (!p) return { base: '1p', color: '#8a8a8a' }
+    if (this.mode === 'teams') return { base: p.team === 1 ? '2p' : '1p' }
+    if (p.color === TEAM_COLORS[0]) return { base: '1p' }
+    if (p.color === TEAM_COLORS[1]) return { base: '2p' }
+    return { base: '1p', color: p.color }
+  }
+
+  nameOf(pid: number) {
+    return this.names.get(pid)
+  }
+
+  private applyContinuous(rt: number, w: World) {
+    const A = this.a
+    if (!A) return
+    const B = this.snaps[0]
+    const k = B ? Math.max(0, Math.min(1, (rt - A.k) / (B.k - A.k || 1))) : 0
+    const lerp = (x: number, y: number) => x + (y - x) * k
+    const lerpAng = (x: number, y: number) => {
+      let d = y - x
+      while (d > Math.PI) d -= 2 * Math.PI
+      while (d < -Math.PI) d += 2 * Math.PI
+      return x + d * k
+    }
+    const bT = new Map(B?.T.map((r) => [r[0], r]) ?? [])
+    const tanks: Tank[] = []
+    const seen = new Set<number>()
+    for (const ra of A.T) {
+      const id = ra[0]
+      const t = this.tankFor(id)
+      if (!t) continue
+      seen.add(id)
+      const rb = bT.get(id)
+      const near = rb && Math.hypot(rb[1] - ra[1], rb[2] - ra[2]) < 40
+      if (!t.active) {
+        t.spawn(v3(ra[1], 0, ra[2]), 0)
+        this.treadOdo.delete(t)
+      }
+      t.ai = { ...t.ai, pid: ra[6], flags: ra[5] }
+      t.lives = ra[5] & TF_ALIVE ? 1 : 0
+      if (id === this.tankId && this.predicting) {
+        // own tank: the prediction (+ the decaying correction)
+        const b = this.body
+        t.pos.x = b.pos.x + this.err.x
+        t.pos.z = b.pos.z + this.err.z
+        axesFromForward(t.rot, v3(b.rot.z.x, 0, b.rot.z.z))
+        axesFromForward(t.turretRot, v3(b.turretRot.z.x, 0, b.turretRot.z.z))
+        t.lives = 1
+      } else {
+        t.pos.x = near ? lerp(ra[1], rb![1]) : ra[1]
+        t.pos.z = near ? lerp(ra[2], rb![2]) : ra[2]
+        const body = near ? lerpAng(ra[3], rb![3]) : ra[3]
+        const turret = near ? lerpAng(ra[4], rb![4]) : ra[4]
+        axesFromForward(t.rot, v3(Math.cos(body), 0, Math.sin(body)))
+        axesFromForward(t.turretRot, v3(Math.cos(turret), 0, Math.sin(turret)))
+      }
+      // spawn protection blinks
+      const prot = ra[5] & TF_PROTECT
+      t.state = prot && Math.floor(this.localTick / 4) % 4 === 0 ? 2 : 1
+      t.stealth = !!prot
+      this.tread(t)
+      tanks.push(t)
+    }
+    // the own tank keeps moving with the prediction even before the playhead has it
+    const me = w.playerTanks[0]
+    if (this.predicting && !seen.has(this.tankId) && this.you?.alive) {
+      if (!me.active) me.spawn(v3(this.body.pos.x, 0, this.body.pos.z), 0)
+      me.lives = 1
+      me.pos.x = this.body.pos.x
+      me.pos.z = this.body.pos.z
+      axesFromForward(me.rot, v3(this.body.rot.z.x, 0, this.body.rot.z.z))
+      axesFromForward(me.turretRot, v3(this.body.turretRot.z.x, 0, this.body.turretRot.z.z))
+      seen.add(this.tankId)
+      tanks.push(me)
+    }
+    for (const [id, t] of this.mirror)
+      if (!seen.has(id)) {
+        t.age = -999
+        this.mirror.delete(id)
+        this.free.push(t)
+      }
+    if (!seen.has(this.tankId) && me.active) me.age = -999
+    w.tanks = tanks
+    // shells
+    const bS = new Map(B?.S.map((r) => [r[0], r]) ?? [])
+    w.bullets = A.S.map((s) => {
+      const n = bS.get(s[0])
+      const near = n && Math.hypot(n[1] - s[1], n[2] - s[2]) < 30
+      const x = near ? lerp(s[1], n![1]) : s[1]
+      const z = near ? lerp(s[2], n![2]) : s[2]
+      const vx = near ? n![3] : s[3]
+      const vz = near ? n![4] : s[4]
+      return { id: s[0], pos: v3(x, TANK.bodyHeight, z), vel: v3(vx, 0, vz), smokeType: s[5] } as unknown as Shell
+    })
+    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3] }) as unknown as Mine)
+    w.explosions = []
+    w.checkMarks = this.marks.map((m) => ({ id: m.id, pos: v3(m.x, 0.2, m.z), color: m.color }) as unknown as World['checkMarks'][number])
+    this.pickups = A.K.map((k) => ({ id: k[0], x: k[1], z: k[2], kind: k[3] }))
+    // mine fuse beeps
+    for (const m of A.M) if (m[3] && Math.floor(this.localTick / 8) % 4 === 0) this.sound('RP_TNK_SE_JIRAI_TIMER', m[1], m[2], 0.6)
+  }
+
+  /** tread marks every 10 units of travel (RPTnkTank::DrawTreadMark) */
+  private tread(t: Tank) {
+    const o = this.treadOdo.get(t)
+    if (!o) return void this.treadOdo.set(t, { x: t.pos.x, z: t.pos.z, d: 0 })
+    const dx = t.pos.x - o.x, dz = t.pos.z - o.z
+    const d = Math.hypot(dx, dz)
+    if (d > 60) return void this.treadOdo.set(t, { x: t.pos.x, z: t.pos.z, d: 0 })
+    o.d += d
+    o.x = t.pos.x
+    o.z = t.pos.z
+    if (o.d >= 10 && d > 0) {
+      o.d -= 10
+      this.view.onEvents([{ t: 'tread', tank: t, pos: v3(t.pos.x - (dx / d) * 4, 0, t.pos.z - (dz / d) * 4), dir: v3(-dx / d, 0, -dz / d) }])
+    }
+  }
+
+  get pickupList() {
+    return this.pickups
+  }
+
+  // ---- events -----------------------------------------------------------------------------
+
+  private sound(name: string, x: number, z: number, vol = 1) {
+    const f = this.view.follow ?? { x: 0, z: 0 }
+    const d = Math.hypot(x - f.x, z - f.z)
+    const v = Math.max(0, 1 - d / 1300) ** 1.5 * vol
+    if (v < 0.03) return
+    this.audio.play(name, { volume: v, pan: Math.max(-0.8, Math.min(0.8, (x - f.x) / 800)) })
+  }
+
+  private applyEvents(E: NetEv[]) {
+    const w = this.world!
+    const sim: SimEvent[] = []
+    for (const e of E) {
+      switch (e[0]) {
+        case 'shot': {
+          const t = this.tankFor(e[1])
+          const mine = e[1] === this.tankId
+          if (t?.active) sim.push({ t: 'shoot', tank: t, bullet: {} as Shell })
+          this.sound(e[4] ? 'RP_TNK_SE_SHOOT_ENEMY8' : mine ? 'RP_TNK_SE_SHOOT_1P' : 'RP_TNK_SE_SHOOT_2P', e[2], e[3], mine ? 1 : 0.7)
+          break
+        }
+        case 'ric':
+          sim.push({ t: 'ricochet', bullet: {} as Shell, pos: v3(e[1], TANK.bodyHeight, e[2]), super: false })
+          this.sound('RP_TNK_SE_REFLECT', e[1], e[2])
+          break
+        case 'die':
+          sim.push({ t: 'bulletDie', bullet: {} as Shell, pos: v3(e[1], TANK.bodyHeight, e[2]), reason: e[3] ? 'wall' : 'tank' })
+          if (e[3]) this.sound('RP_TNK_SE_BROKEN', e[1], e[2], 0.8)
+          break
+        case 'clash':
+          sim.push({ t: 'bulletDie', bullet: {} as Shell, pos: v3(e[1], TANK.bodyHeight, e[2]), reason: 'wall' })
+          this.sound('RP_TNK_SE_BROKEN', e[1], e[2], 0.8)
+          break
+        case 'kill': {
+          const [, id, x, z, victim, killer, cause, streak] = e
+          const t = this.tankFor(id)
+          if (t) {
+            t.pos.x = x
+            t.pos.z = z
+            t.ai = { ...t.ai, pid: victim }
+            sim.push({ t: 'tankDie', tank: t, by: 0, cause: cause as 'shell' | 'mine', killer: null })
+            if (id === this.tankId) this.predicting = false
+          }
+          const v = this.names.get(victim)
+          const color = this.mode === 'teams' ? (v?.team ?? 9) : 9
+          this.marks.push({ id: this.markId++, x, z, color })
+          if (this.marks.length > 60) this.marks.shift()
+          this.sound('RP_TNK_SE_HIT', x, z, 1)
+          this.killFeed(victim, killer, cause, streak)
+          break
+        }
+        case 'mset':
+          this.sound('RP_TNK_SE_JIRAI_SET', e[1], e[2])
+          break
+        case 'fuse':
+          break
+        case 'boom':
+          sim.push({ t: 'mineExplode', mine: { pos: v3(e[1], 0, e[2]) } as Mine })
+          this.sound('RP_TNK_SE_JIRAI_EXP', e[1], e[2])
+          break
+        case 'brk': {
+          const [, c, r, h] = e
+          if (this.field) this.field.code[r * this.field.cols + c] = 0
+          const g = w.grid[r]?.[c]
+          if (g) {
+            g.kind = 0
+            g.code = 0
+            g.height = 0
+          }
+          if (this.map) this.map.cells[r][c] = 0
+          sim.push({ t: 'blockBreak', cx: c, cz: r, height: h })
+          this.mapVersion++
+          break
+        }
+        case 'pick': {
+          const [, id, kind, x, z] = e
+          if (id === this.tankId) {
+            this.audio.play('RP_TNK_SE_TNK1UP')
+            this.banner = { text: `${PICKUP_LABEL[kind as PickupKind] ?? kind}!`, until: performance.now() + 1500 }
+          } else this.sound('RP_TNK_SE_GET_TNKNUM', x, z, 0.6)
+          break
+        }
+        case 'shit':
+          this.sound('RP_TNK_SE_REFLECT_SUPER', e[2], e[3])
+          break
+        case 'spawn':
+          if (e[1] === this.tankId) {
+            this.view.follow = { x: e[2], z: e[3] }
+            this.audio.play('RP_TNK_SE_GAMESTART')
+          }
+          break
+        case 'match':
+          if (e[1] === 'over') {
+            this.audio.stopMusic(0.3)
+            this.audio.playMusic('RP_TNK_BGM_RESULT2')
+          }
+          break
+      }
+    }
+    if (sim.length) this.view.onEvents(sim)
+  }
+
+  private killFeed(victim: number, killer: number, cause: string, streak: number) {
+    const v = this.names.get(victim)
+    const k = this.names.get(killer)
+    const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+    const tag = (p: { name: string; color: string } | undefined, pid: number) =>
+      p ? `<b style="color:${p.color}" class="${pid === this.pid ? 'me' : ''}">${esc(p.name)}</b>` : '<b>?</b>'
+    const how = cause === 'mine' ? '💥' : '•'
+    let html: string
+    let text: string
+    if (killer === victim) {
+      html = `${tag(v, victim)} <i>${cause === 'mine' ? 'stepped on their own mine' : 'hit their own shell'}</i>`
+      text = `${v?.name} self-destructed`
+    } else if (!killer) {
+      html = `${tag(v, victim)} <i>was destroyed</i>`
+      text = `${v?.name} was destroyed`
+    } else {
+      html = `${tag(k, killer)} <span class="how">${how}</span> ${tag(v, victim)}`
+      text = `${k?.name} destroyed ${v?.name}`
+    }
+    this.feed.push({ at: performance.now(), text, html })
+    if (this.feed.length > 6) this.feed.shift()
+    if (killer === this.pid && victim !== this.pid) {
+      const word = STREAKS[streak]
+      this.banner = { text: word ? `${word}` : `Destroyed ${v?.name ?? ''}`, until: performance.now() + 1600 }
+      this.audio.play(streak >= 3 ? 'RP_TNK_SE_MISSION_BONUS' : 'RP_TNK_SE_GET_HIT')
+    } else if (victim === this.pid) {
+      this.banner = { text: killer === victim ? 'Oops!' : `Destroyed by ${k?.name ?? '?'}`, until: performance.now() + 2600 }
+    }
+  }
+}
+
+const r3 = (v: number) => Math.round(v * 1000) / 1000
+const STREAKS: Record<number, string> = { 3: 'Triple!', 5: 'Rampage!', 8: 'Unstoppable!', 12: 'Tank legend!' }
+export const PICKUP_LABEL: Record<PickupKind, string> = { rocket: 'Rockets', bounce: 'Ricochet', shield: 'Shield', speed: 'Turbo' }

@@ -350,7 +350,7 @@ export class App implements AppContext {
     ctx.clearRect(0, 0, W, H)
     const demo = this.session.kind === 'demo'
     // the results screen replaces the layouts' result list
-    if (!this.router.opaque && !demo && this.router.id !== 'results') {
+    if (!this.router.opaque && !demo && this.router.id !== 'results' && this.session.kind !== 'arena') {
       const lh = this.view.layoutHalf
       ctx.imageSmoothingQuality = this.classic ? 'low' : 'high'
       ctx.setTransform(W / (2 * lh.x), 0, 0, -H / (2 * lh.y), W / 2, H / 2)
@@ -408,12 +408,19 @@ export class App implements AppContext {
     })
   }
 
+  /** [arena] sessions with their own world name the first-person tank */
+  private fpvSession() {
+    const s = this.session as Session & { fpvTank?: () => Tank | null; fpv?: { player: number; yaw: number } | null }
+    return s.fpvTank ? s : null
+  }
+
   private fpvActive() {
+    if (this.fpvSession()) return this.fpvOn && !this.router.modal
     return this.fpvOn && this.session instanceof LocalSession && !this.router.modal && !this.game.paused && this.game.state !== 0
   }
 
   toggleFpv(on = !this.fpvOn) {
-    if (!(this.session instanceof LocalSession) || this.game.state === 0) on = false
+    if (!this.fpvSession() && (!(this.session instanceof LocalSession) || this.game.state === 0)) on = false
     this.fpvOn = on
     this.fpvLook.tank = null
     if (on) this.stage.requestPointerLock?.()
@@ -425,9 +432,11 @@ export class App implements AppContext {
   /** per frame: mouse / right stick turn the view; the session aims and drives along it */
   private updateFpv(pad: PadState) {
     const s = this.session
-    const t = this.game.world?.playerTanks[0]
+    const own = this.fpvSession()
+    const t = own ? own.fpvTank!() : this.game.world?.playerTanks[0]
     const active = this.fpvActive() && !!t
     if (s instanceof LocalSession) s.fpv = null
+    if (own) own.fpv = null
     if (!active || !t) {
       this.view.fpv = null
       this.crosshair.classList.remove('on')
@@ -445,7 +454,7 @@ export class App implements AppContext {
     L.yaw += look.x * 0.0028
     L.pitch = Math.max(-0.7, Math.min(0.25, L.pitch - look.y * 0.002))
     if (pad.aimStick) L.yaw += pad.aimStick.x * 0.06
-    ;(s as LocalSession).fpv = { player: 0, yaw: L.yaw }
+    ;(own ?? (s as LocalSession)).fpv = { player: 0, yaw: L.yaw }
     this.view.fpv = { player: 0, yaw: L.yaw, pitch: L.pitch }
     this.crosshair.classList.toggle('on', t.alive)
   }

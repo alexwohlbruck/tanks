@@ -39,6 +39,7 @@ class MenuScreen extends WebScreen {
           'div.menu-grid',
           null,
           button('Campaign', { icon: 'campaign', hint: 'Classic Wii missions', class: 'primary big', autofocus: true, onclick: () => this.setPage('campaign') }),
+          button('Arena', { icon: 'arena', hint: 'Massive online battles', class: 'primary', disabled: !this.app.hasScreen('arena'), onclick: () => this.open('arena') }),
           button('Online', { icon: 'online', hint: 'Play with friends', disabled: !this.app.hasScreen('lobby'), badge: this.soon('lobby'), onclick: () => this.open('lobby') }),
           button('Level Editor', { icon: 'editor', hint: 'Build your own', disabled: !this.app.hasScreen('editor'), badge: this.soon('editor'), onclick: () => this.open('editor') }),
           button('Community Levels', { icon: 'store', hint: 'Play shared levels', disabled: !this.app.hasScreen('store'), badge: this.soon('store'), onclick: () => this.open('store') }),

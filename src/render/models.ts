@@ -287,6 +287,13 @@ export class Models {
 
   private floorMat: THREE.Material | null = null
 
+  /** [arena] the floor's face / lower textures for the current options (hi-res when loaded) */
+  floorTex(): [THREE.Texture, THREE.Texture] {
+    const hires = this.opts.hires && this.hires.available
+    const [face, lower] = this.floorTextures
+    return hires ? [this.hiresFor(face)!, this.hiresFor(lower)!] : [face, lower]
+  }
+
   /** tnk_field_mat TEV: lerp(floor_lower, floor_face, caterpillar capture); the capture
    *  texture can be swapped later with setTreadTexture */
   private floorMaterial(tread: THREE.Texture) {

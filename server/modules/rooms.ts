@@ -399,3 +399,6 @@ setInterval(() => {
 
 /** for tests: live rooms */
 export const _rooms = rooms
+
+/** the disc's game data (shared with the arena module) */
+export { data as loadGameData, ipOf }

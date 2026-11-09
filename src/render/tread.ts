@@ -114,6 +114,11 @@ export class TreadCapture {
     this.marks.set('p4', drawPlayerMark('p4'))
   }
 
+  /** a loaded mark image ([arena] the big field stamps its own chunks) */
+  markImage(k: string) {
+    return this.marks.get(k) ?? this.marks.get('1p')
+  }
+
   /** add or replace a mark image (registered tank types) */
   setMark(k: TreadMark | string, im: Mark) {
     this.marks.set(k, im)

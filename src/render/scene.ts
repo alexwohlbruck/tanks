@@ -13,6 +13,7 @@ import { QUALITY_PRESETS, type Quality, type RenderOptions } from './quality'
 import { defaultTankVisual, registryVersion, tankVisual, tileFactory, type BaseModel, type TileResult } from './registry'
 import { TilesView } from './tiles'
 import { TreadCapture } from './tread'
+import { BigField } from './bigfield'
 
 // RPTnkScene::CreateCamerasAndScreens: orthographic view of the 832x456 (16:9) or 608x456 (4:3)
 // screen at scale 1.125, in world units. The Wii output is anamorphic, so the 16:9 view is
@@ -95,6 +96,15 @@ export class SceneView {
   private hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 0)
   private key = new THREE.DirectionalLight(0xffffff, 0)
   private lookCache = new Map<string, Look>()
+  /** [arena] a field bigger than the disc's: tiled floor with chunked tread marks */
+  private big: BigField | null = null
+  /** [arena] the fixed camera pans to keep this point in the middle of the view */
+  follow: { x: number; z: number } | null = null
+  /** [arena] ortho zoom of the following camera (1 = the original framing) */
+  followZoom = 1
+  private camBase = new THREE.Vector3()
+  /** [arena] per-tank livery: the 1p / 2p model, or the 1p model recoloured */
+  tankLook: ((t: Tank) => { base: '1p' | '2p'; color?: string } | null) | null = null
   private lookVersion = -1
   private frame = 0
 
@@ -121,6 +131,7 @@ export class SceneView {
     await Promise.all([this.renderer.init(), this.tread.load(null), this.fx.load(), this.cursorFx.load()])
     this.renderer.autoClear = false
     this.models.frameCamera(this.camera)
+    this.camBase.copy(this.camera.position)
     this.deriveCursors()
     // dev/testing: ?quality=classic|high|ultra (the settings menu calls setQuality itself)
     const q = new URLSearchParams(location.search).get('quality')
@@ -216,6 +227,7 @@ export class SceneView {
     await this.tiles.setOptions(opts, m.hires)
     this.quality = q
     this.options = opts
+    this.big?.setOptions(opts)
     this.applyLights()
     this.applyPixelRatio()
     // rebuild everything that holds materials
@@ -317,6 +329,19 @@ export class SceneView {
       this.lookCache.clear()
       this.lookVersion = registryVersion()
     }
+    const custom = this.tankLook?.(t)
+    if (custom) {
+      const id = `a${custom.base}${custom.color ?? ''}`
+      let l = this.lookCache.get(id)
+      if (!l) {
+        const p = custom.base === '2p' ? 1 : 0
+        l = custom.color
+          ? { look: { key: id, base: '1p', livery: custom.color }, tread: '1p', piece: rgb(custom.color) }
+          : { look: { key: `p${p}`, base: custom.base }, tread: custom.base, piece: TANK_PIECE_COLORS[p] }
+        this.lookCache.set(id, l)
+      }
+      return l
+    }
     const id = t.isEnemy ? `e${t.type}` : `p${t.team}`
     let l = this.lookCache.get(id)
     if (l) return l
@@ -352,7 +377,23 @@ export class SceneView {
   setWorld(world: World) {
     this.world = world
     const aspect = world.width === 22 ? '16_9' : '4_3'
-    if (!this.fieldObj || aspect !== this.fieldAspect) {
+    const big = world.width !== 22 && world.width !== 16
+    if (this.big && (!big || this.big.width !== world.field.width + 70 || this.big.depth !== world.field.depth + 70)) {
+      this.stage.remove(this.big.group)
+      this.big.dispose()
+      this.big = null
+      this.fieldObj = null
+    }
+    if (big) {
+      if (this.fieldObj && !this.big) this.stage.remove(this.fieldObj)
+      if (!this.big) {
+        this.big = new BigField(this.models, this.tread, world.field.width + 70, world.field.depth + 70)
+        this.big.setOptions(this.options)
+        this.stage.add(this.big.group)
+        this.fieldObj = this.big.group
+      }
+      this.big.clear()
+    } else if (!this.fieldObj || aspect !== this.fieldAspect) {
       this.fieldAspect = aspect
       this.tread.setSize(aspect)
       if (this.fieldObj) this.stage.remove(this.fieldObj)
@@ -425,7 +466,8 @@ export class SceneView {
     for (const e of ev) {
       switch (e.t) {
         case 'tread':
-          this.tread.stamp(this.lookOf(e.tank).tread, e.pos.x, e.pos.z, e.dir.x, e.dir.z)
+          if (this.big) this.big.stamp(this.lookOf(e.tank).tread, e.pos.x, e.pos.z, e.dir.x, e.dir.z)
+          else this.tread.stamp(this.lookOf(e.tank).tread, e.pos.x, e.pos.z, e.dir.x, e.dir.z)
           break
         case 'blockBreak': {
           // RPTnkBlock::SpawnBreakEffect: one per 2 half-cells of height, 35 apart
@@ -546,6 +588,20 @@ export class SceneView {
 
   render() {
     this.tread.flush()
+    this.big?.flush()
+    // [arena] the fixed view pans with the player (and the key light's shadow box with it)
+    const f = this.follow
+    const cam0 = this.camera
+    cam0.position.set(this.camBase.x + (f?.x ?? 0), this.camBase.y, this.camBase.z + (f?.z ?? 0))
+    if (cam0.zoom !== (f ? this.followZoom : 1)) {
+      cam0.zoom = f ? this.followZoom : 1
+      cam0.updateProjectionMatrix()
+    }
+    cam0.updateMatrixWorld()
+    this.key.position.copy(KEY_DIR).multiplyScalar(2000)
+    this.key.target.position.set(f?.x ?? 0, 0, f?.z ?? 0)
+    this.key.position.add(this.key.target.position)
+    this.key.target.updateMatrixWorld()
     this.models.setTreadTexture(this.tread.texture)
     this.renderer.clear()
     const cam = this.activeCamera()

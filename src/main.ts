@@ -2,6 +2,7 @@ import { App } from './app/app'
 // screens (each registers itself)
 import './editor'
 import './store'
+import './arena/screen'
 
 const app = new App(
   document.getElementById('stage')!,

@@ -236,9 +236,10 @@ export class Field {
   cellD: number
   walls: Wall[]
 
-  constructor(aspect: keyof typeof FIELD = '16_9') {
+  /** `size`: [arena] a bigger field of 35-unit cells (not in the original) */
+  constructor(aspect: keyof typeof FIELD = '16_9', size?: { cols: number; rows: number }) {
     // RPTnkField::Reset
-    const f = FIELD[aspect]
+    const f = size ? { width: size.cols * 35, depth: size.rows * 35, cols: size.cols, rows: size.rows } : FIELD[aspect]
     this.width = f.width
     this.depth = f.depth
     this.cols = f.cols
