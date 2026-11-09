@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+rom/
+*.rvz
+*.iso
+# generated from the ROM by tools/build_assets.sh
+public/assets/
+public/ref-*.png
+__pycache__/
+*.pyc

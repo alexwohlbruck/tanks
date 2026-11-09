@@ -1,0 +1,489 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tanks! UI preview</title>
+<style>
+  body { background:#222; color:#ddd; font:13px sans-serif; margin:8px; }
+  #controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:6px; }
+  #anims label { margin-right:10px; white-space:nowrap; }
+  canvas { background:#4a5a4a; image-rendering:auto; display:block; }
+  .cell { display:inline-block; margin:4px; vertical-align:top; }
+  .cell div { font-size:12px; color:#ccc; }
+  #gallery { line-height:0; }
+  #gallery .cell div { line-height:16px; }
+  #info { white-space:pre-wrap; font-size:12px; color:#aaa; max-width:1000px; }
+</style>
+</head>
+<body>
+<div id="controls">
+  <select id="layoutSel"></select>
+  <span>frame <input id="frame" type="range" min="0" max="100" value="0" style="width:300px"> <span id="frameLbl">0</span></span>
+  <button id="play">play</button>
+  <label><input type="checkbox" id="bind" checked> US text</label>
+  <label><input type="checkbox" id="bounds"> pane bounds</label>
+  <label><input type="checkbox" id="infl" checked> nw4r alpha (uncheck: force inherit)</label>
+  <a href="?gallery=tanks">tanks gallery</a> <a href="?gallery=shared">shared gallery</a> <a href="?">single</a>
+</div>
+<div id="anims"></div>
+<div id="info"></div>
+<div id="main"></div>
+<div id="gallery"></div>
+<script>
+'use strict';
+// ---------------------------------------------------------------- loading
+const cache = { json: {}, img: {} };
+async function getJSON(p) {
+  if (!cache.json[p]) cache.json[p] = fetch(p).then(r => { if (!r.ok) throw new Error(p); return r.json(); });
+  return cache.json[p];
+}
+function getImageData(p) {
+  if (!cache.img[p]) cache.img[p] = new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+      const x = c.getContext('2d'); x.drawImage(im, 0, 0);
+      res(x.getImageData(0, 0, im.width, im.height));
+    };
+    im.onerror = () => rej(new Error(p));
+    im.src = p;
+  });
+  return cache.img[p];
+}
+let MSG = {};
+async function loadMessages() {
+  for (const f of ['messages/party_message.json', 'messages/common_message.json']) {
+    const b = await getJSON(f);
+    for (const m of b.messages) if (!(m.idHex in MSG)) MSG[m.idHex] = m.text;
+  }
+}
+async function loadLayout(name, manifest) {
+  const L = await getJSON(manifest.layouts[name].file);
+  const res = { L, tex: {}, fonts: [], anims: {} };
+  for (const f of L.textureFiles) if (f) res.tex[f] = await getImageData(f);
+  for (const f of L.fontFiles) {
+    const fj = await getJSON(f);
+    res.fonts.push({ info: fj, img: await getImageData(fj.image) });
+  }
+  for (const a of manifest.layouts[name].anims) {
+    const A = await getJSON('anims/' + a + '.json');
+    res.anims[a] = A;
+    for (const f of A.textureFiles || []) if (f) res.tex[f] = await getImageData(f);
+  }
+  return res;
+}
+
+// ---------------------------------------------------------------- animation
+function hermite(k0, k1, f) {
+  const d = k1[0] - k0[0], t = (f - k0[0]) / d, t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * k0[1] + (t3 - 2 * t2 + t) * d * k0[2]
+       + (-2 * t3 + 3 * t2) * k1[1] + (t3 - t2) * d * k1[2];
+}
+function evalTarget(tg, f) {
+  const k = tg.keys;
+  if (!k.length) return null;
+  if (tg.curve === 'step') { let v = k[0][1]; for (const e of k) if (f >= e[0]) v = e[1]; return v; }
+  if (f <= k[0][0]) return k[0][1];
+  if (f >= k[k.length - 1][0]) return k[k.length - 1][1];
+  for (let i = 0; i < k.length - 1; i++)
+    if (f >= k[i][0] && f < k[i + 1][0]) return hermite(k[i], k[i + 1], f);
+  return k[k.length - 1][1];
+}
+const clamp8 = v => Math.max(0, Math.min(255, Math.round(v)));
+// bindPane: like RPSysLayout::bindAnmObjToPane(anm, pane, recursive=true) - only that pane's subtree
+// (and the materials its panes use) is animated. Omitted = Layout::BindAnimation (whole layout).
+function applyAnim(L, A, frame, bindPane) {
+  const panes = {}, mats = {};
+  let root = L.root;
+  if (bindPane) (function f(p) { if (p.name === bindPane) root = p; else p.children.forEach(f); })(L.root);
+  (function w(p) {
+    panes[p.name] = p;
+    for (const mi of [p.material, p.content && p.content.material, ...(p.frames || []).map(f => f.material)])
+      if (mi !== undefined && mi !== null && L.materials[mi]) mats[L.materials[mi].name] = L.materials[mi];
+    p.children.forEach(w);
+  })(root);
+  for (const e of A.entries) {
+    for (const tag of e.tags) for (const tg of tag.targets) {
+      const v = evalTarget(tg, frame); if (v === null) continue;
+      const t = tg.target;
+      if (tag.type === 'RLPA') { const p = panes[e.name]; if (!p) continue;
+        if (t <= 2) p.translate[t] = v; else if (t <= 5) p.rotate[t - 3] = v;
+        else if (t <= 7) p.scale[t - 6] = v; else p.size[t - 8] = v; }
+      else if (tag.type === 'RLVC') { const p = panes[e.name]; if (!p) continue;
+        if (t === 16) { p.alpha = clamp8(v); continue; }
+        const corner = t >> 2, ch = t & 3;
+        if (p.type === 'pic') p.vertexColors[corner][ch] = clamp8(v);
+        else if (p.type === 'wnd') p.content.vertexColors[corner][ch] = clamp8(v);
+        else if (p.type === 'txt') (corner < 2 ? p.topColor : p.bottomColor)[ch] = clamp8(v); }
+      else if (tag.type === 'RLVI') { const p = panes[e.name]; if (p) p.visible = !!v; }
+      else if (tag.type === 'RLMC') { const m = mats[e.name]; if (!m) continue;
+        const grp = t >> 2, ch = t & 3;
+        if (grp === 0) m.materialColor[ch] = clamp8(v);
+        else if (grp <= 3) m.tevColors[grp - 1][ch] = v;
+        else m.konstColors[grp - 4][ch] = clamp8(v); }
+      else if (tag.type === 'RLTS') { const m = mats[e.name]; if (!m || !m.texSRT[tg.index]) continue;
+        const s = m.texSRT[tg.index];
+        if (t <= 1) s.translate[t] = v; else if (t === 2) s.rotate = v; else s.scale[t - 3] = v; }
+      else if (tag.type === 'RLTP') { const m = mats[e.name]; if (!m || !m.texMaps[tg.index]) continue;
+        m.texMaps[tg.index].file = A.textureFiles[v]; }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- shading
+// Software TEV for the default nw4r material: out = lerp(C0, C1, tex) * vertexColor * matColor.
+const shadeCache = new Map();
+function texFileOf(R, m, i) { const tm = m.texMaps[i]; return tm ? (tm.file || R.L.textureFiles[tm.texture]) : null; }
+function wrapc(x, n, mode) {
+  if (mode === 'repeat') { x %= n; return x < 0 ? x + n : x; }
+  if (mode === 'mirror') { const p = 2 * n; x %= p; if (x < 0) x += p; return x < n ? x : p - 1 - x; }
+  return x < 0 ? 0 : x >= n ? n - 1 : x;
+}
+function texMtx(srt) {
+  if (!srt) return [1, 0, 0, 0, 1, 0];
+  const r = srt.rotate * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  const a = srt.scale[0] * c, b = -srt.scale[1] * s, d = srt.scale[0] * s, e = srt.scale[1] * c;
+  return [a, b, srt.translate[0] + 0.5 - 0.5 * a - 0.5 * b, d, e, srt.translate[1] + 0.5 - 0.5 * d - 0.5 * e];
+}
+// returns a canvas of rw x rh pixels; tc = 4 corner texcoords [TL,TR,BL,BR] or null; vc = 4 vertex colours
+function shadeQuad(R, m, tc, vc, rw, rh) {
+  const file = texFileOf(R, m, 0);
+  const key = JSON.stringify([file, m.tevColors, m.materialColor, m.texSRT[0], m.texMaps[0] && [m.texMaps[0].wrapS, m.texMaps[0].wrapT], tc, vc, rw, rh]);
+  let c = shadeCache.get(key); if (c) return c;
+  c = document.createElement('canvas'); c.width = rw; c.height = rh;
+  const x = c.getContext('2d'), out = x.createImageData(rw, rh), o = out.data;
+  const T = file ? R.tex[file] : null;
+  const [c0, c1] = m.tevColors, mc = m.materialColor;
+  const M = texMtx(m.texSRT[0]);
+  const ws = m.texMaps[0] ? m.texMaps[0].wrapS : 'clamp', wt = m.texMaps[0] ? m.texMaps[0].wrapT : 'clamp';
+  const t = tc || [[0, 0], [1, 0], [0, 1], [1, 1]];
+  for (let py = 0; py < rh; py++) {
+    const fy = (py + 0.5) / rh;
+    for (let px = 0; px < rw; px++) {
+      const fx = (px + 0.5) / rw;
+      let tr = 255, tg = 255, tb = 255, ta = 255;
+      if (T) {
+        const u0 = t[0][0] + (t[1][0] - t[0][0]) * fx, u1 = t[2][0] + (t[3][0] - t[2][0]) * fx;
+        const v0 = t[0][1] + (t[1][1] - t[0][1]) * fx, v1 = t[2][1] + (t[3][1] - t[2][1]) * fx;
+        const u = u0 + (u1 - u0) * fy, v = v0 + (v1 - v0) * fy;
+        const uu = M[0] * u + M[1] * v + M[2], vv = M[3] * u + M[4] * v + M[5];
+        // bilinear sample
+        const sx = uu * T.width - 0.5, sy = vv * T.height - 0.5;
+        const ix = Math.floor(sx), iy = Math.floor(sy), ax = sx - ix, ay = sy - iy;
+        const x0 = wrapc(ix, T.width, ws), x1 = wrapc(ix + 1, T.width, ws);
+        const y0 = wrapc(iy, T.height, wt), y1 = wrapc(iy + 1, T.height, wt);
+        const d = T.data, W = T.width;
+        const i00 = (y0 * W + x0) * 4, i10 = (y0 * W + x1) * 4, i01 = (y1 * W + x0) * 4, i11 = (y1 * W + x1) * 4;
+        const w00 = (1 - ax) * (1 - ay), w10 = ax * (1 - ay), w01 = (1 - ax) * ay, w11 = ax * ay;
+        tr = d[i00] * w00 + d[i10] * w10 + d[i01] * w01 + d[i11] * w11;
+        tg = d[i00 + 1] * w00 + d[i10 + 1] * w10 + d[i01 + 1] * w01 + d[i11 + 1] * w11;
+        tb = d[i00 + 2] * w00 + d[i10 + 2] * w10 + d[i01 + 2] * w01 + d[i11 + 2] * w11;
+        ta = d[i00 + 3] * w00 + d[i10 + 3] * w10 + d[i01 + 3] * w01 + d[i11 + 3] * w11;
+      }
+      let r, g, b, a;
+      if (T) {
+        r = c0[0] + (c1[0] - c0[0]) * tr / 255; g = c0[1] + (c1[1] - c0[1]) * tg / 255;
+        b = c0[2] + (c1[2] - c0[2]) * tb / 255; a = c0[3] + (c1[3] - c0[3]) * ta / 255;
+      } else { r = c1[0]; g = c1[1]; b = c1[2]; a = c1[3]; }  // untextured: TEV sees white -> C1
+      // vertex colour, bilinear over the quad
+      const k = i => (vc[0][i] + (vc[1][i] - vc[0][i]) * fx) * (1 - fy) + (vc[2][i] + (vc[3][i] - vc[2][i]) * fx) * fy;
+      const q = (py * rw + px) * 4;
+      o[q] = r * k(0) * mc[0] / 65025; o[q + 1] = g * k(1) * mc[1] / 65025;
+      o[q + 2] = b * k(2) * mc[2] / 65025; o[q + 3] = a * k(3) * mc[3] / 65025;
+    }
+  }
+  x.putImageData(out, 0, 0);
+  if (shadeCache.size > 3000) shadeCache.clear();
+  shadeCache.set(key, c);
+  return c;
+}
+const glyphCache = new Map();
+function shadeGlyph(F, g, m, top, bot) {
+  const key = F.info.name + ':' + g.index + ':' + m.tevColors[0] + m.tevColors[1] + ':' + top + ':' + bot + ':' + m.materialColor;
+  let c = glyphCache.get(key); if (c) return c;
+  const w = Math.max(1, g.glyphWidth), h = F.info.cellHeight;
+  c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d'), out = x.createImageData(w, h), o = out.data;
+  const d = F.img.data, W = F.img.width, [c0, c1] = m.tevColors, mc = m.materialColor;
+  for (let py = 0; py < h; py++) {
+    const fy = (py + 0.5) / h, vc = [0, 1, 2, 3].map(i => top[i] + (bot[i] - top[i]) * fy);
+    for (let px = 0; px < w; px++) {
+      const s = ((g.y + py) * W + g.x + px) * 4, q = (py * w + px) * 4;
+      for (let i = 0; i < 4; i++) {
+        const tv = d[s + (i === 3 ? 3 : i)] / 255;
+        o[q + i] = (c0[i] + (c1[i] - c0[i]) * tv) * vc[i] * mc[i] / 65025;
+      }
+    }
+  }
+  x.putImageData(out, 0, 0);
+  if (glyphCache.size > 5000) glyphCache.clear();
+  glyphCache.set(key, c);
+  return c;
+}
+
+// ---------------------------------------------------------------- drawing
+const opts = { bind: true, bounds: false, infl: true };
+function paneRect(p) {
+  const [w, h] = p.size, hx = p.origin % 3, vy = Math.floor(p.origin / 3);
+  return { x: -w * hx / 2, top: h * vy / 2, w, h };   // y-up: rect spans top .. top-h
+}
+// blit src (sub)image to a y-up rect whose top-left is (x, top)
+function blit(ctx, img, sx, sy, sw, sh, x, top, w, h) {
+  if (!sw || !sh || !w || !h) return;
+  ctx.save(); ctx.translate(x, top); ctx.scale(w / sw, -h / sh);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh); ctx.restore();
+}
+function screenScale(ctx) {
+  const t = ctx.getTransform();
+  return [Math.hypot(t.a, t.b), Math.hypot(t.c, t.d)];
+}
+function resolveText(R, p) {
+  const b = opts.bind && R.L.textBindings && R.L.textBindings[p.name];
+  if (!b) return p.text;
+  let s = b.text !== undefined ? b.text : (MSG[b.msg] !== undefined ? MSG[b.msg] : p.text);
+  const args = (b.args || []).slice();
+  s = s.replace(/\{num\}/g, () => args.length ? String(args.shift()) : '0').replace(/\{player\}/g, 'Mii');
+  return s.replace(/\{(win|tag):[^}]*\}/g, '');
+}
+function drawText(ctx, R, p, rect) {
+  const F = R.fonts[p.font]; if (!F) return;
+  const fi = F.info, m = R.L.materials[p.material];
+  const sx = p.fontSize[0] / fi.width, sy = p.fontSize[1] / fi.height;
+  const lines = resolveText(R, p).split('\n');
+  const glyph = ch => fi.glyphs[ch.codePointAt(0)] || null;
+  const lw = lines.map(l => { let w = 0, n = 0; for (const ch of l) { const g = glyph(ch); w += (g ? g.charWidth : fi.defaultWidth.charWidth) * sx + p.charSpace; n++; } return n ? w - p.charSpace : 0; });
+  const bw = Math.max(0, ...lw), lh = fi.lineFeed * sy + p.lineSpace;
+  const bh = lines.length * fi.lineFeed * sy + (lines.length - 1) * p.lineSpace;
+  const hx = p.textPosition % 3, vy = Math.floor(p.textPosition / 3);
+  const bx = rect.x + (rect.w - bw) * hx / 2;
+  let y = rect.top - (rect.h - bh) * vy / 2;
+  lines.forEach((l, i) => {
+    let x = bx + (bw - lw[i]) * hx / 2;
+    for (const ch of l) {
+      const g = glyph(ch);
+      if (g) {
+        const c = shadeGlyph(F, g, m, p.topColor, p.bottomColor);
+        blit(ctx, c, 0, 0, c.width, c.height, x + g.left * sx, y, g.glyphWidth * sx, fi.cellHeight * sy);
+        x += g.charWidth * sx + p.charSpace;
+      } else x += fi.defaultWidth.charWidth * sx + p.charSpace;
+    }
+    y -= lh;
+  });
+}
+function drawPic(ctx, R, p, rect) {
+  const m = R.L.materials[p.material];
+  const [ssx, ssy] = screenScale(ctx);
+  const rw = Math.max(1, Math.min(1024, Math.ceil(Math.abs(rect.w) * ssx)));
+  const rh = Math.max(1, Math.min(1024, Math.ceil(Math.abs(rect.h) * ssy)));
+  const c = shadeQuad(R, m, p.texCoords[0] || null, p.vertexColors, rw, rh);
+  blit(ctx, c, 0, 0, rw, rh, rect.x, rect.top, rect.w, rect.h);
+}
+function drawWindow(ctx, R, p, rect) {
+  const fm = R.L.materials[p.frames[0].material];
+  const file = texFileOf(R, fm, 0), T = file && R.tex[file];
+  const fw = T ? T.width : 0, fh = T ? T.height : 0;
+  const white = [[255, 255, 255, 255], [255, 255, 255, 255], [255, 255, 255, 255], [255, 255, 255, 255]];
+  // content: interior between the frames (+ inflation)
+  const cm = R.L.materials[p.content.material], inf = p.inflation;
+  const cx = rect.x + fw - inf.l, ctop = rect.top - fh + inf.t;
+  const cw = rect.w - 2 * fw + inf.l + inf.r, ch = rect.h - 2 * fh + inf.t + inf.b;
+  if (cw > 0 && ch > 0) {
+    const [ssx, ssy] = screenScale(ctx);
+    const c = shadeQuad(R, cm, p.content.texCoords[0] || null, p.content.vertexColors,
+      Math.max(1, Math.min(1024, Math.ceil(cw * ssx))), Math.max(1, Math.min(1024, Math.ceil(ch * ssy))));
+    blit(ctx, c, 0, 0, c.width, c.height, cx, ctop, cw, ch);
+  }
+  if (!T) return;
+  const corners = [0, 1, 2, 3].map(i => {
+    const f = p.frames[Math.min(i, p.frames.length - 1)];
+    return shadeQuad(R, R.L.materials[f.material], null, white, fw, fh);
+  });
+  const F = corners[0], n = p.frames.length;
+  const flip = [[1, 1], [-1, 1], [1, -1], [-1, -1]];
+  const W = rect.w, H = rect.h, x0 = rect.x, t0 = rect.top;
+  // corners (frame 0 mirrored when only one frame is given)
+  const pos = [[x0, t0], [x0 + W, t0], [x0, t0 - H], [x0 + W, t0 - H]];
+  for (let i = 0; i < 4; i++) {
+    const img = n === 1 ? F : corners[i], [fx, fy] = n === 1 ? flip[i] : [1, 1];
+    const ox = n === 1 ? pos[i][0] : (i & 1 ? x0 + W - fw : x0), oy = n === 1 ? pos[i][1] : (i & 2 ? t0 - H + fh : t0);
+    blit(ctx, img, 0, 0, fw, fh, ox, oy, fw * fx, fh * fy);
+  }
+  if (n !== 1) return;
+  // edges: stretch the inner column / row of the corner texture
+  const ew = W - 2 * fw, eh = H - 2 * fh;
+  if (ew > 0) {
+    blit(ctx, F, fw - 1, 0, 1, fh, x0 + fw, t0, ew, fh);
+    blit(ctx, F, fw - 1, 0, 1, fh, x0 + fw, t0 - H, ew, -fh);
+  }
+  if (eh > 0) {
+    blit(ctx, F, 0, fh - 1, fw, 1, x0, t0 - fh, fw, eh);
+    blit(ctx, F, 0, fh - 1, fw, 1, x0 + W, t0 - fh, -fw, eh);
+  }
+}
+function drawPane(ctx, R, p, parentAlpha) {
+  if (!p.visible) return;
+  ctx.save();
+  ctx.translate(p.translate[0], p.translate[1]);
+  const rx = p.rotate[0] * Math.PI / 180, ry = p.rotate[1] * Math.PI / 180;
+  ctx.rotate(p.rotate[2] * Math.PI / 180);
+  ctx.scale(p.scale[0] * Math.cos(ry), p.scale[1] * Math.cos(rx));
+  // nw4r Pane::CalculateMtx: a pane's global alpha is alpha * DrawInfo.globalAlpha; a pane with the
+  // influencedAlpha flag (and alpha != 255) multiplies its alpha into the value passed to its children.
+  // "alpha inherits" unchecked = force inheritance on every pane (debug).
+  const alpha = (p.alpha / 255) * parentAlpha;
+  const childAlpha = (p.influencedAlpha || !opts.infl) ? alpha : parentAlpha;
+  const rect = paneRect(p);
+  if (alpha > 0.001) {
+    ctx.globalAlpha = alpha;
+    if (p.type === 'pic') drawPic(ctx, R, p, rect);
+    else if (p.type === 'txt') drawText(ctx, R, p, rect);
+    else if (p.type === 'wnd') drawWindow(ctx, R, p, rect);
+    if (opts.bounds) {
+      ctx.globalAlpha = 1; ctx.lineWidth = 1 / screenScale(ctx)[0];
+      ctx.strokeStyle = { pan: '#0f0', pic: '#f0f', txt: '#ff0', wnd: '#0ff', bnd: '#f80' }[p.type];
+      ctx.strokeRect(rect.x, rect.top - rect.h, rect.w, rect.h);
+    }
+  }
+  for (const c of p.children) drawPane(ctx, R, c, childAlpha);
+  ctx.restore();
+}
+// animFrames: [[anim, frame|'end', bindPane?]]; vis: {pane: bool}; alpha: {pane: 0-255} (runtime overrides)
+function renderLayout(canvas, R, animFrames, scale, vis, alphaOv) {
+  const L = JSON.parse(JSON.stringify(R.L));
+  for (const [name, frame, bindPane] of animFrames) {
+    const A = R.anims[name]; if (!A) continue;
+    let f = frame === 'end' ? A.frameSize - 1 : frame;
+    if (A.loop) f = f % A.frameSize; else f = Math.min(f, A.frameSize - 1);
+    applyAnim(L, A, f, bindPane);
+  }
+  (function w(p) {
+    if (vis && p.name in vis) p.visible = vis[p.name];
+    if (alphaOv && p.name in alphaOv) p.alpha = alphaOv[p.name];
+    p.children.forEach(w);
+  })(L.root);
+  const W = L.layout.width, H = L.layout.height;
+  canvas.width = Math.round(W * scale); canvas.height = Math.round(H * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(scale, 0, 0, -scale, canvas.width / 2, canvas.height / 2);
+  ctx.imageSmoothingEnabled = true;
+  drawPane(ctx, { ...R, L }, L.root, 1);
+}
+
+// ---------------------------------------------------------------- UI
+// Gallery: [layout, [[anim, frame|'end'], ...], label]
+// Gallery scenes reproduce the game's runtime state (from the decomp, src/Pack/RPParty/RPTnkScene/RPTnkLyt*.cpp):
+// {l: layout, t: label, a: [[anim, frame|'end', bindPane]], v: {pane: visible}, al: {pane: alpha}}
+const ROWS = n => Object.fromEntries([...Array(9)].map((_, i) => [`N_r0${n}_0${i}`, true]));
+const GALLERY = {
+  tanks: [
+    { l: 'tnkfade', t: 'tnkfade: mission intro (1P)', v: { N_lifetnk_01: false },
+      a: [['tnkfade_in_00', 'end'], ['tnkfade_loop_00', 30, 'P_loop_00'], ['tnkfade_inLife_00', 'end', 'N_life_00'],
+          ['tnkfade_inMission_00', 'end', 'N_msg_00'], ['tnkfade_inEnemy_00', 'end', 'N_enemy_00']] },
+    { l: 'tnkfade', t: 'tnkfade: bonus tank (1P)', v: { N_lifetnk_01: false },
+      a: [['tnkfade_in_00', 'end'], ['tnkfade_loop_00', 60, 'P_loop_00'], ['tnkfade_inLife_00', 'end', 'N_life_00'],
+          ['tnkfade_inBonus_00', 'end', 'N_msg_01']] },
+    { l: 'tnkfade', t: 'tnkfade: lives (2P)', v: { N_lifetnk_00: false, N_lifeNo_00: false, T_lifeX_00: false, T_lifeX_01: false },
+      a: [['tnkfade_in_00', 'end'], ['tnkfade_loop_00', 90, 'P_loop_00'], ['tnkfade_inLife_00', 'end', 'N_life_00']] },
+    { l: 'tnkUI_00', t: 'tnkUI_00: HUD (2P, P1 balloon)', v: { N_balloon_01: false, N_balloon_02: false, N_balloon_03: false,
+        N_balloon_04: false, N_balloon_05: false, N_balloon_06: false, N_balloon_07: false }, al: { N_balloon_00: 255 },
+      a: [['tnkUI_00_in_00', 'end', 'N_tnUIl_00']] },
+    { l: 'tnkMsg_01', t: 'tnkMsg_01: start @12', a: [['tnkMsg_01_start_00', 12]] },
+    { l: 'tnkMsg_02', t: 'tnkMsg_02: cleared + total (1P)', v: { N_total_01: false },
+      a: [['tnkMsg_02_inCleare_00', 'end', 'N_clear_00'], ['tnkMsg_02_inTotal_00', 'end', 'N_total_00']] },
+    { l: 'tnkMsg_02', t: 'tnkMsg_02: cleared + total (2P)', v: { N_total_00: false },
+      a: [['tnkMsg_02_inCleare_00', 'end', 'N_clear_00'], ['tnkMsg_02_inTotal_00', 'end', 'N_total_01']] },
+    { l: 'tnkMsg_03', t: 'tnkMsg_03: in', a: [['tnkMsg_03_in_00', 'end']] },
+    { l: 'tnkMsg_04', t: 'tnkMsg_04: in', a: [['tnkMsg_04_in_00', 'end']] },
+    { l: 'tnkResult_00', t: 'tnkResult_00: 1P list + total', v: { N_list_01: false, N_totalAll_01: false, ...ROWS(0) },
+      a: [['tnkResult_00_inList_00', 'end', 'N_list_00'], ['tnkResult_00_inScore_00', 'end', 'N_list_00'],
+          ['tnkResult_00_inTotal_00', 'end', 'N_totalAll_00']] },
+    { l: 'tnkResult_00', t: 'tnkResult_00: 2P list + total, P1 wins', v: { N_list_00: false, N_totalAll_00: false, ...ROWS(1) },
+      a: [['tnkResult_00_inList_00', 'end', 'N_list_01'], ['tnkResult_00_inScore_00', 'end', 'N_list_01'],
+          ['tnkResult_00_inTotal_00', 'end', 'N_totalAll_01'], ['tnkResult_00_win1P_00', 10, 'N_total_01']] },
+    { l: 'tnkHit_00', t: 'tnkHit_00: hit @15 (type 1)', v: { N_hit_00: false }, a: [['tnkHit_00_hit_00', 15, 'N_hit_01']] },
+    { l: 'tnkEx_00', t: 'tnkEx_00: in', a: [['tnkEx_00_in_00', 'end']] },
+  ],
+  shared: [
+    { l: 'ptSelectGame_01', t: 'ptSelectGame_01: in', a: [['ptSelectGame_01_in_00', 'end']] },
+    { l: 'ptG8RemoteH_00', t: 'ptG8RemoteH_00', a: [['ptG8RemoteH_00_remote_00', 0]] },
+    { l: 'pause_00', t: 'pause_00: in', al: { N_center_00: 255 }, a: [['pause_00_in_00', 'end', 'N_center_00']] },
+    { l: 'ptPauseText_00', t: 'ptPauseText_00: in', a: [['ptPauseText_00_in_00', 'end']] },
+    { l: 'ptGOMenu_00', t: 'ptGOMenu_00: in', al: { N_center_00: 255 }, a: [['ptGOMenu_00_in_00', 'end']] },
+    { l: 'ptVsResult_00', t: 'ptVsResult_00: in', a: [['ptVsResult_00_in_00', 'end']] },
+    { l: 'myRecord_00', t: 'myRecord_00: in', al: { N_recordAll_00: 255, N_linesPlusT_00: 255 }, a: [['myRecord_00_in_00', 'end']] },
+    { l: 'ptRankGet_00', t: 'ptRankGet_00: in', a: [['ptRankGet_00_in_00', 'end']] },
+    { l: 'rankComplete_00', t: 'rankComplete_00: in', a: [['rankComplete_00_in_00', 'end']] },
+    { l: 'playAdvice_00', t: 'playAdvice_00: in', al: { N_center_00: 255 }, a: [['playAdvice_00_in_00', 'end']] },
+  ],
+};
+
+async function main() {
+  const manifest = await getJSON('index.json');
+  await loadMessages();
+  const q = new URLSearchParams(location.search);
+  for (const k of ['bounds', 'infl', 'bind']) if (q.has(k)) { opts[k] = q.get(k) === '1'; document.getElementById(k).checked = opts[k]; }
+  const scale = parseFloat(q.get('scale') || '1');
+  if (q.get('gallery')) {
+    const g = document.getElementById('gallery');
+    for (const sc of GALLERY[q.get('gallery')] || []) {
+      if (!manifest.layouts[sc.l]) continue;
+      const R = await loadLayout(sc.l, manifest);
+      const cell = document.createElement('div'); cell.className = 'cell';
+      const cap = document.createElement('div'); cap.textContent = sc.t;
+      const cv = document.createElement('canvas'); cell.append(cap, cv); g.append(cell);
+      try { renderLayout(cv, R, sc.a, scale, sc.v, sc.al); } catch (e) { cap.textContent += ' ERROR ' + e; console.error(e); }
+    }
+    document.title = 'done';
+    return;
+  }
+  const sel = document.getElementById('layoutSel');
+  const names = Object.keys(manifest.layouts).sort((a, b) =>
+    (manifest.layouts[a].group === 'tanks' ? 0 : 1) - (manifest.layouts[b].group === 'tanks' ? 0 : 1) || a.localeCompare(b));
+  for (const n of names) { const o = document.createElement('option'); o.value = n; o.textContent = `${n} (${manifest.layouts[n].archive})`; sel.append(o); }
+  sel.value = q.get('layout') || 'tnkfade';
+  const cv = document.createElement('canvas'); document.getElementById('main').append(cv);
+  const frameIn = document.getElementById('frame'), frameLbl = document.getElementById('frameLbl');
+  let R = null, active = [], playing = false;
+  const redraw = () => {
+    if (!R) return;
+    frameLbl.textContent = frameIn.value;
+    renderLayout(cv, R, active.map(a => [a, +frameIn.value]), Math.max(scale, 1.5));
+  };
+  async function select(name) {
+    R = await loadLayout(name, manifest);
+    const box = document.getElementById('anims'); box.innerHTML = '';
+    const want = q.get('anims') ? q.get('anims').split(',') : manifest.layouts[name].anims.filter(a => /_in_|_in[A-Z]|_loop_/.test(a)).slice(0, 2);
+    active = [];
+    let maxF = 1;
+    for (const a of manifest.layouts[name].anims) {
+      const A = R.anims[a]; maxF = Math.max(maxF, A.frameSize);
+      const l = document.createElement('label'), c = document.createElement('input');
+      c.type = 'checkbox'; c.checked = want.includes(a); if (c.checked) active.push(a);
+      c.onchange = () => { active = [...box.querySelectorAll('input')].filter(i => i.checked).map(i => i.dataset.a); redraw(); };
+      c.dataset.a = a; l.append(c, ` ${a} [${A.frameSize}${A.loop ? ' loop' : ''}]`); box.append(l);
+    }
+    frameIn.max = maxF; frameIn.value = q.get('frame') || 0;
+    document.getElementById('info').textContent = (R.L.purpose || '') + '\nfonts: ' + R.L.fonts.join(', ') + '\ntextures: ' + R.L.textures.join(', ');
+    redraw();
+  }
+  sel.onchange = () => select(sel.value);
+  frameIn.oninput = redraw;
+  for (const k of ['bounds', 'infl', 'bind']) document.getElementById(k).onchange = e => { opts[k] = e.target.checked; redraw(); };
+  document.getElementById('play').onclick = () => {
+    playing = !playing; let last = performance.now();
+    const tick = now => {
+      if (!playing) return;
+      if (now - last >= 1000 / 60) { last = now; frameIn.value = (+frameIn.value + 1) % (+frameIn.max + 1); redraw(); }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+  await select(sel.value);
+  document.title = 'done';
+}
+main().catch(e => { document.body.append('ERROR: ' + e); console.error(e); });
+</script>
+</body>
+</html>
