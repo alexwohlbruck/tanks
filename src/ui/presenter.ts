@@ -83,7 +83,8 @@ export class UiPresenter implements Presenter {
       state: () => g()?.state ?? 0,
       stage: () => g()?.stage ?? 0,
       tutorial: () => (g()?.stage ?? 0) === 0 && !g()?.pack,
-      lastStage: () => g()?.lastStage ?? 19,
+      // a single custom level (editor test play) is "Mission 1", not "Final Mission"
+      lastStage: () => (g()?.pack?.levels.length === 1 ? -1 : (g()?.lastStage ?? 19)),
       modeIdx: () => (g()?.players === 2 ? 1 : 0),
       lives: (p) => g()?.livesOf(p as 0 | 1) ?? 0,
       addLives: () => (this.sig.life = true),

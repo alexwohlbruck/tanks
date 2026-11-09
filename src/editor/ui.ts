@@ -121,19 +121,37 @@ export function pickFile(accept = '.json,application/json'): Promise<string | nu
 export const fileName = (s: string) => (s.trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'level-pack') + '.tanks.json'
 
 /**
- * Play a pack and come back to `screen` when the game returns to its idle state (pause menu
- * "Quit", or "Quit" after the results). Stops watching if anything else takes over.
+ * Play a pack and come back to `screen` when it is over: right after "Mission complete!" or
+ * "Mission failed!" has shown (`quickReturn`), or when the game returns to its idle state (pause
+ * menu "Quit", or "Quit" after the results). Stops watching if anything else takes over.
  */
-export function playAndReturn(app: AppContext, pack: LevelPack, players: number, level: number, screen: string, params?: Record<string, unknown>) {
+export function playAndReturn(
+  app: AppContext,
+  pack: LevelPack,
+  players: number,
+  level: number,
+  screen: string,
+  params?: Record<string, unknown>,
+  quickReturn = false,
+) {
   app.playPack(pack, players, level)
   const game = app.game
   let started = false
+  let endedAt = 0
+  const back = () => {
+    clearInterval(iv)
+    app.show(screen, params)
+    app.audio.stopMusic()
+    if (game.state !== 0) game.quitToTitle()
+  }
   const iv = setInterval(() => {
     if (game.pack !== pack || (app.screen !== null && app.screen !== 'menu')) return clearInterval(iv)
     if (game.state !== 0) started = true
-    else if (started) {
-      clearInterval(iv)
-      app.show(screen, params)
+    else if (started) return back()
+    // 8 complete, 9 failed, 10+ results: give the message a moment, then leave
+    if (quickReturn && game.state >= 8) {
+      endedAt ||= performance.now()
+      if (performance.now() - endedAt > 2200) back()
     }
   }, 50)
 }

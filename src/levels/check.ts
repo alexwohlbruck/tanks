@@ -9,12 +9,12 @@ export const LIMITS = {
   name: 48,
   author: 32,
   description: 400,
-  levels: 100,
+  levels: 500,
   /** tank type ids accepted (1-9 original, 10+ added types) */
   maxTankType: 99,
   lives: [1, 99] as [number, number],
   /** serialized pack JSON */
-  bytes: 512 * 1024,
+  bytes: 2 * 1024 * 1024,
 }
 
 /** cell codes a level may contain */

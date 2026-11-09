@@ -26,7 +26,7 @@ import type { LevelDef, LevelPack } from './levels/format'
 import { loadGameData, mapKey, normalizeData, type Aspect, type GameData, type MissionSetup } from './data'
 import type { PadState } from './input'
 import { type AudioSink, BgmMix } from './sim/bgm'
-import { CAMERA, C, TANK as TANKC } from './sim/consts'
+import { CAMERA, C, MAX_ENEMIES, TANK as TANKC } from './sim/consts'
 
 /** stats arrays are indexed by enemy type (1-9 original, 10+ added types) */
 const TYPE_SLOTS = 32
@@ -428,7 +428,7 @@ export class Game {
     this.bgm.stop()
     this.state = 0
     // RPTnkField / TankManager / WeaponManager / LayoutManager Reset
-    this.world = new World(players, { aspect: this.aspect, rng: this.rng, enemyCap: pack ? 12 : 8 })
+    this.world = new World(players, { aspect: this.aspect, rng: this.rng, enemyCap: pack ? MAX_ENEMIES : 8 })
     for (const e of this.pending) this.world.events.push(e)
     this.pending = []
     this.world.hooks = {

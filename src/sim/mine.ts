@@ -68,7 +68,7 @@ export class Mine extends Actor {
   }
 
   override applySpawnParam(param: number) {
-    this.slot = param & 0xf
+    this.slot = param & 0xff
     this.isEnemy = this.slot >= ENEMY_SLOT0
   }
 

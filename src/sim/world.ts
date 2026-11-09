@@ -39,7 +39,7 @@
 // =========================================================================================
 
 import { Actor, ActorPool, nextId } from './actor'
-import { POOL, TANK, MAX_PLAYERS, HIT_ENEMY, TEAM_ENEMY, MAX_ENEMIES } from './consts'
+import { POOL, TANK, MAX_PLAYERS, HIT_ENEMY, TEAM_ENEMY, MAX_ENEMIES, POOL_CUSTOM } from './consts'
 import { type Block, BlockPool, Field } from './field'
 import { Mine, MinePool } from './mine'
 import { Plus, needsPlus, type PlusEventKind } from './plus'
@@ -166,10 +166,13 @@ export class World {
     this.field = new Field(opts.aspect ?? '16_9')
     this.width = this.field.cols
     this.height = this.field.rows
-    this.blocks = new BlockPool(this, POOL.blocks)
-    this.shellPool = new ShellPool(this, POOL.shells)
-    this.minePool = new MinePool(this, POOL.mines)
-    this.marks = new ActorPool(POOL.checkMarks, () => new CheckMark())
+    // custom levels (more than the original 8 enemy slots) get bigger pools; the original's
+    // sizes stay for the classic missions (pool order affects which actor a spawn reuses)
+    const pool = this.enemyCap > POOL.enemies ? POOL_CUSTOM : POOL
+    this.blocks = new BlockPool(this, pool.blocks)
+    this.shellPool = new ShellPool(this, pool.shells)
+    this.minePool = new MinePool(this, pool.mines)
+    this.marks = new ActorPool(pool.checkMarks, () => new CheckMark())
     this.playerTanks = Array.from({ length: MAX_PLAYERS }, (_, i) => new Tank(this, false, i))
     this.enemyTanks = Array.from({ length: this.enemyCap }, (_, i) => new Tank(this, true, i))
     this.reset()
@@ -566,7 +569,9 @@ export class World {
   fireShell(speed: number, tank: Tank, pos: V3, dir: V3, slot: number, bounces: number, smoke: number, unk: number): Shell | null {
     if (!this.field.isInside(pos)) return null
     if (this.blocks.isPointInsideBlock(pos)) return null
-    const param = slot | (bounces << 4) | (smoke << 8) | (unk << 12)
+    // owner slot 8 bits (players 0-3, enemies 4+), ricochets 4, smoke 3, shooter type 8
+    // (the original packed slot/bounces/smoke/sound in 4-bit fields)
+    const param = slot | (bounces << 8) | (smoke << 12) | (unk << 16)
     const s = this.shellPool.spawn(pos, param)
     if (!s) return null
     const vel = v3(dir.x * speed, dir.y * speed, dir.z * speed)

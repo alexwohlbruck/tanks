@@ -189,6 +189,7 @@ class Editor implements Screen {
       h('div', { class: 'ed-spacer' }),
       this.undoBtn,
       this.redoBtn,
+      h('button', { class: 'tk-btn', title: 'Empty the level (or the selection); undo brings it back', on: { click: () => this.clearLevel() } }, 'Clear'),
       h('button', { class: 'tk-btn', title: 'Your drafts, new pack, import a file', on: { click: () => this.packsDialog() } }, 'Packs'),
       h('button', { class: 'tk-btn', title: 'Start from an original Wii Play map', on: { click: () => this.discDialog() } }, 'Disc maps'),
       h('button', { class: 'tk-btn', title: 'Download the pack as a .json file', on: { click: () => this.exportPack() } }, 'Export'),
@@ -915,6 +916,20 @@ class Editor implements Screen {
     if (M.commit(this.level, before)) this.changed()
   }
 
+  /** empty the whole level (or the selection): blocks, tiles and spawns */
+  private clearLevel() {
+    const l = this.level
+    const before = JSON.stringify(l)
+    const r = this.sel ?? { x0: 0, y0: 0, x1: LEVEL_W - 1, y1: LEVEL_H - 1 }
+    for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) l.cells[y][x] = 0
+    // drop the tank types of enemy slots that no longer have a spawn
+    const used = new Set(l.cells.flat())
+    l.enemies = l.enemies.map((e, i) => (used.has(400 + i) ? e : 0))
+    while (l.enemies.length && !l.enemies[l.enemies.length - 1]) l.enemies.pop()
+    if (M.commit(l, before)) this.changed()
+    toast(this.root, this.sel ? 'Selection cleared' : 'Level cleared (Ctrl+Z to undo)')
+  }
+
   /** mirror the whole level (or the selection) */
   private flipLevel(horizontal: boolean) {
     const l = this.level
@@ -985,7 +1000,7 @@ class Editor implements Screen {
         toast(this.root, 'Some levels have problems; fix them or test this level only', 'error')
         return false
       }
-      playAndReturn(this.app, pack, players, whole ? this.li : 0, 'editor', { draft: this.draft.id, level: this.li })
+      playAndReturn(this.app, pack, players, whole ? this.li : 0, 'editor', { draft: this.draft.id, level: this.li }, true)
     }
     modal(
       this.root,

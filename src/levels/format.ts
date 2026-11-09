@@ -6,13 +6,13 @@
 //   101-107    cork block (destroyed by mines), stack height = low digit + 1 half-cells
 //   200        hole (tanks stop, shells fly over); 201-207 wood block stacks
 //   300-303    player 1-4 spawn
-//   400-411    enemy spawn slot 0-11; the tank type comes from `enemies[slot]`
+//   400-499    enemy spawn slot 0-99; the tank type comes from `enemies[slot]`
 //   500-599    special tiles (src/sim/tiles.ts registry; ignored by builds that lack them)
 // `enemies[i]` is a tank type id (1-9 original, 10+ added types) or a [lo, hi] random range.
 
 export const LEVEL_W = 22
 export const LEVEL_H = 17
-export const MAX_ENEMY_SLOTS = 12
+export const MAX_ENEMY_SLOTS = 100
 
 export type EnemySlot = number | [number, number]
 

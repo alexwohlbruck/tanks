@@ -5,9 +5,11 @@
  * players 0..MAX_PLAYERS-1, then enemies from ENEMY_SLOT0 (the original used 2 + index). */
 export const MAX_PLAYERS = 4
 export const ENEMY_SLOT0 = MAX_PLAYERS
-/** enemy slots in custom levels: the shell/mine spawn param keeps the owner slot in 4 bits,
- * so ENEMY_SLOT0 + MAX_ENEMIES - 1 must stay <= 15 */
-export const MAX_ENEMIES = 12
+/** enemy slots in custom levels (map codes 400-499); the original has 8. Shell/mine spawn
+ * params keep the owner slot in 8 bits, so ENEMY_SLOT0 + MAX_ENEMIES - 1 must stay <= 255 */
+export const MAX_ENEMIES = 100
+/** actor pools for custom levels (the original's sizes are POOL) */
+export const POOL_CUSTOM = { blocks: 512, shells: 512, mines: 256, checkMarks: 128 }
 /** team of enemy tanks (players use their index) and the hit id of enemy weapons
  * (players' weapons hit with index + 1; the original used 3 for enemies) */
 export const TEAM_ENEMY = 9

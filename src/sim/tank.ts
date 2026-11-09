@@ -214,7 +214,7 @@ export class Tank extends Actor {
   }
 
   override applySpawnParam(param: number) {
-    this.spawnParam = param & 0xf
+    this.spawnParam = param & 0xff
   }
 
   /** RPTnkTank::Reset */

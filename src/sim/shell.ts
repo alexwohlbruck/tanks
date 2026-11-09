@@ -65,11 +65,11 @@ export class Shell extends Actor {
 
   /** RPTnkShell::ApplySpawnParam */
   override applySpawnParam(param: number) {
-    this.slot = param & 0xf
+    this.slot = param & 0xff
     this.isEnemy = this.slot >= ENEMY_SLOT0
-    this.bouncesLeft = (param >> 4) & 0xf
-    this.smokeType = (param >> 8) & 7
-    this.shooterType = (param >> 12) & 0xf
+    this.bouncesLeft = (param >> 8) & 0xf
+    this.smokeType = (param >> 12) & 7
+    this.shooterType = (param >> 16) & 0xff
   }
 
   override clearForcesStep() {
