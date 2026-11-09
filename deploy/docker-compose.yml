@@ -1,0 +1,15 @@
+# Static hosting for the built game (dist/), behind a reverse proxy that shares the
+# external Docker network named by PROXY_NETWORK (the proxy routes to "tanks:80").
+services:
+  tanks:
+    image: nginx:1.27-alpine
+    container_name: tanks
+    restart: unless-stopped
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [proxy]
+networks:
+  proxy:
+    name: ${PROXY_NETWORK:-caddy}
+    external: true
