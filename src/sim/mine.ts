@@ -7,7 +7,7 @@
 
 import { Actor, ActorPool } from './actor'
 import type { AiMove } from './ai'
-import { MINE, ENEMY_SLOT0, TEAM_ENEMY, HIT_ENEMY, POOL } from './consts'
+import { MINE, MAX_ENEMIES, ENEMY_SLOT0, TEAM_ENEMY, HIT_ENEMY } from './consts'
 import { collideActor } from './field'
 import type { Tank } from './tank'
 import { type V3, accumulate, dot, normalize, v3, vcopy, vset, ZERO } from './vec'
@@ -218,7 +218,7 @@ function circleAround(o: V3, cx: number, cz: number, radius: number): number | n
 
 export class MinePool extends ActorPool<Mine> {
   /** non-exploding mines per owner slot, recounted every frame */
-  mineNum = new Array(ENEMY_SLOT0 + POOL.enemies).fill(0)
+  mineNum = new Array(ENEMY_SLOT0 + MAX_ENEMIES).fill(0)
 
   constructor(w: World, n: number) {
     super(n, () => new Mine(w))

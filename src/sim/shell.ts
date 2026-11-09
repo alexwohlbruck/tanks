@@ -2,7 +2,7 @@
 
 import { Actor, ActorPool } from './actor'
 import type { AiMove } from './ai'
-import { SHELL, ENEMY_SLOT0, TEAM_ENEMY, HIT_ENEMY, POOL } from './consts'
+import { SHELL, MAX_ENEMIES, ENEMY_SLOT0, TEAM_ENEMY, HIT_ENEMY } from './consts'
 import { collideActor } from './field'
 import type { Tank } from './tank'
 import { type V3, EY, accumulate, cross, dot, mag, normalize, perpendicularDir, perpendicularDistance, v3, vcopy } from './vec'
@@ -170,7 +170,7 @@ export class Shell extends Actor {
 
 export class ShellPool extends ActorPool<Shell> {
   /** active shells per owner slot, recounted at the start of every frame */
-  shellNum = new Array(ENEMY_SLOT0 + POOL.enemies).fill(0)
+  shellNum = new Array(ENEMY_SLOT0 + MAX_ENEMIES).fill(0)
 
   constructor(private w: World, n: number) {
     super(n, () => new Shell(w))

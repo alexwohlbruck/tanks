@@ -39,7 +39,7 @@
 // =========================================================================================
 
 import { Actor, ActorPool, nextId } from './actor'
-import { POOL, TANK, MAX_PLAYERS, HIT_ENEMY, TEAM_ENEMY } from './consts'
+import { POOL, TANK, MAX_PLAYERS, HIT_ENEMY, TEAM_ENEMY, MAX_ENEMIES } from './consts'
 import { BlockPool, Field } from './field'
 import { Mine, MinePool } from './mine'
 import { RPRandom } from './rng'
@@ -147,7 +147,13 @@ export class World {
   /** 1P: enemy-on-enemy kills are credited to P1 (RPTnkTank::Explode hitId 3) */
   twoPlayerMode: boolean
 
-  constructor(players: number, opts: { aspect?: '16_9' | '4_3'; rng?: RPRandom } = {}) {
+  /** enemy slots: 8 in the original; custom levels may use up to MAX_ENEMIES */
+  enemyCap: number
+  /** rules of the loaded level (custom levels; empty for the original missions) */
+  rules: Record<string, unknown> = {}
+
+  constructor(players: number, opts: { aspect?: '16_9' | '4_3'; rng?: RPRandom; enemyCap?: number } = {}) {
+    this.enemyCap = Math.min(MAX_ENEMIES, opts.enemyCap ?? POOL.enemies)
     this.players = players
     this.twoPlayerMode = players >= 2
     this.rng = opts.rng ?? new RPRandom(1)
@@ -159,7 +165,7 @@ export class World {
     this.minePool = new MinePool(this, POOL.mines)
     this.marks = new ActorPool(POOL.checkMarks, () => new CheckMark())
     this.playerTanks = Array.from({ length: MAX_PLAYERS }, (_, i) => new Tank(this, false, i))
-    this.enemyTanks = Array.from({ length: POOL.enemies }, (_, i) => new Tank(this, true, i))
+    this.enemyTanks = Array.from({ length: this.enemyCap }, (_, i) => new Tank(this, true, i))
     this.reset()
   }
 
@@ -221,10 +227,12 @@ export class World {
    * `chooseType` is called per occupied slot right before its spawn (LoadStage interleaves
    * ChooseEnemyType's random draw with SpawnEnemy's two AI-reset draws).
    */
-  loadStage(map: StageMapData, slots: number[], opts: { swap: boolean; active?: boolean[]; chooseType?: (v: number) => number }) {
+  loadStage(map: StageMapData, slots: number[], opts: { swap: boolean; active?: boolean[]; chooseType?: (v: number) => number; rules?: Record<string, unknown> }) {
+    // a reload (ReloadStage) keeps the level's rules
+    if (!opts.active) this.rules = opts.rules ?? {}
     const f = this.field
     const playerPos: (V3 | null)[] = [null, null, null, null]
-    const enemyPos: V3[] = Array.from({ length: 8 }, () => v3())
+    const enemyPos: V3[] = Array.from({ length: this.enemyCap }, () => v3())
     this.grid = []
     for (let y = 0; y < f.rows; y++) {
       const row: GridCell[] = []
@@ -232,7 +240,7 @@ export class World {
         const code = map.cells[y]?.[x] ?? 0
         row.push({ kind: cellKind(code), code, height: cellHeight(code) })
         if (code >= 300 && code < 300 + MAX_PLAYERS) playerPos[code - 300] = f.cellPos(x, y)
-        else if (code >= 400 && code <= 407) enemyPos[code - 400] = f.cellPos(x, y)
+        else if (code >= 400 && code < 400 + this.enemyCap) enemyPos[code - 400] = f.cellPos(x, y)
       }
       this.grid.push(row)
     }
@@ -258,7 +266,7 @@ export class World {
     for (let i = 0; i < this.players; i++) this.playerTanks[i].spawnPlayer(spawns[i], 0, true)
     // enemies
     const types: number[] = []
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < this.enemyCap; i++) {
       let type = slots[i] ?? 0
       if (type > 0 && (!opts.active || opts.active[i])) {
         if (opts.chooseType) type = opts.chooseType(type)
@@ -273,17 +281,17 @@ export class World {
 
   /** RPTnkTankManager::SpawnNextEnemy */
   private spawnNextEnemy(pos: V3, type: number, idx: number, show: boolean) {
-    if (this.enemyAliveNum >= POOL.enemies) return
+    if (this.enemyAliveNum >= this.enemyCap) return
     let i = this.enemyNext
     do {
       const t = this.enemyTanks[i]
       if (t.age < 0) {
         t.spawnEnemy(pos, type, idx, show)
         this.enemyAliveNum++
-        this.enemyNext = i === POOL.enemies - 1 ? 0 : i + 1
+        this.enemyNext = i === this.enemyCap - 1 ? 0 : i + 1
         return
       }
-      i = i === POOL.enemies - 1 ? 0 : i + 1
+      i = i === this.enemyCap - 1 ? 0 : i + 1
     } while (i !== this.enemyNext)
   }
 
@@ -436,7 +444,7 @@ export class World {
   /** RPTnkTankManager::LimitAiFlag110 / LimitAiFlag118: from a random start, only the first
    * `limit` tanks about to decide (interval == 1) may do so this frame; the rest wait one more */
   private limitAi(which: 'fire' | 'mine', limit: number) {
-    const start = (this.rng.next() & 0xffff) % POOL.enemies
+    const start = (this.rng.next() & 0xffff) % this.enemyCap
     let count = 0
     let i = start
     do {
@@ -447,7 +455,7 @@ export class World {
           if (a.fireInterval === 1 && ++count > limit) a.fireInterval++
         } else if (a.mineInterval === 1 && ++count > limit) a.mineInterval++
       }
-      i = i === POOL.enemies - 1 ? 0 : i + 1
+      i = i === this.enemyCap - 1 ? 0 : i + 1
     } while (i !== start)
   }
 

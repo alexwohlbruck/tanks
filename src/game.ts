@@ -22,6 +22,7 @@
 // stats.kills[p], killsByPlayer[p][type], kills[type], typeOrder (types in first-seen
 // order), winner(), freeze, state, cursorMode(p, farOrClamped).
 
+import type { LevelDef, LevelPack } from './levels/format'
 import { loadGameData, mapKey, normalizeData, type Aspect, type GameData, type MissionSetup } from './data'
 import type { PadState } from './input'
 import { type AudioSink, BgmMix } from './sim/bgm'
@@ -403,8 +404,12 @@ export class Game {
 
   // ---- RPTnkScene::Reset + RPTnkGameManager::ResetForMode / Start --------------------------
 
-  newGame(players: number, startMission = 0, seed = this.options.seed) {
+  /** custom levels replacing the 100-mission table (null: the original campaign) */
+  pack: LevelPack | null = null
+
+  newGame(players: number, startMission = 0, seed = this.options.seed, pack: LevelPack | null = this.pack) {
     this.players = players
+    this.pack = pack
     // RP_seedRandomTicks
     this.rng.seed(seed ?? (Math.random() * 2 ** 32) >>> 0)
     // RPTnkGameManager::ResetForMode
@@ -418,12 +423,12 @@ export class Game {
     this.retry = false
     this.quit = false
     this.nextAction = 0
-    this.stats.setup(2)
+    this.stats.setup(Math.max(2, players))
     this.exGuide.reset()
     this.bgm.stop()
     this.state = 0
     // RPTnkField / TankManager / WeaponManager / LayoutManager Reset
-    this.world = new World(players, { aspect: this.aspect, rng: this.rng })
+    this.world = new World(players, { aspect: this.aspect, rng: this.rng, enemyCap: pack ? 12 : 8 })
     for (const e of this.pending) this.world.events.push(e)
     this.pending = []
     this.world.hooks = {
@@ -456,16 +461,24 @@ export class Game {
   /** RPTnkGameManager::SetupFirstStage (startMission is a debug addition) */
   private setupFirstStage(startMission: number) {
     this.stats.clearCounts()
-    this.stats.setAllLives(this.data.params.header || C.startLives)
+    this.stats.setAllLives(this.pack?.lives ?? (this.data.params.header || C.startLives))
     this.nextAction = 0
     this.freeze = false
     this.stageReady = false
-    this.stage = Math.max(0, Math.min(STAGE_NUM - 1, startMission))
-    if (this.players === 1) {
+    if (this.pack) {
+      // custom levels: every level in order, the pack's lives for every player
+      const n = this.pack.levels.length
+      this.stage = Math.max(0, Math.min(n - 1, startMission))
+      this.lastStage = n - 1
+      this.pickStageVariant(this.stage)
+      this.loadStage(this.stage, this.variant, this.players >= 2)
+    } else if (this.players === 1) {
+      this.stage = Math.max(0, Math.min(STAGE_NUM - 1, startMission))
       this.lastStage = this.options.goldMedal || this.options.unlockAll ? STAGE_NUM - 1 : FLOW.lastStageNoGold
       this.pickStageVariant(this.stage)
       this.loadStage(this.stage, this.variant, false)
     } else {
+      this.stage = Math.max(0, Math.min(STAGE_NUM - 1, startMission))
       this.lastStage = this.options.unlockAll ? STAGE_NUM - 1 : FLOW.lastStageNoGold
       this.pickStageVariant(this.stage)
       this.loadStage(this.stage, this.variant, true)
@@ -478,6 +491,10 @@ export class Game {
 
   /** RPTnkGameManager::PickStageVariant: random map in [first, last], never the previous one */
   private pickStageVariant(stage: number) {
+    if (this.pack) {
+      this.variant = this.prevVariant = stage
+      return
+    }
     const m = this.data.params.missions[stage]
     const [first, last] = this.players === 1 ? m.map1P : m.map2P
     if (first === last) this.variant = first
@@ -497,8 +514,28 @@ export class Game {
     return lo + (this.rng.next() % (hi - (lo - 1)))
   }
 
+  /** a custom level, loaded like RPTnkStageMap::LoadStage (random [lo, hi] slots rolled here) */
+  private loadCustomStage(stage: number) {
+    const w = this.world!
+    const level: LevelDef = this.pack!.levels[stage]
+    const slots = level.enemies.map((e) => (Array.isArray(e) ? e[0] + (this.rng.next() % (e[1] - e[0] + 1)) : e || 0))
+    const map = { width: level.cells[0].length, height: level.cells.length, facing: level.facing ?? [0, 0], cells: level.cells }
+    const types = w.loadStage(map, slots, { swap: false, rules: level.rules })
+    this.mission = {
+      index: stage,
+      bonus: !!level.bonus,
+      variant: stage,
+      mapKey: level.id ?? `custom:${stage}`,
+      map: map as never,
+      slots: types,
+      active: types.map((t) => t > 0),
+    }
+    this.listener?.onWorld(w)
+  }
+
   /** RPTnkStageMap::LoadStage(stage, mapStage, TRUE, twoPlayers) */
   private loadStage(stage: number, variant: number, two: boolean) {
+    if (this.pack) return this.loadCustomStage(stage)
     const w = this.world!
     const m = this.data.params.missions[stage]
     const key = mapKey(this.players === 1 ? 1 : 2, variant, this.aspect)
@@ -719,11 +756,16 @@ export class Game {
 
   private stateStageClearWait() {
     if (this.presenter.clearMsgActive()) {
-      const m = this.data.params.missions[this.stage]
-      const bonus = this.players === 1 ? m.bonus : m.bonus2P
-      this.presenter.fadeStart(bonus > 0, false)
+      this.presenter.fadeStart(this.stageBonus(), false)
       this.setState(7)
     }
+  }
+
+  /** the mission just cleared awards a life (the original: mission records' bonus flags) */
+  private stageBonus() {
+    if (this.pack) return !!this.pack.levels[this.stage]?.bonus
+    const m = this.data.params.missions[this.stage]
+    return (this.players === 1 ? m.bonus : m.bonus2P) > 0
   }
 
   private stateNextStage() {
