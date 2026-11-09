@@ -219,6 +219,9 @@ export type TankBehaviours = {
   spawner?: { type: number; interval: number; max: number }
   /** invisible while (nearly) standing still */
   ghost?: boolean
+  /** also fires whenever the turret points within `cone` degrees of a player, clear bank
+   * shot or not (the original AI only fires along a path it predicts will hit) */
+  barrage?: { cone: number }
 }
 
 export type TankMeta = {

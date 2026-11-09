@@ -768,6 +768,8 @@ export class AiAttack {
     if (this.w.shellPool.shellNum[slot] < this.maxShells) {
       this.predictShotPath(muzzleDist)
       if (this.segments[0].endStep > 6 && !this.pathHitsSelf() && !this.pathHitsAlly() && this.pathHitsPlayer()) this.fire = true
+      // [tanks+] bosses with a barrage fire when roughly aimed at a player (additive hook)
+      else if (this.type >= FIRST_ADDED_TYPE && this.w.plus && this.segments[0].endStep > 2 && this.w.plus.barrage(this.tank, this.aimDir)) this.fire = true
     }
   }
 

@@ -269,7 +269,7 @@ const DEFS: [number, Partial<Record<Word, number>>, TankMeta][] = [
       bgmRank: 9,
       shellLook: 9,
       boss: true,
-      behaviours: { hp: 10, hpPerPlayer: 3, hitBonus: 6, spread: { count: 5, angle: 12 }, minePattern: { interval: 420, pattern: 'cross', max: 3 } },
+      behaviours: { hp: 10, hpPerPlayer: 3, hitBonus: 6, spread: { count: 5, angle: 12 }, barrage: { cone: 25 }, minePattern: { interval: 420, pattern: 'cross', max: 3 } },
     },
   ],
   [
@@ -297,7 +297,7 @@ const DEFS: [number, Partial<Record<Word, number>>, TankMeta][] = [
       bgmRank: 9,
       shellLook: 9,
       boss: true,
-      behaviours: { hp: 10, hpPerPlayer: 3, hitBonus: 6, spread: { count: 3, angle: 18 }, homing: { turn: 1.1, delay: 18 }, teleport: { interval: 420, warn: 50, minDist: 180 } },
+      behaviours: { hp: 10, hpPerPlayer: 3, hitBonus: 6, spread: { count: 3, angle: 18 }, barrage: { cone: 30 }, homing: { turn: 1.1, delay: 18 }, teleport: { interval: 420, warn: 50, minDist: 180 } },
     },
   ],
 ]

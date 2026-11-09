@@ -214,6 +214,22 @@ export class Plus {
   }
 
   /** AiAttack.executeActions decided to fire an added type: true = the shot was taken over */
+  /** AiAttack.decideFire: a boss with `barrage` fires when its turret points at a player */
+  barrage(t: Tank, aim: { x: number; z: number }): boolean {
+    const b = t.ext?.beh.barrage
+    if (!b) return false
+    const cos = Math.cos((b.cone * Math.PI) / 180)
+    for (let i = 0; i < this.w.players; i++) {
+      const p = this.w.playerTanks[i]
+      if (!p.active || p.lives <= 0) continue
+      const dx = p.pos.x - t.pos.x
+      const dz = p.pos.z - t.pos.z
+      const d = Math.hypot(dx, dz)
+      if (d > 0 && (dx * aim.x + dz * aim.z) / d > cos) return true
+    }
+    return false
+  }
+
   interceptFire(t: Tank): boolean {
     if (!t.ext) return false
     return sniperIntercept(this, t)
