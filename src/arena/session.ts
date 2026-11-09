@@ -17,7 +17,7 @@ import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank
 import * as THREE from 'three/webgpu'
 import { generateMap, type ArenaMap } from './map'
 import { ARENA_PROTO, TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
-import { PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, type ArenaMode, type PickupKind } from './rules'
+import { EMOTE_TICKS, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, type ArenaMode, type MapTheme, type PickupKind } from './rules'
 import { paramsFor } from '../sim/stats'
 import type { BaseModel } from '../render/registry'
 import { tankIcon } from '../ui/web/art'
@@ -31,6 +31,7 @@ const DELAY = 7
 const CURSOR_FAR = 480
 const SNAP_DIST = 48
 const NAME_KEY = 'tanks-net-name'
+const ID_KEY = 'tanks-arena-id'
 
 export function arenaUrl() {
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/arena`
@@ -85,11 +86,13 @@ export class ArenaSession implements Session {
   private lastFire = false
   private lastMine = false
 
+  /** `invite`: join that arena, on that player's team (an invite link) */
   constructor(
     private view: SceneView,
     private audio: Audio,
     name: string,
     mode: ArenaMode,
+    invite: { arena: string; with?: number } | null = null,
   ) {
     this.mode = mode
     try {
@@ -98,7 +101,7 @@ export class ArenaSession implements Session {
     this.ws = new WebSocket(arenaUrl())
     this.ws.onopen = () => {
       this.status = 'online'
-      this.send({ t: 'join', v: ARENA_PROTO, name, mode })
+      this.send({ t: 'join', v: ARENA_PROTO, name, mode, id: ArenaSession.statId(), arena: invite?.arena, with: invite?.with })
     }
     this.ws.onclose = () => {
       this.status = 'closed'
@@ -108,6 +111,38 @@ export class ArenaSession implements Session {
     this.pingTimer = setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000)
     view.tankLook = (t) => this.lookOf(t)
   }
+
+  /** this browser's stats id (server/arena/stats.ts), made once */
+  static statId() {
+    try {
+      let id = localStorage.getItem(ID_KEY)
+      if (!id || !/^[a-z0-9]{16,40}$/.test(id)) {
+        id = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 24)
+        localStorage.setItem(ID_KEY, id)
+      }
+      return id
+    } catch {
+      return undefined
+    }
+  }
+
+  /** a link that brings a friend into this arena, on this player's team */
+  get inviteLink() {
+    const a = this.board?.arena
+    return a ? `${location.origin}${location.pathname}?arena=${encodeURIComponent(a)}&with=${this.pid}` : null
+  }
+
+  emote(i: number) {
+    this.send({ t: 'emote', i })
+  }
+  vote(theme: string) {
+    this.send({ t: 'vote', theme })
+  }
+
+  /** emotes on screen: pid -> [emote index, until (ms)] */
+  emotes = new Map<number, [number, number]>()
+  /** the player being watched while waiting to respawn */
+  spectating: number | null = null
 
   static savedName() {
     try {
@@ -145,11 +180,11 @@ export class ArenaSession implements Session {
         this.pid = m.pid
         this.tankId = m.tank
         this.mode = m.mode
-        this.loadMap(m.seed, m.broken)
+        this.loadMap(m.seed, m.theme, m.broken)
         this.audio.playMusic('RP_TNK_BGM_LOOP2')
         return
       case 'map':
-        this.loadMap(m.seed, [])
+        this.loadMap(m.seed, m.theme, [])
         this.marks = []
         this.audio.playMusic('RP_TNK_BGM_LOOP2')
         return
@@ -169,8 +204,8 @@ export class ArenaSession implements Session {
     }
   }
 
-  private loadMap(seed: number, broken: [number, number][]) {
-    const map = generateMap(seed, this.mode)
+  private loadMap(seed: number, theme: MapTheme, broken: [number, number][]) {
+    const map = generateMap(seed, this.mode, theme)
     for (const [c, r] of broken) map.cells[r][c] = 0
     this.map = map
     this.field = new ArenaField(map)
@@ -217,8 +252,14 @@ export class ArenaSession implements Session {
     w.frame++
     // the camera follows the own tank (or where it was destroyed)
     const me = w.playerTanks[0]
+    // waiting to respawn: watch whoever destroyed you (the server sends the area around them)
+    const spec = !me.active && this.you && !this.you.alive && this.you.spec ? this.mirror.get(this.you.spec) : undefined
+    this.spectating = spec?.active ? ((spec.ai?.pid as number | undefined) ?? null) : null
     if (me.active) this.view.follow = { x: me.pos.x, z: me.pos.z }
-    else if (this.a?.you && !this.view.follow) this.view.follow = { x: this.a.you.x, z: this.a.you.z }
+    else if (spec?.active) {
+      const f = this.view.follow ?? { x: spec.pos.x, z: spec.pos.z }
+      this.view.follow = { x: f.x + (spec.pos.x - f.x) * 0.12, z: f.z + (spec.pos.z - f.z) * 0.12 }
+    } else if (this.a?.you && !this.view.follow) this.view.follow = { x: this.a.you.x, z: this.a.you.z }
     this.view.followZoom = this.zoom
     if (this.banner && performance.now() > this.banner.until) this.banner = null
   }
@@ -365,15 +406,15 @@ export class ArenaSession implements Session {
 
   /** the special tank a tank has turned into (from its snapshot flags) */
   powerOf(t: Tank): PickupKind | null {
-    const pw = (((t.ai?.flags as number) ?? 0) >> TF_POWER_SHIFT) & 7
+    const pw = (((t.ai?.flags as number) ?? 0) >> TF_POWER_SHIFT) & 15
     return pw ? PICKUP_KINDS[pw - 1] : null
   }
 
-  private lookOf(t: Tank): { base: BaseModel; color?: string } {
+  private lookOf(t: Tank): { base: BaseModel; color?: string } | { type: number } {
     const pid = t === this.world?.playerTanks[0] ? this.pid : (t.ai?.pid as number | undefined)
     const p = pid !== undefined ? this.names.get(pid) : undefined
     const power = this.powerOf(t)
-    if (power) return { base: `e_${PICKUP_TYPE[power]}` as BaseModel }
+    if (power) return { type: PICKUP_TYPE[power] }
     if (!p) return { base: '1p', color: '#8a8a8a' }
     if (this.mode === 'teams') return { base: p.team === 1 ? '2p' : '1p' }
     if (p.color === TEAM_COLORS[0]) return { base: '1p' }
@@ -609,6 +650,10 @@ export class ArenaSession implements Session {
           } else this.sound('RP_TNK_SE_GET_TNKNUM', x, z, 0.6)
           break
         }
+        case 'emo':
+          this.emotes.set(e[1], [e[2], performance.now() + (EMOTE_TICKS / 60) * 1000])
+          if (e[1] !== this.pid) this.audio.play('RP_COMMON_SE_Balloon_OPEN_01', { volume: 0.5 })
+          break
         case 'spawn':
           if (e[1] === this.tankId) {
             this.view.follow = { x: e[2], z: e[3] }

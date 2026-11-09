@@ -4,11 +4,12 @@
 // off is filled with cork. Teams maps are mirrored left/right with an open base on each side.
 // Deterministic for a seed: the server sends the seed and every client rebuilds the same map.
 
-import { MAP, type ArenaMode } from './rules'
+import { MAP, type ArenaMode, type MapTheme } from './rules'
 
 export type ArenaMap = {
   seed: number
   mode: ArenaMode
+  theme: MapTheme
   cols: number
   rows: number
   /** map codes as in the level format: 0 empty, 101-107 cork, 200 hole, 201-207 wood */
@@ -113,18 +114,30 @@ const PIECES: [number, Piece][] = [
     for (let y = 0; y < INNER; y += 2) for (let x = 0; x < INNER; x += 2) put(x, y, (x + y) % 4 === 0 ? 200 : cork())
   }],
 ]
-const TOTAL = PIECES.reduce((a, [w]) => a + w, 0)
+/** per theme: weight multipliers for PIECES (same order), cork share of walls, gutter extras */
+const THEMES: Record<MapTheme, { weights: number[]; corkWalls: number; gutterCork: number; gutterHoles: number; longWalls: number }> = {
+  mixed: { weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], corkWalls: 0, gutterCork: 0, gutterHoles: 0, longWalls: 1 },
+  // most structures in cork, cork scattered over the corridors: mines open the way
+  cork: { weights: [0.5, 0.6, 1.4, 1, 1.4, 3, 0.4, 1, 1, 1.5, 2], corkWalls: 0.75, gutterCork: 0.07, gutterHoles: 0, longWalls: 1 },
+  // pits and hole fields: tanks go around, shells fly straight over
+  pits: { weights: [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 5, 0.6, 0.6, 1, 3], corkWalls: 0.1, gutterCork: 0, gutterHoles: 0.05, longWalls: 1 },
+  // walls, Ls and Us, and many long walls across the corridors
+  maze: { weights: [0.2, 0.4, 3, 2.5, 1.2, 0.4, 0.3, 1.2, 2.5, 0.4, 0.2], corkWalls: 0.1, gutterCork: 0, gutterHoles: 0, longWalls: 3.5 },
+}
 
-export function generateMap(seed: number, mode: ArenaMode): ArenaMap {
+export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mixed'): ArenaMap {
   const rnd = mulberry(seed)
+  const th = THEMES[theme] ?? THEMES.mixed
+  const pieces = PIECES.map(([w, p], i) => [w * (th.weights[i] ?? 1), p] as [number, Piece])
+  const TOTAL = pieces.reduce((a, [w]) => a + w, 0)
   const cols = MAP.cols
   const rows = MAP.rows
   const cells = Array.from({ length: rows }, () => new Array<number>(cols).fill(0))
   // border ring
   for (let x = 0; x < cols; x++) cells[0][x] = cells[rows - 1][x] = 202
   for (let y = 0; y < rows; y++) cells[y][0] = cells[y][cols - 1] = 202
-  const wood = () => (rnd() < 0.7 ? 201 : rnd() < 0.7 ? 202 : 203)
   const cork = () => (rnd() < 0.75 ? 101 : 102)
+  const wood = () => (rnd() < th.corkWalls ? cork() : rnd() < 0.7 ? 201 : rnd() < 0.7 ? 202 : 203)
   // sectors over the interior (1..cols-2), centred
   const sx = Math.floor((cols - 2) / SECTOR)
   const sy = Math.floor((rows - 2) / SECTOR)
@@ -137,7 +150,7 @@ export function generateMap(seed: number, mode: ArenaMode): ArenaMap {
       const base = mode === 'teams' && i === 0
       let r = rnd() * TOTAL
       let piece = PIECES[0][1]
-      for (const [w, p] of PIECES) {
+      for (const [w, p] of pieces) {
         if ((r -= w) < 0) {
           piece = p
           break
@@ -152,7 +165,18 @@ export function generateMap(seed: number, mode: ArenaMode): ArenaMap {
       }, rnd, wood, cork)
     }
   // a few long walls across the gutters for cover (never fully closing a gutter)
-  const walls = Math.floor((sx * sy) / 6)
+  // corridor extras: single cork blocks / holes, never two in a row across a gutter
+  if (th.gutterCork || th.gutterHoles)
+    for (let y = 1; y < rows - 1; y++)
+      for (let x = 1; x < (mode === 'teams' ? cols / 2 : cols - 1); x++) {
+        if (cells[y][x] !== 0) continue
+        const inGutter = (x - ox) % SECTOR === 0 || (x - ox) % SECTOR === SECTOR - 1 || (y - oy) % SECTOR === 0 || (y - oy) % SECTOR === SECTOR - 1
+        if (!inGutter || cells[y - 1][x] || cells[y][x - 1]) continue
+        const r = rnd()
+        if (r < th.gutterCork) cells[y][x] = cork()
+        else if (r < th.gutterCork + th.gutterHoles) cells[y][x] = 200
+      }
+  const walls = Math.floor(((sx * sy) / 6) * th.longWalls)
   for (let k = 0; k < walls; k++) {
     const h = wood()
     if (rnd() < 0.5) {
@@ -166,30 +190,35 @@ export function generateMap(seed: number, mode: ArenaMode): ArenaMap {
     }
   }
   if (mode === 'teams') for (let y = 0; y < rows; y++) for (let x = 0; x < cols / 2; x++) cells[y][cols - 1 - x] = cells[y][x]
-  // fill whatever the structures closed off (flood fill from the centre corridor)
-  const seen = new Uint8Array(cols * rows)
-  const start = (() => {
-    for (let d = 0; d < cols; d++)
-      for (const [x, y] of [[(cols >> 1) + d, rows >> 1], [(cols >> 1) - d, rows >> 1], [cols >> 1, (rows >> 1) + d]])
-        if (cells[y]?.[x] === 0) return [x, y]
-    return [1, 1]
-  })()
-  const q = [start]
-  seen[start[1] * cols + start[0]] = 1
-  while (q.length) {
-    const [x, y] = q.pop()!
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx, ny = y + dy
-      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows || seen[ny * cols + nx] || cells[ny][nx] !== 0) continue
-      seen[ny * cols + nx] = 1
-      q.push([nx, ny])
+  // fill whatever the structures closed off: keep the largest connected open area
+  const region = new Int32Array(cols * rows).fill(-1)
+  let best = -1
+  let bestSize = 0
+  for (let i = 0, id = 0; i < cols * rows; i++) {
+    if (region[i] >= 0 || cells[(i / cols) | 0][i % cols] !== 0) continue
+    region[i] = id
+    const q = [i]
+    let size = 0
+    while (q.length) {
+      const j = q.pop()!
+      size++
+      const x = j % cols, y = (j / cols) | 0
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy
+        const k = ny * cols + nx
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows || region[k] >= 0 || cells[ny][nx] !== 0) continue
+        region[k] = id
+        q.push(k)
+      }
     }
+    if (size > bestSize) (bestSize = size), (best = id)
+    id++
   }
   const open: [number, number][] = []
   for (let y = 0; y < rows; y++)
     for (let x = 0; x < cols; x++) {
       if (cells[y][x] !== 0) continue
-      if (!seen[y * cols + x]) cells[y][x] = 101
+      if (region[y * cols + x] !== best) cells[y][x] = 101
       else open.push([x, y])
     }
   // spawn cells: open with all 8 neighbours open (room to turn)
@@ -201,7 +230,7 @@ export function generateMap(seed: number, mode: ArenaMode): ArenaMap {
     mode === 'teams'
       ? [roomy.filter(([x]) => x < cols * 0.22), roomy.filter(([x]) => x > cols * 0.78)]
       : [roomy]
-  return { seed, mode, cols, rows, cells, spawns, open }
+  return { seed, mode, theme, cols, rows, cells, spawns, open }
 }
 
 /** cell centre in world units (grid centred on the origin, like RPTnkField::GetCellPos) */

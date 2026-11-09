@@ -8,13 +8,14 @@
 import * as THREE from 'three/webgpu'
 import { registerScreen } from '../app/router'
 import type { AppContext, Screen } from '../app/types'
-import type { BaseModel } from '../render/registry'
 import { logo, tankIcon } from '../ui/web/art'
 import { backButton, band, button, type WebApp } from '../ui/web/base'
 import { h } from '../ui/web/dom'
 import { Nav } from '../ui/web/nav'
 import type { Board } from './protocol'
-import { FFA_COLORS, FFA_LIMIT, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, TEAM_COLORS, TEAM_LIMIT, TEAM_NAMES, type ArenaMode, type PickupKind } from './rules'
+import { EMOTES, FFA_COLORS, FFA_LIMIT, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, TEAM_COLORS, TEAM_LIMIT, TEAM_NAMES, THEME_INFO, type ArenaMode, type MapTheme, type PickupKind } from './rules'
+import { TANK } from '../sim/consts'
+import type { Tank } from '../sim/world'
 import { ArenaSession } from './session'
 import './arena.css'
 
@@ -50,6 +51,7 @@ class ArenaScreen implements Screen {
   private fx = new THREE.Group()
   private pickupObjs = new Map<number, THREE.Object3D>()
   private rings = new Map<number, THREE.Object3D>()
+  private lasers = new Map<Tank, THREE.Mesh>()
   private poll: ReturnType<typeof setInterval> | null = null
   private sheetHeld = false
   private onKey = (e: KeyboardEvent) => {
@@ -57,7 +59,11 @@ class ArenaScreen implements Screen {
       e.preventDefault()
       this.sheetHeld = e.type === 'keydown'
     }
+    // quick chat: 1-6
+    const n = /^Digit([1-6])$/.exec(e.code)
+    if (n && e.type === 'keydown' && !e.repeat && this.phase === 'play' && !this.menuOpen && this.session) this.session.emote(Number(n[1]) - 1)
   }
+  private invite: { arena: string; with?: number } | null = null
   private onWheel = (e: WheelEvent) => {
     if (this.phase !== 'play' || this.menuOpen || !this.session) return
     this.session.zoom = Math.max(0.5, Math.min(1.3, this.session.zoom * (e.deltaY > 0 ? 0.92 : 1.08)))
@@ -67,9 +73,10 @@ class ArenaScreen implements Screen {
     return this.phase !== 'play' || this.menuOpen
   }
 
-  mount(root: HTMLElement, app: AppContext) {
+  mount(root: HTMLElement, app: AppContext, params?: Record<string, unknown>) {
     this.root = root
     this.app = app as WebApp
+    if (typeof params?.arena === 'string') this.invite = { arena: params.arena, with: Number(params.with) || undefined }
     root.classList.add('web', 'arena-ui')
     addEventListener('keydown', this.onKey)
     addEventListener('keyup', this.onKey)
@@ -124,6 +131,7 @@ class ArenaScreen implements Screen {
     const red = () => flip(tankIcon(TEAM_COLORS[1], shade(TEAM_COLORS[1])))
     const teamArt = h('div.ar-tanks.vs', null, blue(), blue(), h('b', null, 'vs'), red(), red())
     const online = h('div.ar-online', null, h('i.dot'), h('span', null, 'Checking the server…'))
+    const leaderCard = this.leaderCard()
     const powers = h(
       'div.ar-powers',
       null,
@@ -143,14 +151,18 @@ class ArenaScreen implements Screen {
             null,
             h('p.ar-lede', null, 'One huge map and a lot of tanks. Jump in any time; you respawn when you’re hit.'),
             h('label.ar-name', null, h('span', null, 'Your name'), name),
-            h(
-              'div.ar-modes',
-              null,
-              modeCard('ffa', 'Free-for-all', `Every tank for itself. First to ${FFA_LIMIT} wins.`, ffaArt),
-              modeCard('teams', 'Teams', `Blue against Red. First team to ${TEAM_LIMIT}.`, teamArt),
-            ),
+            // an invite picks the arena (and its mode) for you
+            this.invite
+              ? h('div.card.ar-invited', null, h('div.ar-mode-art', null, teamArt), h('div.card-title', null, 'You\u2019re invited!'), h('div.card-text', null, 'Play joins your friend\u2019s arena, on their team in a Teams match.'))
+              : h(
+                  'div.ar-modes',
+                  null,
+                  modeCard('ffa', 'Free-for-all', `Every tank for itself. First to ${FFA_LIMIT} wins.`, ffaArt),
+                  modeCard('teams', 'Teams', `Blue against Red. First team to ${TEAM_LIMIT}.`, teamArt),
+                ),
             button('Play', { icon: 'play', class: 'primary big ar-go', autofocus: true, onclick: () => this.play(name.value) }),
             online,
+            leaderCard,
             h(
               'div.card.ar-rules',
               null,
@@ -195,7 +207,8 @@ class ArenaScreen implements Screen {
     this.poll = null
     this.sound('ok')
     this.app.audio.stopMusic()
-    const s = new ArenaSession(this.app.view, this.app.audio, name, this.mode)
+    const s = new ArenaSession(this.app.view, this.app.audio, name, this.mode, this.invite)
+    this.invite = null
     s.onPause = () => this.toggleMenu()
     this.session = s
     this.app.setSession(s)
@@ -221,6 +234,7 @@ class ArenaScreen implements Screen {
         <div class="ar-mapframe"><canvas class="ar-minimap"></canvas></div>
         <div class="ar-labels"></div>
         <div class="ar-net"></div>
+        <div class="ar-chat"><button class="ar-chat-btn" type="button" aria-label="Quick chat">💬</button><div class="ar-chat-list" hidden></div></div>
         <div class="ar-sheet results-screen" hidden></div>
         <div class="ar-menu pause-screen" hidden></div>
         <div class="ar-connecting pause-screen"><div class="panel pause">${band('Connecting…', 'dark').outerHTML}</div></div>
@@ -229,6 +243,78 @@ class ArenaScreen implements Screen {
     this.minimap = this.root.querySelector('.ar-minimap')!
     this.last = {}
     this.app.view.root.add(this.fx)
+    // quick chat button (touch; keys 1-6 do the same)
+    const chat = this.root.querySelector<HTMLElement>('.ar-chat-list')!
+    chat.innerHTML = EMOTES.map((t, i) => `<button type="button" data-emote="${i}"><kbd>${i + 1}</kbd>${esc(t)}</button>`).join('')
+    this.root.querySelector('.ar-chat-btn')!.addEventListener('click', () => (chat.hidden = !chat.hidden))
+    chat.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-emote]')
+      if (!b) return
+      this.session?.emote(Number(b.dataset.emote))
+      chat.hidden = true
+    })
+    // votes for the next map (results sheet)
+    this.els.sheet.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-theme]')
+      if (!b || !this.session) return
+      this.session.vote(b.dataset.theme as MapTheme)
+      this.sound('ok')
+    })
+  }
+
+  /** the join screen's leaderboard: today / all time, and this browser's own numbers */
+  private leaderCard() {
+    const list = h('div.ar-leaders', null, h('div.card-text', null, 'Loading…'))
+    const mine = h('div.ar-mine-stats')
+    let range: 'today' | 'all' = 'today'
+    let data: { today: { name: string; kills: number; wins: number; me?: boolean }[]; all: { name: string; kills: number; wins: number; me?: boolean }[] } | null = null
+    const draw = () => {
+      const rows = data?.[range] ?? []
+      list.replaceChildren(
+        ...(rows.length
+          ? rows.map((r, i) => h('div.ar-leader', { class: r.me ? 'me' : '' }, h('i', null, String(i + 1)), h('span', null, r.name), h('b', null, String(r.kills)), h('small', null, `${r.wins} won`)))
+          : [h('div.card-text', null, range === 'today' ? 'Nobody has scored today yet. Be the first!' : 'No scores yet.')]),
+      )
+      seg.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.r === range))
+    }
+    const seg = h(
+      'div.seg',
+      null,
+      ...(['today', 'all'] as const).map((r) =>
+        h('button.seg-btn', { type: 'button', 'data-r': r, onclick: () => ((range = r), draw()) }, r === 'today' ? 'Today' : 'All time'),
+      ),
+    )
+    const id = ArenaSession.statId()
+    void this.app
+      .api(`/arena/leaders?id=${id ?? ''}`)
+      .then((r) => r.json())
+      .then((d) => ((data = d), draw()))
+      .catch(() => list.replaceChildren(h('div.card-text', null, 'Leaderboard unavailable')))
+    void this.app
+      .api(`/arena/me?id=${id ?? ''}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const st = d.stats
+        if (st) mine.replaceChildren(h('b', null, 'You'), ` ${st.kills} kills · ${st.wins} wins · best streak ${st.best} · ${st.matches} matches`)
+      })
+      .catch(() => {})
+    draw()
+    return h('div.card.ar-board-card', null, h('div.ar-board-head', null, h('div.records-head', null, 'Leaderboard'), seg), list, mine)
+  }
+
+  /** shares (phones) or copies an invite link to this arena */
+  private async shareInvite() {
+    const link = this.session?.inviteLink
+    if (!link) return
+    try {
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) await navigator.share({ title: 'Tanks! Arena', text: 'Join me in the Tanks! arena', url: link })
+      else {
+        await navigator.clipboard.writeText(link)
+        this.session!.banner = { text: 'Invite link copied', until: performance.now() + 1600 }
+      }
+    } catch {
+      prompt('Send this link to a friend:', link)
+    }
   }
 
   private toggleMenu(on = !this.menuOpen) {
@@ -256,6 +342,7 @@ class ArenaScreen implements Screen {
                 this.app.toggleFpv()
               },
             }),
+            button('Invite friends', { icon: 'online', hint: 'Copy a link to this arena', onclick: () => void this.shareInvite() }),
             button('Leave arena', { icon: 'home', onclick: () => this.leave() }),
           ),
         ),
@@ -310,7 +397,12 @@ class ArenaScreen implements Screen {
       this.set('board', this.boardHtml(b, s))
       const sheet = b.state === 'over' || this.sheetHeld
       this.els.sheet.hidden = !sheet
-      if (sheet) this.set('sheet', this.sheetHtml(b, s))
+      if (sheet) {
+        this.set('sheet', this.sheetHtml(b, s))
+        // the countdown ticks without rebuilding the sheet (its vote buttons stay put)
+        const secs = this.els.sheet.querySelector('.ar-secs')
+        if (secs) secs.textContent = String(b.secs)
+      }
     }
     // kill feed
     const now = performance.now()
@@ -322,7 +414,10 @@ class ArenaScreen implements Screen {
     // own tank
     if (you) {
       this.els.respawn.classList.toggle('on', !you.alive && b?.state !== 'over')
-      if (!you.alive) this.set('respawn', `<span>Back in ${Math.max(1, Math.ceil(you.respawn / 60))}</span>`)
+      if (!you.alive) {
+        const w = s.spectating !== null ? s.nameOf(s.spectating) : undefined
+        this.set('respawn', `<span>Back in ${Math.max(1, Math.ceil(you.respawn / 60))}${w ? ` · watching ${esc(w.name)}` : ''}</span>`)
+      }
       const pips = (n: number, max: number, svg: string) => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">${svg}</i>`).join('')
       this.set('ammo', `<div class="row">${pips(you.shells, you.maxShells, SHELL_SVG)}</div><div class="row">${pips(you.mines, you.maxMines, MINE_SVG)}</div>`)
       if (you.power) {
@@ -383,7 +478,12 @@ class ArenaScreen implements Screen {
       s.mode === 'teams'
         ? `<div class="ar-teams">${table(sorted.filter((p) => p[2] === 0), `${TEAM_NAMES[0]} · ${b.teams[0]}`, TEAM_COLORS[0])}${table(sorted.filter((p) => p[2] === 1), `${TEAM_NAMES[1]} · ${b.teams[1]}`, TEAM_COLORS[1])}</div>`
         : table(sorted)
-    return `<div class="panel results ar-results">${head}${body}<div class="results-sub">${over ? `A new map in ${b.secs}…` : 'Release Tab to play on'}</div></div>`
+    const vote = over && b.vote
+      ? `<div class="ar-vote"><div class="records-head">Vote for the next map</div><div class="ar-vote-row">${b.vote.options
+          .map((o, i) => `<button type="button" class="btn ar-vote-btn ${b.vote!.mine === o ? 'on' : ''}" data-theme="${o}"><span class="label"><span class="t">${THEME_INFO[o].name}${o === b.theme ? ' <small>again</small>' : ''}</span><span class="hint">${THEME_INFO[o].text}</span></span><b>${b.vote!.counts[i]}</b></button>`)
+          .join('')}</div></div>`
+      : ''
+    return `<div class="panel results ar-results">${head}<div class="ar-sheet-body">${body}</div>${vote}<div class="results-sub">${over ? 'A new map in <span class="ar-secs"></span>…' : 'Release Tab to play on'}</div></div>`
   }
 
   // ---- minimap ----------------------------------------------------------------------------
@@ -487,23 +587,31 @@ class ArenaScreen implements Screen {
       for (const t of w.tanks) {
         const pid = t.ai?.pid as number | undefined
         // hidden Whites keep their names to themselves
-        if (pid === undefined || pid === s.pid || !t.alive || s.hidden(t)) continue
-        const p = s.nameOf(pid)
+        const own = t === w.playerTanks[0]
+        const id = own ? s.pid : pid
+        const emote = id !== undefined ? s.emotes.get(id) : undefined
+        if (emote && performance.now() > emote[1]) s.emotes.delete(id!)
+        const saying = emote && performance.now() <= emote[1] ? EMOTES[emote[0]] : ''
+        // the own tank only gets a tag while it says something
+        if (own ? !saying : pid === undefined || pid === s.pid) continue
+        if (!t.alive || s.hidden(t)) continue
+        const p = s.nameOf(id!)
         if (!p) continue
-        seen.add(pid)
-        let el = this.labels.get(pid)
+        const pid2 = id!
+        seen.add(pid2)
+        let el = this.labels.get(pid2)
         if (!el) {
           el = document.createElement('div')
           el.className = 'ar-tag'
           this.els.labels.appendChild(el)
-          this.labels.set(pid, el)
+          this.labels.set(pid2, el)
         }
         const color = this.colorOf(s, p.team, p.color)
         const power = s.powerOf(t)
-        const key = p.name + color + (power ?? '')
+        const key = p.name + color + (power ?? '') + saying
         if (el.dataset.k !== key) {
           el.dataset.k = key
-          el.innerHTML = `<i style="background:${color}"></i>${esc(p.name)}${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}`
+          el.innerHTML = `${saying ? `<q>${esc(saying)}</q>` : ''}<i style="background:${color}"></i>${esc(p.name)}${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}`
         }
         v.set(t.pos.x, 52, t.pos.z).project(view.camera)
         el.style.transform = `translate(${((v.x + 1) / 2) * rect.width}px, ${((1 - v.y) / 2) * rect.height}px) translate(-50%, -100%)`
@@ -518,14 +626,13 @@ class ArenaScreen implements Screen {
 
   private syncFx(s: ArenaSession) {
     const t = performance.now() / 1000
-    const models = this.app.view.models
     // pickups: a little model of the special tank, spinning over a glowing ring
     const seen = new Set<number>()
     for (const k of s.pickupList) {
       seen.add(k.id)
       let o = this.pickupObjs.get(k.id)
       if (!o) {
-        o = pickupObject(k.kind, models)
+        o = pickupObject(k.kind, this.app.view.tankModelOf(PICKUP_TYPE[k.kind]).root)
         o.position.set(k.x, 0, k.z)
         this.fx.add(o)
         this.pickupObjs.set(k.id, o)
@@ -539,6 +646,31 @@ class ArenaScreen implements Screen {
       if (!seen.has(id)) {
         this.fx.remove(o)
         this.pickupObjs.delete(id)
+      }
+    // Sniper: a red laser sight along the turret to the first block, seen by everyone
+    const lasers = new Set<Tank>()
+    for (const tk of s.world?.tanks ?? []) {
+      if (!tk.alive || tk.invisible || s.powerOf(tk) !== 'sniper' || !s.field) continue
+      lasers.add(tk)
+      let o = this.lasers.get(tk)
+      if (!o) {
+        o = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicNodeMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.75, depthWrite: false }))
+        this.fx.add(o)
+        this.lasers.set(tk, o)
+      }
+      const dx = tk.turretRot.z.x, dz = tk.turretRot.z.z
+      const x0 = tk.pos.x + dx * TANK.muzzle, z0 = tk.pos.z + dz * TANK.muzzle
+      let len = 0
+      while (len < 1600 && !s.field.pointInBlock(x0 + dx * len, z0 + dz * len) && s.field.isInside({ x: x0 + dx * len, y: 0, z: z0 + dz * len })) len += 6
+      o.scale.set(len, 1.1, 1.1)
+      o.position.set(x0 + (dx * len) / 2, TANK.bodyHeight, z0 + (dz * len) / 2)
+      o.rotation.y = -Math.atan2(dz, dx)
+      ;(o.material as THREE.MeshBasicNodeMaterial).opacity = 0.55 + 0.25 * Math.sin(t * 12)
+    }
+    for (const [k, o] of this.lasers)
+      if (!lasers.has(k)) {
+        this.fx.remove(o)
+        this.lasers.delete(k)
       }
     // teams: a ring of the team colour under every visible tank
     const shown = new Set<number>()
@@ -581,12 +713,10 @@ function ringObject(color: string, r0: number, r1: number, opacity = 0.75) {
   return g
 }
 
-function pickupObject(kind: PickupKind, models: { tank(l: { key: string; base: BaseModel }): { root: THREE.Object3D } }) {
+function pickupObject(kind: PickupKind, tank: THREE.Object3D) {
   const g = new THREE.Group()
-  const base = `e_${PICKUP_TYPE[kind]}` as BaseModel
   const holder = new THREE.Group()
-  const tank = models.tank({ key: base, base }).root
-  tank.scale.setScalar(0.62)
+  tank.scale.multiplyScalar(0.62)
   holder.add(tank)
   const info = PICKUP_INFO[kind]
   const ring = ringObject(info.color, 17, 23, 0.9)

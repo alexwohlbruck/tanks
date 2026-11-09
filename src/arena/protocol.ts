@@ -2,12 +2,17 @@
 // and sends every client a snapshot of what is near its tank 20 times a second, a scoreboard +
 // minimap every half second, and global events (kills, broken blocks, match state) to all.
 
-import type { ArenaMode, PickupKind } from './rules'
+import type { ArenaMode, MapTheme, PickupKind } from './rules'
 
-export const ARENA_PROTO = 2
+export const ARENA_PROTO = 3
 
 export type C2S =
-  | { t: 'join'; v: number; name: string; mode: ArenaMode }
+  /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team) */
+  | { t: 'join'; v: number; name: string; mode: ArenaMode; id?: string; arena?: string; with?: number }
+  /** quick chat (rules EMOTES index) */
+  | { t: 'emote'; i: number }
+  /** the next map's theme, during the intermission */
+  | { t: 'vote'; theme: string }
   /** input for one tick: seq, move x/z, analog, aim x/z, fire / mine pressed this tick (0/1) */
   | { t: 'i'; s: number; mx: number; mz: number; an: number; ax: number; az: number; f: number; m: number }
   | { t: 'ping'; c: number }
@@ -28,7 +33,7 @@ export const TF_ALIVE = 1
 export const TF_PROTECT = 2
 /** a White tank this client cannot see (only its tracks show) */
 export const TF_STEALTH = 4
-/** power index + 1 in bits 3-5 (rules PICKUP_KINDS order) */
+/** power index + 1 in bits 3-6 (rules PICKUP_KINDS order) */
 export const TF_POWER_SHIFT = 3
 
 /** the receiving client's own tank, full precision for prediction */
@@ -59,6 +64,8 @@ export type YouRec = {
   mines: number
   maxShells: number
   maxMines: number
+  /** while waiting to respawn: the tank of whoever destroyed you (0: none in sight) */
+  spec: number
 }
 
 /** compact events: kind first (see sim ArenaEvent) */
@@ -74,6 +81,7 @@ export type NetEv =
   | ['brk', number, number, number]
   | ['pick', number, string, number, number]
   | ['spawn', number, number, number]
+  | ['emo', number, number] // pid, emote
   | ['match', string]
 
 export type BoardPlayer = [number, string, number, string, number, number, number, number] // pid, name, team, color, kills, deaths, score, bot
@@ -86,11 +94,16 @@ export type Board = {
   winner: { name: string; color: string } | null
   /** minimap dots: [pid, x, z] (teammates always, enemies while they are firing) */
   mm: [number, number, number][]
+  /** the current map's theme, and the ballot for the next one (intermission) */
+  theme: MapTheme
+  vote: { options: MapTheme[]; counts: number[]; mine: MapTheme | null } | null
+  /** this arena's id (invite links) */
+  arena: string
 }
 
 export type S2C =
-  | { t: 'welcome'; v: number; arena: string; pid: number; tank: number; mode: ArenaMode; seed: number; broken: [number, number][]; tick: number; online: number }
-  | { t: 'map'; seed: number; tick: number }
+  | { t: 'welcome'; v: number; arena: string; pid: number; tank: number; mode: ArenaMode; seed: number; theme: MapTheme; broken: [number, number][]; tick: number; online: number }
+  | { t: 'map'; seed: number; theme: MapTheme; tick: number }
   | { t: 's'; k: number; T: TankRec[]; S: ShellRec[]; M: MineRec[]; K: PickupRec[]; E: NetEv[]; you: YouRec }
   | Board
   | { t: 'pong'; c: number }

@@ -60,6 +60,16 @@ function bfs(sim: ArenaSim, from: [number, number], to: [number, number]): [numb
   const start = from[1] * cols + from[0]
   const goal = to[1] * cols + to[0]
   prev[start] = start
+  // cells near a mine are off the path (bots used to drive back over their own)
+  for (const m of sim.mines) {
+    if (m.state === 2) continue
+    const [mc, mr] = cellOf(sim.map, m.pos.x, m.pos.z)
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const j = (mr + dy) * cols + mc + dx
+        if (j !== start && j !== goal && j >= 0 && j < prev.length && prev[j] < 0) prev[j] = -2
+      }
+  }
   const q = [start]
   for (let h = 0; h < q.length; h++) {
     const i = q[h]
@@ -68,7 +78,7 @@ function bfs(sim: ArenaSim, from: [number, number], to: [number, number]): [numb
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy
       const j = ny * cols + nx
-      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows || prev[j] >= 0 || sim.field.at(nx, ny) !== 0) continue
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows || prev[j] !== -1 || sim.field.at(nx, ny) !== 0) continue
       prev[j] = i
       q.push(j)
     }
@@ -181,10 +191,11 @@ export function botThink(sim: ArenaSim, p: Player) {
     mz += vx * k * 2
   }
   for (const m of sim.mines) {
+    // fresh own mines are left behind on purpose; everything else gets a wide berth
     if (m.state === 2 || (!m.armed && m.owner === t)) continue
     const dx = t.pos.x - m.pos.x, dz = t.pos.z - m.pos.z
     const d = Math.hypot(dx, dz)
-    if (d < MINE.blastMax + 50) {
+    if (d < MINE.blastMax + (m.owner === t ? 80 : 50)) {
       mx += (dx / (d || 1)) * 2
       mz += (dz / (d || 1)) * 2
     }
@@ -210,12 +221,11 @@ export function botThink(sim: ArenaSim, p: Player) {
     } else goal = b.goal
     if (goal) {
       const here = cellOf(sim.map, t.pos.x, t.pos.z)
-      if (now >= b.repathAt || !b.goal || b.goal[0] !== goal[0] || b.goal[1] !== goal[1] || !b.path.length) {
-        if (now >= b.repathAt || !b.path.length) {
-          b.path = bfs(sim, here, goal)
-          b.goal = goal
-          b.repathAt = now + 45 + Math.floor(Math.random() * 30)
-        }
+      // a full-grid search is the expensive part: at most every 45-75 frames per bot
+      if (now >= b.repathAt) {
+        b.path = bfs(sim, here, goal)
+        b.goal = b.path.length ? goal : null
+        b.repathAt = now + 45 + Math.floor(Math.random() * 30)
       }
       while (b.path.length && b.path[0][0] === here[0] && b.path[0][1] === here[1]) b.path.shift()
       // look a cell further when the line there is open (smoother corners)

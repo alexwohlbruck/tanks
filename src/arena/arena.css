@@ -217,3 +217,48 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
   .ar-feed { max-width: 60vw; }
 }
 .ar-results .kills-head { letter-spacing: 0.02em; font-size: 0.62em; }
+
+/* ---- join: invite, leaderboard ---------------------------------------------------------- */
+.card.ar-invited { box-shadow: inset 0 0 0 0.16em var(--focus), 0 0.2em 0 rgba(120, 70, 25, 0.35); }
+.ar-board-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6em; }
+.ar-board-head .seg { font-size: 0.75em; }
+.ar-leaders { display: grid; gap: 0.1em; }
+.ar-leader { display: grid; grid-template-columns: 1.4em 1fr auto 4.2em; align-items: baseline; gap: 0.4em; font-size: 0.85em; padding: 0.05em 0.3em; border-radius: 0.35em; font-variant-numeric: tabular-nums; }
+.ar-leader i { font-style: normal; opacity: 0.55; font-weight: 700; }
+.ar-leader span { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-leader b { font-weight: 900; color: var(--red-dark); }
+.ar-leader small { font-size: 0.75em; opacity: 0.7; text-align: right; }
+.ar-leader.me { background: rgba(255, 207, 63, 0.35); }
+.ar-mine-stats { font-size: 0.75em; font-weight: 600; opacity: 0.85; }
+.ar-mine-stats:empty { display: none; }
+.ar-mine-stats b { color: var(--red-dark); }
+
+/* ---- HUD: quick chat, emote bubbles, map vote ----------------------------------------- */
+.ar-chat { position: absolute; right: 0.7em; bottom: 1.8em; display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 0.4em; pointer-events: auto; }
+.ar-chat-btn {
+  width: 2.6em; height: 2.6em; border: 0; border-radius: 50%; cursor: pointer; font-size: 1em;
+  background: linear-gradient(#fffaf0, #f3e3c3);
+  box-shadow: inset 0 -0.15em 0 rgba(150, 100, 40, 0.28), 0 0 0 0.12em rgba(110, 70, 25, 0.55), 0 0.22em 0 rgba(90, 55, 20, 0.75);
+}
+.ar-chat-list { display: grid; gap: 0.25em; padding: 0.4em; border-radius: 0.8em; background: rgba(255, 250, 238, 0.95); box-shadow: inset 0 0 0 0.12em rgba(140, 90, 40, 0.35), 0 0.25em 0.8em rgba(40, 15, 0, 0.3); animation: pop-in 0.15s ease-out; }
+.ar-chat-list button { display: flex; align-items: center; gap: 0.5em; border: 0; background: transparent; padding: 0.3em 0.6em; border-radius: 0.5em; font-weight: 700; cursor: pointer; text-align: left; white-space: nowrap; }
+.ar-chat-list button:hover { background: rgba(255, 207, 63, 0.35); }
+.ar-chat-list kbd { font: inherit; font-size: 0.75em; min-width: 1.4em; text-align: center; border-radius: 0.3em; background: rgba(110, 70, 25, 0.15); color: var(--wood-dark); }
+.ar-tag q {
+  position: absolute; bottom: 100%; left: 50%; transform: translate(-50%, -0.35em);
+  quotes: none; white-space: nowrap; font-size: 1.15em; font-weight: 800;
+  background: #fffdf7; color: var(--ink); padding: 0.2em 0.6em; border-radius: 0.8em;
+  box-shadow: 0 0 0 0.1em rgba(110, 70, 25, 0.5), 0 0.15em 0 rgba(90, 55, 20, 0.5);
+  animation: pop-in 0.2s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+.ar-tag q::after { content: ''; position: absolute; left: 50%; top: 100%; margin-left: -0.35em; border: 0.35em solid transparent; border-top-color: #fffdf7; }
+.ar-vote { margin-top: 0.3em; }
+.ar-vote-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5em; margin-top: 0.3em; }
+@media (max-aspect-ratio: 1/1) { .ar-vote-row { grid-template-columns: 1fr; } }
+.web .btn.ar-vote-btn { justify-content: space-between; min-height: 0; padding: 0.45em 0.7em; }
+.web .btn.ar-vote-btn small { font-size: 0.7em; opacity: 0.6; }
+.web .btn.ar-vote-btn b { font-size: 1.3em; font-weight: 900; color: var(--red-dark); }
+.web .btn.ar-vote-btn.on { box-shadow: inset 0 0 0 0.16em var(--red), 0 0.25em 0 var(--red-dark); }
+.ar-sheet-body { min-height: 0; overflow-y: auto; flex: 1 1 auto; }
+.ar-sheet-body .ar-teams { overflow: visible; }
+.ar-results .kills-rows { overflow: visible; }

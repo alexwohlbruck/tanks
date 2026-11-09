@@ -104,7 +104,7 @@ export class SceneView {
   followZoom = 1
   private camBase = new THREE.Vector3()
   /** [arena] per-tank livery: the 1p / 2p model, or the 1p model recoloured */
-  tankLook: ((t: Tank) => { base: BaseModel; color?: string } | null) | null = null
+  tankLook: ((t: Tank) => { base: BaseModel; color?: string } | { type: number } | null) | null = null
   private lookVersion = -1
   private frame = 0
 
@@ -330,6 +330,8 @@ export class SceneView {
       this.lookVersion = registryVersion()
     }
     const custom = this.tankLook?.(t)
+    // [arena] looks like an enemy type (a disc type or a registered Tanks+ one)
+    if (custom && 'type' in custom) return this.enemyLook(custom.type)
     if (custom) {
       const id = `a${custom.base}${custom.color ?? ''}`
       let l = this.lookCache.get(id)
@@ -343,33 +345,44 @@ export class SceneView {
       }
       return l
     }
-    const id = t.isEnemy ? `e${t.type}` : `p${t.team}`
+    if (t.isEnemy) return this.enemyLook(t.type)
+    const id = `p${t.team}`
     let l = this.lookCache.get(id)
     if (l) return l
-    if (!t.isEnemy) {
-      const p = Math.max(0, Math.min(3, t.team))
-      l =
-        p < 2
-          ? { look: { key: `p${p}`, base: p ? '2p' : '1p' }, tread: p ? '2p' : '1p', piece: TANK_PIECE_COLORS[p] }
-          : { look: { key: `p${p}`, base: '1p', livery: p === 2 ? PLAYER_COLORS.p3 : PLAYER_COLORS.p4 }, tread: p === 2 ? 'p3' : 'p4', piece: P34_PIECES[p - 2] }
+    const p = Math.max(0, Math.min(3, t.team))
+    l =
+      p < 2
+        ? { look: { key: `p${p}`, base: p ? '2p' : '1p' }, tread: p ? '2p' : '1p', piece: TANK_PIECE_COLORS[p] }
+        : { look: { key: `p${p}`, base: '1p', livery: p === 2 ? PLAYER_COLORS.p3 : PLAYER_COLORS.p4 }, tread: p === 2 ? 'p3' : 'p4', piece: P34_PIECES[p - 2] }
+    this.lookCache.set(id, l)
+    return l
+  }
+
+  private enemyLook(type: number): Look {
+    const id = `e${type}`
+    let l = this.lookCache.get(id)
+    if (l) return l
+    const reg = tankVisual(type)
+    if (!reg && type >= 1 && type <= 9) {
+      const base = `e_${type}` as BaseModel
+      l = { look: { key: base, base }, tread: base, piece: TANK_PIECE_COLORS[1 + type] }
     } else {
-      const reg = tankVisual(t.type)
-      if (!reg && t.type >= 1 && t.type <= 9) {
-        const base = `e_${t.type}` as BaseModel
-        l = { look: { key: base, base }, tread: base, piece: TANK_PIECE_COLORS[1 + t.type] }
-      } else {
-        const v = reg ?? defaultTankVisual(t.type)
-        const baseIdx = v.baseModel === '1p' ? 0 : v.baseModel === '2p' ? 1 : 1 + Number(v.baseModel.slice(2))
-        const liveryColor = typeof v.livery === 'number' || /^#|^0x/i.test(v.livery) ? v.livery : null
-        l = {
-          look: { key: `t${t.type}:${registryVersion()}`, base: v.baseModel, livery: v.livery, accent: v.accent, scale: v.scale, emissive: v.emissive, emissiveIntensity: v.emissiveIntensity },
-          tread: v.tread ?? v.baseModel,
-          piece: v.pieceColor !== undefined ? rgb(v.pieceColor) : liveryColor !== null ? rgb(liveryColor) : TANK_PIECE_COLORS[baseIdx],
-        }
+      const v = reg ?? defaultTankVisual(type)
+      const baseIdx = v.baseModel === '1p' ? 0 : v.baseModel === '2p' ? 1 : 1 + Number(v.baseModel.slice(2))
+      const liveryColor = typeof v.livery === 'number' || /^#|^0x/i.test(v.livery) ? v.livery : null
+      l = {
+        look: { key: `t${type}:${registryVersion()}`, base: v.baseModel, livery: v.livery, accent: v.accent, scale: v.scale, emissive: v.emissive, emissiveIntensity: v.emissiveIntensity },
+        tread: v.tread ?? v.baseModel,
+        piece: v.pieceColor !== undefined ? rgb(v.pieceColor) : liveryColor !== null ? rgb(liveryColor) : TANK_PIECE_COLORS[baseIdx],
       }
     }
     this.lookCache.set(id, l)
     return l
+  }
+
+  /** [arena] a tank model in the look of an enemy type (pickup models) */
+  tankModelOf(type: number) {
+    return this.models.tank(this.enemyLook(type).look)
   }
 
   // ---- stage --------------------------------------------------------------------------------

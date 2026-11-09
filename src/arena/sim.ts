@@ -29,6 +29,9 @@ import {
   TEAM_COLORS,
   TEAM_LIMIT,
   powerStats,
+  HOMING,
+  MAP_THEMES,
+  type MapTheme,
   type ArenaMode,
   type PickupKind,
 } from './rules'
@@ -212,6 +215,10 @@ export type Player = {
   wantFire: boolean
   wantMine: boolean
   joinedAt: number
+  /** who destroyed this player last (spectated while waiting to respawn) */
+  killedBy: Player | null
+  /** matches won in this arena */
+  wins: number
 }
 
 export type ATank = TankBody & {
@@ -230,7 +237,7 @@ export type ATank = TankBody & {
   speed: number
 }
 
-export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean }
+export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean; homing: boolean }
 export type AMine = {
   id: number
   owner: ATank
@@ -281,6 +288,11 @@ export class ArenaSim {
   phaseEnd = 0
   teamScore = [0, 0]
   winner: { name: string; color: string } | null = null
+  /** the players who won the last match (the winning team, or the top scorer) */
+  winners: Player[] = []
+  /** next map: the themes on the ballot during the intermission, and the votes by pid */
+  voteOptions: MapTheme[] = []
+  votes = new Map<number, MapTheme>()
   private nextId = 1
   private nextPid = 1
   private pickupAt = 0
@@ -300,8 +312,10 @@ export class ArenaSim {
     return this.nextId++ & 0xffffff
   }
 
-  newMatch(seed = (this.rnd() * 2 ** 31) | 0) {
-    this.map = generateMap(seed, this.mode)
+  newMatch(seed = (this.rnd() * 2 ** 31) | 0, theme = this.votedTheme()) {
+    this.map = generateMap(seed, this.mode, theme)
+    this.voteOptions = []
+    this.votes.clear()
     this.field = new ArenaField(this.map)
     this.shells = []
     this.mines = []
@@ -314,6 +328,7 @@ export class ArenaSim {
     this.pickupAt = this.tick + 60
     for (const p of this.players) {
       p.kills = p.deaths = p.score = p.streak = p.best = 0
+      p.killedBy = null
       this.spawn(p.tank)
     }
     this.events.push({ t: 'match', state: 'play' })
@@ -321,8 +336,8 @@ export class ArenaSim {
 
   // ---- players --------------------------------------------------------------------------
 
-  addPlayer(name: string, bot: boolean): Player {
-    const team = this.mode === 'teams' ? this.smallerTeam() : 0
+  /** `team`: join that team (an invite from a teammate) instead of the smaller one */
+  addPlayer(name: string, bot: boolean, team = this.mode === 'teams' ? this.smallerTeam() : 0): Player {
     const used = new Set(this.players.map((p) => p.color))
     const color = this.mode === 'teams' ? TEAM_COLORS[team] : (FFA_COLORS.find((c) => !used.has(c)) ?? FFA_COLORS[this.players.length % FFA_COLORS.length])
     const tank = Object.assign(newBody(), {
@@ -336,7 +351,7 @@ export class ArenaSim {
       firedAt: -999,
       speed: 0,
     }) as ATank
-    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, joinedAt: this.tick }
+    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, joinedAt: this.tick, killedBy: null, wins: 0 }
     tank.player = p
     this.players.push(p)
     this.tanks.push(tank)
@@ -419,7 +434,11 @@ export class ArenaSim {
     const live = this.tanks.filter((t) => t.alive)
     // ApplyVelocities
     for (const t of live) t.pos.x += t.vel.x, t.pos.z += t.vel.z
-    for (const s of this.shells) s.pos.x += s.vel.x, s.pos.z += s.vel.z
+    for (const s of this.shells) {
+      if (s.homing) this.steer(s)
+      s.pos.x += s.vel.x
+      s.pos.z += s.vel.z
+    }
     // ClearHitInfo
     for (const t of live) clearAccum(t.acc)
     for (const s of this.shells) clearAccum(s.acc), (s.hitWall = false)
@@ -525,6 +544,7 @@ export class ArenaSim {
       age: 0,
       bounces: st.ricochets,
       smoke: st.smoke,
+      homing: st.homing,
       acc: accum(),
       hitWall: false,
       dead: false,
@@ -533,6 +553,35 @@ export class ArenaSim {
     t.firedAt = this.tick
     t.protectUntil = 0
     return true
+  }
+
+  /** Hornet shells (src/sim/types/behaviours.ts steerShell): turn toward the nearest enemy ahead */
+  private steer(s: AShell) {
+    if (s.age < HOMING.delay) return
+    const sp = Math.hypot(s.vel.x, s.vel.z)
+    if (!sp) return
+    const cur = Math.atan2(s.vel.z, s.vel.x)
+    let best: ATank | null = null
+    let bd = HOMING.range
+    for (const t of this.tanks) {
+      if (!t.alive || t === s.owner || !this.enemies(s.owner.player, t.player)) continue
+      const d = Math.hypot(t.pos.x - s.pos.x, t.pos.z - s.pos.z)
+      if (d >= bd) continue
+      let off = Math.atan2(t.pos.z - s.pos.z, t.pos.x - s.pos.x) - cur
+      while (off > Math.PI) off -= 2 * Math.PI
+      while (off < -Math.PI) off += 2 * Math.PI
+      if (Math.abs(off) > (HOMING.cone * Math.PI) / 180) continue
+      bd = d
+      best = t
+    }
+    if (!best) return
+    let diff = Math.atan2(best.pos.z + TANK.shellOffsetZ - s.pos.z, best.pos.x - s.pos.x) - cur
+    while (diff > Math.PI) diff -= 2 * Math.PI
+    while (diff < -Math.PI) diff += 2 * Math.PI
+    const max = (HOMING.turn * Math.PI) / 180
+    const a = cur + Math.max(-max, Math.min(max, diff))
+    s.vel.x = Math.cos(a) * sp
+    s.vel.z = Math.sin(a) * sp
   }
 
   /** RPTnkShell::CollideWithField */
@@ -700,9 +749,12 @@ export class ArenaSim {
     const v = t.player
     t.alive = false
     t.vel = v3()
+    t.power = null
+    t.burst = 0
     t.respawnAt = this.tick + RESPAWN_TICKS
     v.deaths++
     v.streak = 0
+    v.killedBy = by === v ? null : by
     let killer = by.pid
     if (this.state === 'play') {
       if (by === v || !this.players.includes(by)) {
@@ -747,6 +799,20 @@ export class ArenaSim {
     }
   }
 
+  /** the theme with most votes (ties: random among them); the first match is mixed */
+  private votedTheme(): MapTheme {
+    if (!this.voteOptions.length) return 'mixed'
+    const n = new Map<MapTheme, number>(this.voteOptions.map((t) => [t, 0]))
+    for (const t of this.votes.values()) if (n.has(t)) n.set(t, n.get(t)! + 1)
+    const top = Math.max(...n.values())
+    const best = this.voteOptions.filter((t) => n.get(t) === top)
+    return best[Math.floor(this.rnd() * best.length)]
+  }
+
+  vote(p: Player, theme: string) {
+    if (this.state === 'over' && (this.voteOptions as string[]).includes(theme)) this.votes.set(p.pid, theme as MapTheme)
+  }
+
   private checkEnd() {
     let done = this.tick >= this.phaseEnd
     if (this.mode === 'teams') done ||= this.teamScore.some((s) => s >= TEAM_LIMIT)
@@ -759,6 +825,11 @@ export class ArenaSim {
       const top = [...this.players].sort((a, b) => b.score - a.score || a.deaths - b.deaths)[0]
       this.winner = top ? { name: top.name, color: top.color } : null
     }
+    this.winners = this.mode === 'teams' ? (this.winner ? this.players.filter((p) => p.team === (this.teamScore[0] > this.teamScore[1] ? 0 : 1)) : []) : this.players.filter((p) => this.winner && p.name === this.winner.name && p.color === this.winner.color).slice(0, 1)
+    for (const p of this.winners) p.wins++
+    // three themes on the ballot, the current one last
+    const others = MAP_THEMES.filter((t) => t !== this.map.theme).sort(() => this.rnd() - 0.5)
+    this.voteOptions = [...others.slice(0, 2), this.map.theme]
     this.state = 'over'
     this.phaseEnd = this.tick + INTERMISSION_TICKS
     this.events.push({ t: 'match', state: 'over' })

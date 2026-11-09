@@ -48,6 +48,8 @@ try {
     await p.waitForTimeout(120)
   }
   console.log('fired', await st())
+  await p.keyboard.press('Digit2')
+  await p.waitForTimeout(250)
   await p.screenshot({ path: `${out}_2.png` })
   await p.keyboard.press('Space')
   await p.evaluate(() => window.app.session.dev(new URLSearchParams(location.search).get('power') ?? 'teal'))

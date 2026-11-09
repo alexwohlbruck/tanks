@@ -1,18 +1,22 @@
 // Arena: the massively-multiplayer mode (src/arena). Arenas run on their own 60 Hz loop; a
 // player joins the fullest arena of the chosen mode with room left (a new one when all are
 // full). Bots fill every arena up to BOT_FILL tanks.
-//   WS  /ws/arena        JSON, src/arena/protocol.ts
-//   GET /api/arena       arenas and player counts
+//   WS  /ws/arena                 JSON, src/arena/protocol.ts
+//   GET /api/arena                arenas and player counts
+//   GET /api/arena/leaders?id=    top 10 today / all time (server/arena/stats.ts)
+//   GET /api/arena/me?id=         one player's lifetime stats
+// Invite links (?arena=A3&with=<pid>) join that arena, on the inviting player's team.
 
 import type { ServerWebSocket } from 'bun'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
-import { ARENA_TPS, BOT_FILL, MAX_HUMANS, PICKUP_KINDS, SNAPSHOT_EVERY, WHITE_REVEAL, type ArenaMode } from '../../src/arena/rules'
+import { ARENA_TPS, BOT_FILL, EMOTES, MAX_HUMANS, PICKUP_KINDS, SNAPSHOT_EVERY, WHITE_REVEAL, type ArenaMode } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
 import { cleanName } from '../../src/net/protocol'
 import { register } from '../index'
 import { json, type WsData } from '../module'
 import { ipOf, loadGameData } from './rooms'
+import { addStats, emptyDelta, isStatId, leaders, playerStats, type StatDelta } from '../arena/stats'
 import { TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_STEALTH } from '../../src/arena/protocol'
 
 const MAX_ARENAS = Number(process.env.ARENAS_MAX ?? 16)
@@ -21,6 +25,10 @@ const STALE_TICKS = 8
 const MAX_BUFFERED = 512 * 1024
 /** what a client is sent around its tank (world units, half extents) */
 const VIEW = { x: 1500, z: 1100 }
+/** one browser's tabs / one household: at most this many players per address in an arena */
+const MAX_PER_IP = 6
+const EMOTE_MS = 1500
+const STATS_FLUSH_MS = 15_000
 
 type Client = {
   ws: ServerWebSocket<WsData>
@@ -40,6 +48,12 @@ type Client = {
   focus: { x: number; z: number }
   tokens: number
   tokenAt: number
+  /** stats id (null: stats off) and the numbers not yet written */
+  statId: string | null
+  stats: StatDelta
+  statsAt: number
+  playSince: number
+  emoteAt: number
 }
 
 let nextArena = 1
@@ -93,8 +107,9 @@ class Arena {
     }
   }
 
-  join(c: Client, name: string) {
-    const p = this.sim.addPlayer(name, false)
+  /** `team`: an invite from a teammate (teams mode) */
+  join(c: Client, name: string, team?: number) {
+    const p = this.sim.addPlayer(name, false, team)
     c.arena = this
     c.player = p
     c.queue = []
@@ -112,6 +127,7 @@ class Arena {
       tank: p.tank.id,
       mode: this.mode,
       seed: this.sim.map.seed,
+      theme: this.sim.map.theme,
       broken: this.sim.broken,
       tick: this.sim.tick,
       online: totalHumans(),
@@ -120,6 +136,7 @@ class Arena {
   }
 
   leave(c: Client) {
+    flushStats(c)
     if (c.player) this.sim.removePlayer(c.player)
     this.clients.delete(c)
     c.arena = null
@@ -145,10 +162,16 @@ class Arena {
     s.step()
     const ev = s.events
     s.events = []
-    if (s.map.seed !== seed) for (const c of this.clients) send(c, { t: 'map', seed: s.map.seed, tick: s.tick })
+    if (s.map.seed !== seed) for (const c of this.clients) send(c, { t: 'map', seed: s.map.seed, theme: s.map.theme, tick: s.tick })
+    this.tally(ev)
     for (const c of this.clients) {
       const t = c.player?.tank
       if (t?.alive) c.focus = { x: t.pos.x, z: t.pos.z }
+      else {
+        // waiting to respawn: the view follows whoever destroyed you
+        const k = c.player?.killedBy?.tank
+        if (k?.alive && s.players.includes(k.player)) c.focus = { x: k.pos.x, z: k.pos.z }
+      }
       for (const e of ev) {
         const n = toNet(e, c)
         if (n) c.pending.push(n)
@@ -202,6 +225,7 @@ class Arena {
       mines: st.maxMines - s.mines.filter((m) => m.owner === t && m.state !== 2).length,
       maxShells: st.maxShells,
       maxMines: st.maxMines,
+      spec: !t.alive && p.killedBy?.tank.alive && s.players.includes(p.killedBy) ? p.killedBy.tank.id : 0,
     }
     send(c, { t: 's', k: s.tick, T, S, M, K, E: c.pending, you })
     c.pending = []
@@ -224,8 +248,66 @@ class Arena {
       secs: s.secondsLeft,
       winner: s.winner,
       mm,
+      theme: s.map.theme,
+      vote: s.state === 'over' && s.voteOptions.length ? { options: s.voteOptions, counts: s.voteOptions.map((o) => [...s.votes.values()].filter((v) => v === o).length), mine: (me && s.votes.get(me.pid)) || null } : null,
+      arena: this.id,
     }
   }
+
+  /** stats: kills / deaths / streaks as they happen, wins and matches at the end */
+  private tally(ev: ArenaEvent[]) {
+    const s = this.sim
+    for (const e of ev) {
+      if (e.t === 'kill') {
+        for (const c of this.clients) {
+          const p = c.player
+          if (!p) continue
+          if (p.pid === e.victim) c.stats.deaths++
+          if (p.pid === e.killer && e.killer !== e.victim) {
+            c.stats.kills++
+            c.stats.best = Math.max(c.stats.best, e.streak)
+          }
+        }
+      } else if (e.t === 'match' && e.state === 'over') {
+        for (const c of this.clients) {
+          if (!c.player) continue
+          c.stats.matches++
+          if (s.winners.includes(c.player)) c.stats.wins++
+          flushStats(c)
+        }
+      }
+    }
+    const now = Date.now()
+    for (const c of this.clients) if (now - c.statsAt > STATS_FLUSH_MS) flushStats(c)
+  }
+
+  /** quick chat: everyone who can see the tank (and the sender) */
+  emote(c: Client, i: number) {
+    const p = c.player
+    if (!p || !Number.isInteger(i) || i < 0 || i >= EMOTES.length) return
+    const now = Date.now()
+    if (now - c.emoteAt < EMOTE_MS) return
+    c.emoteAt = now
+    const t = p.tank
+    for (const o of this.clients)
+      if (o === c || (Math.abs(t.pos.x - o.focus.x) < VIEW.x && Math.abs(t.pos.z - o.focus.z) < VIEW.z) || (this.mode === 'teams' && o.player?.team === p.team)) o.pending.push(['emo', p.pid, i])
+  }
+}
+
+function flushStats(c: Client) {
+  const p = c.player
+  const now = Date.now()
+  c.stats.seconds += (now - c.playSince) / 1000
+  c.playSince = now
+  c.statsAt = now
+  if (c.statId && p) {
+    try {
+      addStats(c.statId, p.name, c.stats)
+    } catch (e) {
+      console.error('[arena] stats', e)
+    }
+  }
+  c.stats = emptyDelta()
 }
 
 /** sim event -> wire, if this client should hear about it */
@@ -303,8 +385,10 @@ const send = (c: Client, m: S2C) => {
 }
 const totalHumans = () => [...arenas.values()].reduce((a, r) => a + r.humans, 0)
 
-function pickArena(mode: ArenaMode): Arena | null {
-  const open = [...arenas.values()].filter((a) => a.mode === mode && a.humans < MAX_HUMANS).sort((a, b) => b.humans - a.humans)
+const fromIp = (a: Arena, ip: string) => [...a.clients].filter((c) => c.ip === ip).length
+
+function pickArena(mode: ArenaMode, ip: string): Arena | null {
+  const open = [...arenas.values()].filter((a) => a.mode === mode && a.humans < MAX_HUMANS && fromIp(a, ip) < MAX_PER_IP).sort((a, b) => b.humans - a.humans)
   if (open[0]) return open[0]
   if (arenas.size >= MAX_ARENAS) return null
   const a = new Arena(mode)
@@ -336,18 +420,39 @@ function onMessage(c: Client, raw: string | Buffer) {
       return send(c, { t: 'pong', c: Number(m.c) || 0 })
     case 'join': {
       if (m.v !== ARENA_PROTO) return send(c, { t: 'error', message: 'The game was updated: reload the page.' })
-      const mode: ArenaMode = m.mode === 'teams' ? 'teams' : 'ffa'
+      let mode: ArenaMode = m.mode === 'teams' ? 'teams' : 'ffa'
       if (c.arena) c.arena.leave(c)
-      const a = pickArena(mode)
+      c.statId = isStatId(m.id) ? m.id : null
+      // an invite: that arena (its mode wins), on the inviting player's team
+      const invited = typeof m.arena === 'string' ? arenas.get(m.arena) : undefined
+      let team: number | undefined
+      let a: Arena | null = null
+      if (invited && invited.humans < MAX_HUMANS && fromIp(invited, c.ip) < MAX_PER_IP) {
+        a = invited
+        mode = a.mode
+        const host = a.sim.players.find((p) => p.pid === Number(m.with) && !p.bot)
+        if (host && mode === 'teams') team = host.team
+      }
+      a ??= pickArena(mode, c.ip)
       if (!a) return send(c, { t: 'error', message: 'Every arena is full. Try again in a minute.' })
-      a.join(c, cleanName(m.name) || 'Player')
+      c.playSince = Date.now()
+      c.statsAt = Date.now()
+      a.join(c, cleanName(m.name) || 'Player', team)
       return
     }
+    case 'emote':
+      return c.arena?.emote(c, Number(m.i))
+    case 'vote':
+      if (c.arena && c.player && typeof m.theme === 'string') c.arena.sim.vote(c.player, m.theme)
+      return
     case 'leave':
       return c.arena?.leave(c)
     case 'dev': {
       const t = c.player?.tank
-      if (!process.env.ARENA_DEV || !t || !(PICKUP_KINDS as string[]).includes(m.power)) return
+      if (!process.env.ARENA_DEV || !t) return
+      // 'end': finish the match now (results + map vote)
+      if (m.power === 'end') return void (c.arena!.sim.phaseEnd = c.arena!.sim.tick)
+      if (!(PICKUP_KINDS as string[]).includes(m.power)) return
       t.power = m.power as (typeof PICKUP_KINDS)[number]
       t.powerUntil = c.arena!.sim.tick + 60 * 60
       return
@@ -368,8 +473,12 @@ function onMessage(c: Client, raw: string | Buffer) {
 register({
   name: 'arena',
   http(req, url) {
-    if (req.method === 'GET' && url.pathname === '/api/arena')
+    if (req.method !== 'GET') return
+    if (url.pathname === '/api/arena')
       return json({ arenas: [...arenas.values()].map((a) => ({ id: a.id, mode: a.mode, humans: a.humans, players: a.sim.players.length })), online: totalHumans() })
+    const id = url.searchParams.get('id')
+    if (url.pathname === '/api/arena/leaders') return json(leaders(isStatId(id) ? id : undefined))
+    if (url.pathname === '/api/arena/me') return json({ stats: isStatId(id) ? playerStats(id) : null })
   },
   ws: {
     upgrade(req) {
@@ -380,7 +489,7 @@ register({
     open(ws) {
       const ip = String(ws.data.ip ?? 'local')
       perIp.set(ip, (perIp.get(ip) ?? 0) + 1)
-      clients.set(ws, { ws, ip, arena: null, player: null, queue: [], last: { ...IDLE_INPUT }, lastRecv: -1, ack: 0, empty: 0, minQueue: 99, window: 0, pending: [], focus: { x: 0, z: 0 }, tokens: 240, tokenAt: performance.now() })
+      clients.set(ws, { ws, ip, arena: null, player: null, queue: [], last: { ...IDLE_INPUT }, lastRecv: -1, ack: 0, empty: 0, minQueue: 99, window: 0, pending: [], focus: { x: 0, z: 0 }, tokens: 240, tokenAt: performance.now(), statId: null, stats: emptyDelta(), statsAt: Date.now(), playSince: Date.now(), emoteAt: 0 })
     },
     message(ws, msg) {
       const c = clients.get(ws)
