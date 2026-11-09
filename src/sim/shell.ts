@@ -202,6 +202,16 @@ export class ShellPool extends ActorPool<Shell> {
     return hit
   }
 
+  /** [versus] owner slot of the first shell isObjectHit counts (-1 none) */
+  objectHitSlot(actor: Actor, ignoreOwnShells: boolean): number {
+    for (const s of this.items) {
+      if (!s.active || s.testHit(actor) === null) continue
+      if (ignoreOwnShells && s.age < SHELL.ownMineAge && actor.ownerTank() === s.owner) continue
+      return s.slot
+    }
+    return -1
+  }
+
   /** RPTnkShellPool::CollideShellWithShells: both shells die; the lower index plays BROKEN */
   collideShellWithShells(shell: Shell): boolean {
     if (this.activeNum === 0) return false

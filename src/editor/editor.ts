@@ -15,6 +15,7 @@ import * as M from './model'
 import { Preview } from './preview'
 import { currentDraft, deleteDraft, listDrafts, loadDraft, newDraft, saveDraft, setCurrentDraft, type Draft } from './storage'
 import { clear, download, fileName, h, isolateKeys, isTyping, modal, pickFile, playAndReturn, relTime, toast } from './ui'
+import { unlock } from '../ui/shared/achievements'
 
 type Tool = 'brush' | 'line' | 'rect' | 'fill' | 'erase' | 'select'
 
@@ -1178,6 +1179,7 @@ class Editor implements Screen {
         const r = !asNew && this.draft.storeId ? await this.api.update(this.draft.storeId, p, author) : await this.api.publish(p, author)
         this.draft.storeId = r.id
         this.flushSave()
+        unlock('editor-publish')
         this.renderRight()
         toast(this.root, asNew ? 'Published to the store' : 'Published pack updated', 'ok', { label: 'View in store', run: () => this.app.show('store', { id: r.id }) })
       } catch (e) {

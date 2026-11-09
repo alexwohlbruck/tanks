@@ -2,7 +2,8 @@
 //   CoopRunner   the original game flow (src/game.ts) with the ServerPresenter: the classic
 //                campaign or a custom LevelPack, 1-4 players on the 2P rules
 //   VersusRunner free-for-all rounds on the versus arenas (src/net/arenas.ts), optional AI tanks;
-//                the last tank standing wins the round, first to `rounds` wins the match
+//                the last tank standing wins the round, first to `rounds` wins the match; a mine
+//                blast is credited to whoever set the mine off (World.mineCreditTrigger)
 
 import { Game, type Phase } from '../../src/game'
 import type { GameData } from '../../src/data'
@@ -169,6 +170,8 @@ export class VersusRunner implements Runner {
     this.players = Math.max(this.players, this.want)
     this.round++
     const w = new World(this.players, { rng: this.rng, enemyCap: 8 })
+    // a mine's kills go to whoever set it off (versus only; co-op keeps the owner's credit)
+    w.mineCreditTrigger = true
     w.hooks = {
       addKill: (p) => this.frags[p]++,
       enemySpawned() {},

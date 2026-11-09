@@ -1,11 +1,15 @@
 // 'menu': the main menu over the attract-mode match. Campaign (classic Wii campaign for 1-2
 // local players, the Tanks+ campaign when its screen exists), Online, Level Editor, Community
-// Levels, Settings, Credits. Entries for screens other modules register ('lobby', 'editor',
-// 'store', 'tanksplus') show a "coming soon" state until those screens exist.
+// Levels, Settings, Achievements, Credits. Entries for screens other modules register ('lobby',
+// 'editor', 'store', 'tanksplus') show a "coming soon" state until those screens exist. The
+// Campaign page shows each campaign's medal and offers "Play online with a friend" ('invite').
 
 import { registerScreen } from '../../app/router'
-import { loadPlayerData } from '../shared/save'
+import { tanksPlus } from '../../levels/packs'
+import { ACHIEVEMENTS, unlockedCount } from '../shared/achievements'
+import { loadPackRecord, loadPlayerData } from '../shared/save'
 import { TANKS_MEDALS } from '../shared/medalResult'
+import { packMedalRule } from '../shared/track'
 import { logo, medalIcon, MEDALS, tankIcon, PLAYER_COLORS } from './art'
 import { backButton, band, button, WebScreen } from './base'
 import { h } from './dom'
@@ -44,9 +48,10 @@ class MenuScreen extends WebScreen {
           button('Level Editor', { icon: 'editor', hint: 'Build your own', disabled: !this.app.hasScreen('editor'), badge: this.soon('editor'), onclick: () => this.open('editor') }),
           button('Community Levels', { icon: 'store', hint: 'Play shared levels', disabled: !this.app.hasScreen('store'), badge: this.soon('store'), onclick: () => this.open('store') }),
           h(
-            'div.menu-row',
+            'div.menu-row.three',
             null,
             button('Settings', { icon: 'settings', class: 'small', onclick: () => this.app.show('settings', { from: 'menu' }) }),
+            button('Achievements', { icon: 'trophy', class: 'small', onclick: () => this.app.show('achievements') }),
             button('Credits', { icon: 'credits', class: 'small', onclick: () => this.app.show('credits') }),
           ),
         ),
@@ -55,6 +60,10 @@ class MenuScreen extends WebScreen {
       const d = loadPlayerData()
       const best = d.records[0]
       const plus = this.app.hasScreen('tanksplus')
+      const pr = loadPackRecord('tanksplus')
+      const online = this.app.hasScreen('invite')
+      const friend = (campaign: string) =>
+        online ? button('Play online with a friend', { icon: 'online', class: 'online-friend', onclick: () => this.app.show('invite', { campaign }) }) : null
       b.append(
         h(
           'div.panel.campaign',
@@ -79,6 +88,7 @@ class MenuScreen extends WebScreen {
                 null,
                 withTank(button('1 Player', { class: 'primary', autofocus: true, onclick: () => this.app.playClassic(1) }), tankIcon(PLAYER_COLORS[0].body, PLAYER_COLORS[0].dark)),
                 withTank(button('2 Players', { onclick: () => this.app.playClassic(2) }), tankIcon(PLAYER_COLORS[1].body, PLAYER_COLORS[1].dark)),
+                friend('classic'),
               ),
             ),
             h(
@@ -86,14 +96,28 @@ class MenuScreen extends WebScreen {
               { class: plus ? '' : 'locked' },
               h('div.card-title', null, 'Tanks+'),
               h('div.card-text', null, 'New missions, new tanks and new tricks.'),
+              plus
+                ? h(
+                    'div.card-stats',
+                    null,
+                    h('div.stat', null, medalIcon(pr.medal), h('span', null, pr.medal ? `${MEDALS[pr.medal - 1].name} medal` : `Medal: ${packMedalRule(tanksPlus.levels.length, 1).toLowerCase()}`)),
+                    h('div.stat', null, h('b', null, String(pr.cleared)), h('span', null, `of ${tanksPlus.levels.length}`)),
+                  )
+                : null,
               h(
-                'div.card-actions',
+                'div.card-actions.one',
                 null,
-                button(plus ? 'Play' : 'Coming soon', { icon: plus ? 'play' : 'lock', disabled: !plus, onclick: () => this.open('tanksplus') }),
+                button(plus ? 'Play' : 'Coming soon', { icon: plus ? 'play' : 'lock', class: plus ? 'primary' : '', disabled: !plus, onclick: () => this.open('tanksplus') }),
+                plus ? friend('tanksplus') : null,
               ),
             ),
           ),
           h('div.foot-hint', null, '2 players: keyboard + mouse and a gamepad, or two gamepads.'),
+          h(
+            'div.campaign-foot',
+            null,
+            button(`Achievements · ${unlockedCount()} / ${ACHIEVEMENTS.length}`, { icon: 'trophy', onclick: () => this.app.show('achievements', { from: 'campaign' }) }),
+          ),
         ),
       )
     }

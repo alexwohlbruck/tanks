@@ -22,6 +22,8 @@ import { Hud } from '../ui/hud'
 import { lytOptions, setLytResolution } from '../ui/lyt'
 import { screenFilter, UiPresenter } from '../ui/presenter'
 import { loadPlayerData } from '../ui/shared/save'
+import { trackGame } from '../ui/shared/track'
+import { achievementToasts } from '../ui/web/achievementToast'
 import { DemoSession } from '../ui/web/demo'
 import { applyModernMessages } from '../ui/web/messages'
 import { feedMenuPad } from '../ui/web/nav'
@@ -156,6 +158,9 @@ export class App implements AppContext {
       onEvents: (ev) => this.view.onEvents(ev),
       onPhase: () => {},
     }
+    // achievements and pack medals watch local games (not the attract mode or online sessions)
+    trackGame(game, () => this.session.kind === 'local')
+    achievementToasts(audio)
     addEventListener('resize', () => this.resize())
     // phones report the new size a little after an orientation change
     screen.orientation?.addEventListener('change', () => setTimeout(() => this.resize(), 250))

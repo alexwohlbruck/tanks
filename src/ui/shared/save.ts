@@ -39,3 +39,40 @@ export function resetVsSession() {
   vsSession.wins = [0, 0]
   vsSession.streak = 0
 }
+
+// ---- level pack medals (the Tanks+ campaign; not a Wii Play feature) ----------------------------
+
+const PACK_KEY = 'tanks.packMedals'
+
+/** packs that award medals (built-in campaigns) */
+export const MEDAL_PACKS = ['tanksplus']
+
+export type PackRecord = {
+  /** 0 none, 1 bronze, 2 silver, 3 gold, 4 platinum */
+  medal: number
+  /** levels cleared so far (the furthest level cleared, 1-based) */
+  cleared: number
+}
+
+function loadPackRecords(): Record<string, PackRecord> {
+  try {
+    const d = JSON.parse(localStorage.getItem(PACK_KEY) ?? 'null')
+    if (d && typeof d === 'object') return d
+  } catch {
+    /* corrupt or unavailable storage */
+  }
+  return {}
+}
+
+export function loadPackRecord(id: string): PackRecord {
+  const r = loadPackRecords()[id]
+  return { medal: Math.max(0, Math.min(4, Math.floor(+(r?.medal ?? 0) || 0))), cleared: Math.max(0, Math.floor(+(r?.cleared ?? 0) || 0)) }
+}
+
+export function savePackRecord(id: string, r: PackRecord) {
+  try {
+    localStorage.setItem(PACK_KEY, JSON.stringify({ ...loadPackRecords(), [id]: r }))
+  } catch {
+    /* storage unavailable */
+  }
+}

@@ -1,0 +1,163 @@
+/* Achievements screen, the unlock popup, the online-with-a-friend invite and the campaign
+   medals (on top of web.css: same wood / cream / red band look). */
+
+.achievements-screen, .invite-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 45%, rgba(60, 30, 5, 0.15), rgba(40, 18, 2, 0.6));
+  backdrop-filter: blur(3px) saturate(1.05);
+}
+
+/* ---- main menu: Settings · Achievements · Credits ------------------------------------- */
+
+.menu-row.three { grid-template-columns: 1fr 1fr 1fr; gap: 0.6em; }
+.menu-row.three .btn { flex-direction: column; gap: 0.15em; padding: 0.45em 0.3em; font-size: 0.85em; text-align: center; }
+.menu-row.three .btn .label { align-items: center; }
+.menu-row.three .btn .t { white-space: nowrap; }
+
+/* ---- achievements screen --------------------------------------------------------------- */
+
+.panel.achievements { width: min(50em, 95vw); height: min(42em, calc(100% - 2.4em)); }
+.ach-summary { display: flex; align-items: center; gap: 1.2em; flex-wrap: wrap; margin-bottom: 0.7em; padding: 0.5em 0.8em; background: rgba(255, 250, 238, 0.82); border-radius: 0.8em; box-shadow: inset 0 0 0 0.12em rgba(140, 90, 40, 0.35); }
+.ach-count { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 0.4em; flex: 1 1 10em; }
+.ach-count b { font-size: 1.8em; font-weight: 900; color: var(--red-dark); line-height: 1; }
+.ach-count span { font-size: 0.8em; font-weight: 600; opacity: 0.8; }
+.ach-count .ach-bar { grid-column: 1 / -1; margin-top: 0.3em; }
+.ach-medal { display: flex; align-items: center; gap: 0.45em; }
+.ach-medal > span { display: flex; flex-direction: column; line-height: 1.1; }
+.ach-medal small { font-size: 0.62em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--wood-dark); }
+.ach-medal b { font-weight: 800; font-size: 0.95em; }
+
+.ach-bar { height: 0.5em; border-radius: 99em; background: rgba(110, 70, 25, 0.22); box-shadow: inset 0 0.08em 0.12em rgba(60, 30, 0, 0.25); overflow: hidden; }
+.ach-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(var(--red-hi), var(--red)); }
+
+.ach-list { flex: 1; min-height: 0; }
+.ach-group h3 { display: flex; justify-content: space-between; align-items: baseline; margin: 0.9em 0 0.35em; font-size: 0.75em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--wood-dark); }
+.ach-group:first-child h3 { margin-top: 0.1em; }
+.ach-group h3 span { letter-spacing: 0.02em; opacity: 0.8; }
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15em, 1fr)); gap: 0.5em; }
+.ach {
+  display: flex; align-items: center; gap: 0.6em;
+  padding: 0.5em 0.6em;
+  border-radius: 0.8em;
+  background: rgba(240, 225, 200, 0.6);
+  box-shadow: inset 0 0 0 0.12em rgba(140, 90, 40, 0.25);
+  outline: none;
+  animation: row-in 0.3s ease-out both;
+  animation-delay: calc(var(--i) * 0.03s);
+}
+.ach.on { background: rgba(255, 250, 238, 0.92); box-shadow: inset 0 0 0 0.12em rgba(140, 90, 40, 0.35), 0 0.18em 0 rgba(120, 70, 25, 0.3); }
+.ach:focus-visible, .kbd .ach:focus { box-shadow: inset 0 0 0 0.12em rgba(140, 90, 40, 0.35), 0 0 0 0.16em var(--focus); }
+.ach .tank-icon { width: 1.9em; height: 1.2em; opacity: 0.25; filter: grayscale(1); }
+.ach.on .tank-icon { opacity: 1; filter: drop-shadow(0 0.08em 0 rgba(60, 30, 0, 0.3)); }
+.ach-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.ach-text b { font-weight: 800; font-size: 0.92em; }
+.ach.on .ach-text b { color: var(--red-dark); }
+.ach-text > span { font-size: 0.68em; font-weight: 500; opacity: 0.8; }
+.ach-prog { display: flex; align-items: center; gap: 0.5em; margin-top: 0.25em; }
+.ach-prog .ach-bar { flex: 1; height: 0.4em; }
+.ach-prog small { font-size: 0.62em; font-weight: 700; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.ach-keys { display: flex; flex-wrap: wrap; gap: 0.2em; margin-top: 0.25em; }
+.ach-keys span { font-size: 0.56em; font-weight: 700; padding: 0.05em 0.5em; border-radius: 99em; background: rgba(110, 70, 25, 0.15); opacity: 0.6; }
+.ach-keys span.got { background: var(--mint); opacity: 1; }
+
+/* trophy badge: wood when locked, gold when won */
+.ach-badge {
+  flex: none; width: 2.2em; height: 2.2em; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(#d9c39e, #b89466);
+  box-shadow: inset 0 -0.12em 0 rgba(80, 45, 10, 0.3), 0 0 0 0.1em rgba(110, 70, 25, 0.45);
+  color: rgba(70, 40, 10, 0.65);
+}
+.ach-badge .ico { width: 1.25em; height: 1.25em; }
+.ach-badge.on {
+  background: radial-gradient(circle at 35% 30%, #fff3a6, #e1a823 60%, #b07d0c);
+  box-shadow: inset 0 -0.14em 0 rgba(120, 70, 0, 0.45), 0 0 0 0.1em #8d5f06, 0 0.15em 0.3em rgba(120, 70, 0, 0.35);
+  color: #6b4204;
+}
+
+/* ---- unlock popup ------------------------------------------------------------------- */
+
+.web.ach-toasts {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 0.8em);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  overflow: visible;
+  font-size: clamp(12px, min(2.6vh, 3.4vw), 20px);
+}
+.ach-toast {
+  display: flex; align-items: center; gap: 0.7em;
+  min-width: min(20em, 88vw); max-width: min(28em, 92vw);
+  padding: 0.55em 0.9em 0.55em 0.6em;
+  border-radius: 0.9em;
+  background: linear-gradient(#fffaf0, #f3e3c3);
+  box-shadow: inset 0 -0.18em 0 rgba(150, 100, 40, 0.28), 0 0 0 0.14em var(--wood-dark), 0 0.3em 0 0.14em var(--wood-deep), 0 0.8em 1.4em rgba(30, 10, 0, 0.45);
+  animation: ach-in 0.45s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+.ach-toast.out { animation: ach-out 0.4s ease-in both; }
+.ach-toast .ach-badge { width: 2.6em; height: 2.6em; animation: medal-in 0.7s cubic-bezier(0.2, 1.6, 0.4, 1) 0.15s both; }
+.ach-toast .ach-badge .ico { width: 1.5em; height: 1.5em; }
+.ach-toast-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.15; }
+.ach-toast-text small { font-size: 0.6em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--red); }
+.ach-toast-text b { font-weight: 900; font-size: 1.1em; color: var(--red-dark); }
+.ach-toast-text span { font-size: 0.66em; font-weight: 500; opacity: 0.8; }
+.ach-toast .tank-icon { width: 2.2em; height: 1.4em; }
+@keyframes ach-in { from { opacity: 0; transform: translateY(-2.5em) scale(0.9); } }
+@keyframes ach-out { to { opacity: 0; transform: translateY(-2em) scale(0.95); } }
+
+/* ---- campaign cards: medals and the online button ------------------------------------- */
+
+.card .btn.online-friend { grid-column: 1 / -1; justify-content: center; min-height: 2.3em; padding: 0.45em 0.8em; }
+.card .btn.online-friend .t { font-size: 0.9em; }
+.card-actions.one { grid-template-columns: 1fr; }
+.campaign-foot { display: flex; justify-content: center; margin-top: 0.7em; }
+.campaign-foot .btn { padding: 0.4em 1em; min-height: 2.2em; }
+.campaign-foot .btn .t { font-size: 0.85em; }
+
+/* Tanks+ select: the pack medal next to the world tabs */
+.tp-medal { display: flex; align-items: center; gap: 0.5em; margin-left: auto; font-size: 0.8em; }
+.tp-medal > span { display: flex; flex-direction: column; line-height: 1.1; }
+.tp-medal small { font-size: 0.75em; font-weight: 500; opacity: 0.8; }
+
+/* results: pack progress */
+.pack-cleared { display: flex; align-items: baseline; gap: 0.4em; }
+.pack-cleared b { font-size: 1.8em; font-weight: 900; color: var(--red-dark); }
+.pack-progress small { font-size: 0.68em; font-weight: 600; opacity: 0.8; }
+
+/* ---- play online with a friend --------------------------------------------------------- */
+
+.panel.invite { width: min(30em, 94vw); }
+.invite-body { display: flex; flex-direction: column; gap: 0.75em; overflow-y: auto; min-height: 0; padding: 0.3em; margin: -0.3em; }
+.invite-body .row { flex-wrap: wrap; gap: 0.5em; min-height: 0; padding: 0; }
+.invite-what { display: flex; align-items: center; gap: 0.7em; }
+.invite-what .tank-icon { width: 3em; height: 1.9em; }
+.invite-what > div { display: flex; flex-direction: column; }
+.invite-what b { font-size: 1.15em; font-weight: 800; color: var(--red-dark); }
+.invite-what span { font-size: 0.75em; font-weight: 500; opacity: 0.8; }
+.invite-box { display: flex; flex-direction: column; align-items: center; gap: 0.35em; padding: 0.7em 0.8em; background: rgba(255, 250, 238, 0.85); border-radius: 0.8em; box-shadow: inset 0 0 0 0.12em rgba(140, 90, 40, 0.35); }
+.invite-box small { font-size: 0.68em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--wood-dark); }
+.invite-code { font-size: 2.2em; font-weight: 900; letter-spacing: 0.18em; color: var(--red-dark); line-height: 1.05; padding-left: 0.18em; }
+.invite-link { font-size: 0.72em; font-weight: 600; opacity: 0.85; word-break: break-all; text-align: center; user-select: all; -webkit-user-select: all; }
+.invite-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6em; }
+.invite-actions .btn { justify-content: center; }
+.invite-actions .btn:only-child { grid-column: 1 / -1; }
+.invite-players { display: flex; flex-direction: column; gap: 0.35em; }
+.invite-player { display: flex; align-items: center; gap: 0.5em; font-weight: 700; }
+.invite-player .tank-icon { width: 2.1em; height: 1.3em; }
+.invite-player small { font-weight: 500; font-size: 0.7em; opacity: 0.7; margin-left: auto; }
+.invite-player.waiting { opacity: 0.6; font-weight: 600; }
+.invite-player.waiting .tank-icon { animation: blink 1.4s infinite; }
+.invite-status { text-align: center; font-size: 0.8em; font-weight: 600; min-height: 1.2em; }
+.invite-status.err { color: var(--red-dark); }
+.invite-start { display: grid; grid-template-columns: 1fr auto; gap: 0.6em; }
+.invite-start .btn { justify-content: center; }

@@ -97,6 +97,9 @@ export const ICONS: Record<string, string> = {
   home: '<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>',
   pause: '<rect x="6" y="4.5" width="4" height="15" rx="1.2" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1.2" fill="currentColor"/>',
   fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  trophy: '<path d="M7 3.5h10v5a5 5 0 0 1-10 0z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M7 5.5H3.5v1.5a3.5 3.5 0 0 0 3.8 3.5M17 5.5h3.5v1.5a3.5 3.5 0 0 1-3.8 3.5M12 13.5v3.5M8 20.5h8M9.5 17h5v3.5h-5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+  share: '<path d="M12 3.5v11M7.5 8 12 3.5 16.5 8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 12.5v6.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
+  copy: '<rect x="8.5" y="8.5" width="11.5" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 5V4.5a1.5 1.5 0 0 0-1.5-1.5H5.5A1.5 1.5 0 0 0 4 4.5V14a1.5 1.5 0 0 0 1.5 1.5H6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" stroke-width="2.2"/>',
 }
 
