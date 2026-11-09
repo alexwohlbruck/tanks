@@ -112,6 +112,10 @@ class SettingsScreen extends WebScreen {
             h(
               'div.ref',
               null,
+              // touch screens (src/ui/touch.ts)
+              document.body.classList.contains('touch-ui')
+                ? h('div', null, h('b', null, 'Touch'), ' left thumb drive · right thumb drag to aim, let go to fire, tap to fire again · Mine button')
+                : null,
               h('div', null, h('b', null, 'Mouse'), ' aim · left click fire · right click mine'),
               h('div', null, h('b', null, 'Gamepad'), ' left stick drive · right stick aim · RT / A fire · LT / X mine · Start pause'),
             ),

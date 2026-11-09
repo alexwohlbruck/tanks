@@ -28,6 +28,8 @@ type Snap = Extract<S2C, { t: 's' }>
 type Feed = { at: number; text: string; html: string }
 
 const DELAY = 7
+/** most floor depth (world units, each way from the tank) the following camera shows */
+const VIEW_DEPTH = 640
 /** RPTnkCursor: the line to the tank shows from this far (layout units; app.ts FAR) */
 const CURSOR_FAR = 480
 const SNAP_DIST = 48
@@ -267,8 +269,34 @@ export class ArenaSession implements Session {
       const f = this.view.follow ?? { x: spec.pos.x, z: spec.pos.z }
       this.view.follow = { x: f.x + (spec.pos.x - f.x) * 0.12, z: f.z + (spec.pos.z - f.z) * 0.12 }
     } else if (this.a?.you && !this.view.follow) this.view.follow = { x: this.a.you.x, z: this.a.you.z }
-    this.view.followZoom = this.zoom
+    this.view.followZoom = this.viewZoom()
+    this.clampFollow()
     if (this.banner && performance.now() > this.banner.until) this.banner = null
+  }
+
+  /** keeps the view over the map: no wide strips of empty table past the border walls
+   * (phones in portrait see far more depth than width) */
+  /** the wheel / pinch zoom, but never showing more floor depth than VIEW_DEPTH each way
+   * (a phone in portrait would otherwise see the whole map from edge to edge) */
+  private viewZoom() {
+    const cam = this.view.camera
+    const depth = (cam.top - cam.bottom) / 2 / Math.sin((42 * Math.PI) / 180)
+    return Math.max(this.zoom, depth / VIEW_DEPTH)
+  }
+
+  private clampFollow() {
+    const f = this.view.follow
+    const m = this.map
+    if (!f || !m || this.view.fpv) return
+    const cam = this.view.camera
+    const zoom = this.viewZoom()
+    const hw = (cam.right - cam.left) / 2 / zoom
+    // the tilted view covers about half its height / sin(42) of floor depth each way
+    const hd = (cam.top - cam.bottom) / 2 / zoom / Math.sin((42 * Math.PI) / 180)
+    const W = (m.cols * 35) / 2 + 40
+    const D = (m.rows * 35) / 2 + 40
+    const clamp = (v: number, half: number, lim: number) => (half >= lim ? 0 : Math.max(-lim + half, Math.min(lim - half, v)))
+    this.view.follow = { x: clamp(f.x, hw, W), z: clamp(f.z, hd, D) }
   }
 
   hudInput(pad: PadState) {

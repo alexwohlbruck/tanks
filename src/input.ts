@@ -4,7 +4,9 @@
 //   B (fire)       -> left click / J / gamepad RT, RB or A
 //   A (mine)       -> right click / Space / E / Shift / K / gamepad LT, LB or X
 //   + (pause)      -> Escape / P / Start
-// Keyboard+mouse and each gamepad are separate devices, so two players can play.
+// Keyboard+mouse and each gamepad are separate devices, so two players can play. Touch
+// controls (src/ui/touch.ts: drive stick, aim stick, mine button) count as part of the
+// keyboard+mouse device.
 
 export type PadState = {
   moveX: number
@@ -45,6 +47,11 @@ const empty = (): PadState => ({
 /** rebindable keyboard controls (KeyboardEvent.code lists); the app replaces them from settings */
 export type KeyBindings = { up: string[]; down: string[]; left: string[]; right: string[]; fire: string[]; mine: string[]; pause: string[] }
 
+/** the touch controls as Input reads them (src/ui/touch.ts) */
+export interface TouchSource {
+  poll(): { moveX: number; moveY: number; aimStick: { x: number; y: number } | null; fire: boolean; mine: boolean } | null
+}
+
 type GamepadSlot = { index: number; prev: boolean[]; pointer: { x: number; y: number } }
 
 export class Input {
@@ -55,6 +62,10 @@ export class Input {
   private pads = new Map<number, GamepadSlot>()
   /** mouse movement while the pointer is locked (first-person view), consumed by takeLook() */
   private look = { x: 0, y: 0 }
+  /** on-screen touch controls, folded into the keyboard+mouse pad while they show */
+  touch: TouchSource | null = null
+  /** a pause request from an on-screen button, read by the next poll */
+  private pauseQueued = false
   /** devices in the order they were first used: 'kbm' or a gamepad index */
   order: (string | number)[] = []
   keyBindings: KeyBindings = {
@@ -79,6 +90,8 @@ export class Input {
     addEventListener('blur', () => this.keys.clear())
     el.addEventListener('contextmenu', (e) => e.preventDefault())
     el.addEventListener('pointerdown', (e) => {
+      // a touch on the stage (outside the touch controls) is a tap: no pointer is left behind
+      if (e.pointerType === 'touch') this.touchTap = true
       this.mousePressed.add(e.button)
       this.setPointer(e)
       this.use('kbm')
@@ -87,9 +100,16 @@ export class Input {
       if (document.pointerLockElement) {
         this.look.x += e.movementX
         this.look.y += e.movementY
-      } else this.setPointer(e)
+      } else if (e.pointerType !== 'touch') this.setPointer(e)
       this.use('kbm')
     })
+  }
+
+  private touchTap = false
+
+  /** press + / Start once (the on-screen pause button of sessions that handle pause themselves) */
+  queuePause() {
+    this.pauseQueued = true
   }
 
   private use(d: string | number) {
@@ -118,7 +138,7 @@ export class Input {
       pointer: this.mouse,
       fire: this.mousePressed.has(0) || p(...b.fire),
       mine: this.mousePressed.has(2) || p(...b.mine),
-      pause: p(...b.pause),
+      pause: p(...b.pause) || this.pauseQueued,
       confirm: p('Enter', 'Space', 'KeyZ') || this.mousePressed.has(0),
       back: p('Backspace', 'KeyX'),
       up: p('ArrowUp', ...b.up),
@@ -128,6 +148,23 @@ export class Input {
     }
     this.pressed.clear()
     this.mousePressed.clear()
+    this.pauseQueued = false
+    if (this.touchTap) {
+      this.touchTap = false
+      this.mouse = null
+    }
+    const t = this.touch?.poll()
+    if (t) {
+      if (t.moveX || t.moveY) {
+        s.moveX = t.moveX
+        s.moveY = t.moveY
+        s.analog = true
+      }
+      s.pointer = null
+      s.aimStick = t.aimStick
+      s.fire ||= t.fire
+      s.mine ||= t.mine
+    }
     return s
   }
 
@@ -194,7 +231,8 @@ export class Input {
       moveX: useB ? b.moveX : a.moveX,
       moveY: useB ? b.moveY : a.moveY,
       analog: useB ? b.analog : a.analog,
-      pointer: b.aimStick ? b.pointer : (a.pointer ?? b.pointer),
+      // an aiming stick (gamepad or touch) wins over a resting pointer
+      pointer: b.aimStick ? b.pointer : a.aimStick ? a.pointer : (a.pointer ?? b.pointer),
       aimStick: b.aimStick ?? a.aimStick,
       fire: a.fire || b.fire,
       mine: a.mine || b.mine,

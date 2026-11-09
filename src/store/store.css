@@ -95,3 +95,21 @@
   .st-d-right { position: static; }
   .st-title { display: none; }
 }
+
+/* phones (either way up): two or more cards a row, slimmer bars */
+@media (max-width: 760px), (max-height: 520px) {
+  .st-top { height: 52px; gap: 8px; padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left)); }
+  .st-top .tk-btn { min-height: 34px; padding: 4px 10px; font-size: 13px; }
+  .st-root input.st-search { min-height: 34px; padding: 4px 9px; min-width: 0; }
+  .st-main { padding: 10px max(10px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  .st-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .st-card { border-width: 2px; border-radius: 11px; }
+  .st-card-b { padding: 6px 8px 8px; gap: 1px; }
+  .st-card-b h3 { font-size: 14px; }
+  .st-by, .st-meta { font-size: 11.5px; }
+  .st-meta { gap: 8px; }
+  .st-stars { font-size: 12px; }
+  .st-levels, .st-badge { font-size: 10px; }
+  .st-tabs { margin-bottom: 10px; gap: 5px; }
+  .st-tab { padding: 4px 11px; min-height: 32px; font-size: 13px; }
+}

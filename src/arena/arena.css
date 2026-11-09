@@ -262,3 +262,33 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 .ar-sheet-body { min-height: 0; overflow-y: auto; flex: 1 1 auto; }
 .ar-sheet-body .ar-teams { overflow: visible; }
 .ar-results .kills-rows { overflow: visible; }
+/* ---- touch screens (src/ui/touch.ts): the sticks own the lower corners, the pause button the
+   top-right one; the minimap moves up, the leaders give way on small screens ---------------- */
+body.touch-play .ar-mapframe { bottom: auto; top: calc(0.6em + env(safe-area-inset-top, 0px)); left: calc(0.7em + env(safe-area-inset-left, 0px)); width: min(10em, 24vw); padding: 0.25em; }
+body.touch-play .ar-top { top: calc(0.6em + env(safe-area-inset-top, 0px)); }
+body.touch-play .ar-feed { bottom: auto; left: calc(0.7em + env(safe-area-inset-left, 0px)); top: calc(0.6em + min(10em, 24vw) * 0.75 + 1em); font-size: 0.85em; }
+body.touch-play .ar-feed .ar-kill:nth-child(n + 4) { display: none; }
+body.touch-play .ar-board { top: calc(max(12px, env(safe-area-inset-top)) + clamp(40px, 6vmin, 56px) + 12px); }
+body.touch-play .ar-net { bottom: auto; top: calc(max(12px, env(safe-area-inset-top)) + clamp(40px, 6vmin, 56px) + 8px); right: 0.9em; }
+body.touch-play .ar-board:not(:empty) ~ .ar-net { display: none; }
+/* the rotate hint would sit under the timer */
+body.arena-playing .tc-rotate { top: 34%; }
+/* connecting / disconnected: no sticks behind the panel */
+body:has(.arena-ui .ar-connecting:not([hidden])) #touch,
+body:has(.arena-ui .ar-connecting:not([hidden])) #pause-btn { display: none; }
+@media (max-height: 520px) {
+  body.touch-play .ar-board { display: none; }
+  body.touch-play .ar-mapframe { width: min(8.5em, 20vw); }
+  body.touch-play .ar-feed { top: calc(0.6em + min(8.5em, 20vw) * 0.75 + 1em); max-width: 30vw; }
+}
+@media (orientation: portrait) {
+  body.touch-play .ar-mapframe { width: min(8em, 24vw); }
+  body.touch-play .ar-top { left: calc(50% + min(4em, 12vw)); }
+  body.touch-play .ar-board { display: none; }
+  /* ammo under the score, clear of the sticks */
+  body.touch-play .ar-dock { bottom: auto; top: 6.6em; left: calc(50% + min(4em, 12vw)); font-size: 0.9em; }
+  body.touch-play .ar-feed { top: calc(0.6em + min(8em, 24vw) * 0.75 + 1em); max-width: 70vw; }
+  body.touch-play .ar-banner { top: 30%; font-size: 1.4em; }
+}
+/* quick chat leaves the aim stick's corner on touch screens: under the pause button */
+body.touch-play .ar-chat { bottom: auto; top: calc(max(12px, env(safe-area-inset-top)) + clamp(40px, 6vmin, 56px) + 2.4em); right: 0.9em; flex-direction: column; }
