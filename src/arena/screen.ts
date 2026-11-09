@@ -83,7 +83,7 @@ class ArenaScreen implements Screen {
     removeEventListener('wheel', this.onWheel)
     if (this.poll) clearInterval(this.poll)
     this.nav?.dispose()
-    document.body.classList.remove('arena-playing')
+    document.body.classList.remove('arena-playing', 'arena-menu')
     this.app.view.root.remove(this.fx)
   }
 
@@ -236,6 +236,7 @@ class ArenaScreen implements Screen {
     if (this.session) this.session.inputBlocked = on
     const m = this.els.menu
     m.hidden = !on
+    document.body.classList.toggle('arena-menu', on)
     if (on) {
       if (document.pointerLockElement) document.exitPointerLock()
       m.replaceChildren(

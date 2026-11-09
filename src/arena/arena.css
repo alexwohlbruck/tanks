@@ -65,7 +65,8 @@
 /* ---- HUD -------------------------------------------------------------------------------- */
 
 #screens > .screen.arena-ui.playing { pointer-events: none; }
-body.arena-playing #gl { cursor: crosshair !important; }
+/* the classic cursor effect aims (the app draws it); the system cursor only shows over menus */
+body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 .arena-ui.playing { font-size: clamp(11px, min(2.3vh, 2.1vw), 17px); }
 .ar-hud { position: absolute; inset: 0; pointer-events: none; }
 .ar-hud .panel, .ar-hud .btn { pointer-events: auto; }

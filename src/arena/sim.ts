@@ -231,7 +231,23 @@ export type ATank = TankBody & {
 }
 
 export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean }
-export type AMine = { id: number; owner: ATank; pid: number; team: number; pos: V3; age: number; state: 0 | 1 | 2; armed: boolean; fuseLit: boolean; timer: number; blast: number; dead: boolean }
+export type AMine = {
+  id: number
+  owner: ATank
+  pid: number
+  team: number
+  pos: V3
+  age: number
+  state: 0 | 1 | 2
+  armed: boolean
+  fuseLit: boolean
+  timer: number
+  blast: number
+  dead: boolean
+  /** who set it off: the shooter of the shell that hit it (or of the blast that chained it);
+   * null when its own fuse or a tank driving close did. Its kills are credited to them. */
+  by: Player | null
+}
 export type APickup = { id: number; kind: PickupKind; c: number; r: number; x: number; z: number }
 
 export type ArenaEvent =
@@ -435,7 +451,7 @@ export class ArenaSim {
       const sh = shellHits.get(t)
       if (mh || sh) {
         if (this.tick < t.protectUntil) continue
-        if (mh) this.kill(t, mh.owner.player, 'mine')
+        if (mh) this.kill(t, this.detonator(mh), 'mine')
         else this.kill(t, sh!.s.owner.player, 'shell')
         continue
       }
@@ -473,7 +489,7 @@ export class ArenaSim {
     if (this.state !== 'play') return
     if (mine) {
       if (pc.mineTimer === 0 && this.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines) {
-        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false })
+        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null })
         this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
         pc.mineTimer = pc.mineCooldown
         pc.freeze = pc.mineFreeze
@@ -564,7 +580,7 @@ export class ArenaSim {
       const r = MINE.bodyRadius + SHELL.radius
       if (dx * dx + dz * dz <= r * r && (s.age >= SHELL.ownMineAge || m.owner !== s.owner)) {
         s.dead = true
-        this.explodeMine(m)
+        this.explodeMine(m, s.owner.player)
         return
       }
     }
@@ -597,8 +613,20 @@ export class ArenaSim {
     if (sp === 0 || !this.field.isInside(s.pos)) s.dead = true
   }
 
-  private explodeMine(m: AMine) {
+  /** the player a mine's blast belongs to */
+  private detonator(m: AMine) {
+    return m.by ?? m.owner.player
+  }
+
+  /** a blast hurts the detonator's enemies, the detonator, and the mine's owner */
+  private blastHits(m: AMine, t: ATank) {
+    const d = this.detonator(m)
+    return t === m.owner || t.player === d || this.enemies(d, t.player)
+  }
+
+  private explodeMine(m: AMine, by: Player | null = null) {
     if (m.state === 2) return
+    if (by) m.by = by
     m.state = 2
     m.fuseLit = true
     m.timer = 0
@@ -624,7 +652,7 @@ export class ArenaSim {
         // chained by another blast
         for (const o of this.mines)
           if (o !== m && o.state === 2 && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) <= o.blast + MINE.bodyRadius) {
-            this.explodeMine(m)
+            this.explodeMine(m, this.detonator(o))
             break
           }
         if ((m.state as number) === 2) continue
@@ -644,7 +672,7 @@ export class ArenaSim {
         m.blast = m.timer >= MINE.blastGrowFrames ? MINE.blastMax : (m.timer / MINE.blastGrowFrames) * (MINE.blastMax - MINE.blastStart) + MINE.blastStart
         if (m.timer < MINE.blastKillFrames) {
           for (const t of live) {
-            if (t !== m.owner && !this.enemies(m.owner.player, t.player)) continue
+            if (!this.blastHits(m, t)) continue
             if (Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) <= m.blast + TANK.mineRadius && !hits.has(t)) hits.set(t, m)
           }
           // cork blocks inside the blast break (RPTnkBlock::CollideWithField)

@@ -27,6 +27,8 @@ type Snap = Extract<S2C, { t: 's' }>
 type Feed = { at: number; text: string; html: string }
 
 const DELAY = 7
+/** RPTnkCursor: the line to the tank shows from this far (layout units; app.ts FAR) */
+const CURSOR_FAR = 480
 const SNAP_DIST = 48
 const NAME_KEY = 'tanks-net-name'
 
@@ -251,6 +253,7 @@ export class ArenaSession implements Session {
       const p = this.pointerToWorld(pad.pointer.x, pad.pointer.y)
       if (p) this.aim = p
     }
+    this.updateCursor(pad, blocked)
     const mv = blocked ? { ...pad, moveX: 0, moveY: 0 } : this.fpv ? fpvMove(pad, this.fpv.yaw) : pad
     const fire = !blocked && pad.fire && !this.lastFire
     const mine = !blocked && pad.mine && !this.lastMine
@@ -307,6 +310,28 @@ export class ArenaSession implements Session {
       else this.err = { x: this.err.x + dx, z: this.err.z + dz }
     }
     this.predicting = true
+  }
+
+  /** the classic aiming cursor (RPTnkCursor effects, drawn by the app): on the pointer, or
+   * where the right stick aims; its line to the tank shows once it is CURSOR_FAR away */
+  private updateCursor(pad: PadState, blocked: boolean) {
+    const c = this.cursors[0]
+    const lh = this.view.layoutHalf
+    if (blocked || this.fpv || (!pad.pointer && !pad.aimStick)) return void (c.visible = false)
+    if (pad.aimStick) Object.assign(c, this.view.projectToLayout(this.aim.x, TANK.bodyHeight, this.aim.z))
+    else if (pad.pointer) Object.assign(c, { x: (pad.pointer.x * 2 - 1) * lh.x, y: (1 - pad.pointer.y * 2) * lh.y })
+    const t = this.world?.playerTanks[0]
+    if (t?.active) {
+      const tp = this.view.projectToLayout(t.pos.x, t.pos.y + TANK.bodyHeight, t.pos.z)
+      c.far = Math.hypot(c.x - tp.x, c.y - tp.y) >= CURSOR_FAR
+    } else c.far = false
+    c.visible = true
+  }
+
+  cursorInfo() {
+    const t = this.world?.playerTanks[0]
+    const alive = !!t?.active && !!this.you?.alive
+    return { tanks: [alive ? t! : null], mode: (_p: number, far: boolean): 0 | 1 | 2 | 3 => (alive && far ? 2 : 1) }
   }
 
   private ray = new THREE.Raycaster()

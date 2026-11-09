@@ -317,11 +317,13 @@ export class App implements AppContext {
     view.stepFx()
     const w = game.world
     const showCursors = this.session.kind !== 'demo'
+    const own = this.session.cursorInfo?.()
     for (let i = 0; i < 4; i++) {
       const c: Cursor = cursors?.[i] ?? { x: 0, y: 0, clamped: false, far: false, visible: false }
-      const t = w?.playerTanks[i]
-      const on = showCursors && i < game.players && game.state !== 0 && !game.paused
-      view.updateCursor(i, { ...c, visible: c.visible && on, mode: game.cursorMode(i, c.clamped || c.far) }, t ? view.projectToLayout(t.pos.x, t.pos.y + 17.6, t.pos.z) : null)
+      const t = own ? own.tanks[i] : w?.playerTanks[i]
+      const on = own ? true : showCursors && i < game.players && game.state !== 0 && !game.paused
+      const mode = own ? own.mode(i, c.clamped || c.far) : game.cursorMode(i, c.clamped || c.far)
+      view.updateCursor(i, { ...c, visible: c.visible && on, mode }, t ? view.projectToLayout(t.pos.x, t.pos.y + 17.6, t.pos.z) : null)
     }
     view.stepCursorFx()
     // held loops (rocket shells, mine fuse) stop when the simulation stops asking for them

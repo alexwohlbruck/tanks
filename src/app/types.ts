@@ -5,6 +5,7 @@ import type { Game } from '../game'
 import type { Input, PadState } from '../input'
 import type { LevelPack } from '../levels/format'
 import type { SceneView } from '../render/scene'
+import type { Tank } from '../sim/world'
 
 /**
  * What drives the game each 60 Hz frame. LocalSession runs the simulation with local input;
@@ -21,6 +22,9 @@ export interface Session {
   hudInput?(pad: PadState): boolean
   /** [net] aiming cursors to draw (layout units), per player */
   cursors?: { x: number; y: number; clamped: boolean; far: boolean; visible: boolean }[]
+  /** [arena] sessions with their own world: the tank each cursor's line runs to, and the
+   * cursor's display mode (game.cursorMode otherwise) */
+  cursorInfo?(): { tanks: (Tank | null)[]; mode(player: number, farOrClamped: boolean): 0 | 1 | 2 | 3 }
 }
 
 export type Pads = { kbm: PadState; gamepads: PadState[]; merged: PadState }
