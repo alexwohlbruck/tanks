@@ -1,6 +1,8 @@
 // RPTnkBgmMix (RPTnkBgmMix.cpp): the stage music is one sequence (RP_TNK_BGM_LOOP2) whose
 // tracks are unmuted by a mask chosen from the enemies alive and the strongest enemy type.
 
+import { FIRST_ADDED_TYPE, tankMeta } from './stats'
+
 /** sTrackMasks[strongest enemy type - 1][min(enemies alive, 4) - 1]; bit i = track i audible */
 export const TRACK_MASKS: readonly (readonly number[])[] = [
   [0x411, 0x411, 0x411, 0x411],
@@ -24,6 +26,13 @@ export function bgmTrackMask(enemyAlive: number, maxType: number, playing = true
   const n = Math.min(4, Math.max(1, Math.min(8, enemyAlive)))
   const t = Math.min(9, Math.max(1, maxType))
   return TRACK_MASKS[t - 1][n - 1]
+}
+
+/** [tanks+] music row of an enemy type: itself for the original 1-9, the meta's `bgmRank`
+ * (an original type) for added types 10+ */
+export function bgmRow(type: number): number {
+  if (type < FIRST_ADDED_TYPE) return type
+  return tankMeta(type)?.bgmRank ?? 9
 }
 
 /** Track bit -> instrument (docs/research.md 7.1) */

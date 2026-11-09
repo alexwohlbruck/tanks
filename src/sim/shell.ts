@@ -84,7 +84,8 @@ export class Shell extends Actor {
     collideActor(this.w, this, 3)
     this.hitRadius = SHELL.radius
     const r = this.w.findShellHit(this)
-    if (r && (this.age >= SHELL.selfHitAge || this.owner !== r.tank)) {
+    // [tanks+] front shields deflect the shell instead (r.tank.ext is null for the original missions)
+    if (r && (this.age >= SHELL.selfHitAge || this.owner !== r.tank) && !(r.tank.ext && this.w.plus!.deflectShell(this, r.tank))) {
       this.hitTank = true
       const kind = this.slot < ENEMY_SLOT0 ? this.slot + 1 : HIT_ENEMY
       r.tank.keepNearestShellHit(kind, r.dist)
@@ -95,7 +96,9 @@ export class Shell extends Actor {
   }
 
   /** RPTnkShell::OnHitWall: mirror reflection via the push accumulators */
-  override onHitWall(depth: number, n: V3) {
+  override onHitWall(depth: number, n: V3, wall: number) {
+    // [tanks+] tile blocks tag their edges (original blocks and the border use id 0)
+    if (wall !== 0 && this.w.plus) this.w.plus.shellHitTile(this, wall)
     const d = dot(this.vel, n)
     const speed = mag(this.vel)
     if (d < 0) {

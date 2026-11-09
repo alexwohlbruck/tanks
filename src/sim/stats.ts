@@ -169,15 +169,107 @@ export function paramsFromRecord(k: number[]): TankParams {
   }
 }
 
-/** Parameters of tank type 0 (player) .. 9 (Black). */
+/** Parameters of tank type 0 (player) .. 9 (Black), and of registered added types (10+). */
 export function paramsFor(type: number): TankParams {
   let p = cache.get(type)
-  if (!p || p.raw !== records[type]) {
-    if (!records[type]) throw new Error(`no tank record ${type} (setTankRecords not called?)`)
-    p = paramsFromRecord(records[type])
+  // [tanks+] added types (10+) come from registerTankType; the disc records are never replaced
+  const rec = records[type] ?? (type >= FIRST_ADDED_TYPE ? added.get(type)?.record : undefined)
+  if (!p || p.raw !== rec) {
+    if (!rec) throw new Error(`no tank record ${type} (setTankRecords not called?)`)
+    p = paramsFromRecord(rec)
     cache.set(type, p)
   }
   return p
+}
+
+// ===== [tanks+] tank type registry =========================================================
+// Added enemy types (ids 10..31) are a 42-word record like the disc's (same meaning per word,
+// read by the unchanged AI) plus `meta`: display data and opt-in behaviour flags that the
+// records cannot express (src/sim/types/*). Types 1-9 are listed by tankTypes() too, with the
+// original names / swatches, but their records always come from the disc data.
+
+/** first id available to added types; stats arrays hold ids up to 31 (game.ts TYPE_SLOTS) */
+export const FIRST_ADDED_TYPE = 10
+export const MAX_TANK_TYPE = 31
+
+/** opt-in behaviours of added types (all off by default; see src/sim/types/behaviours.ts) */
+export type TankBehaviours = {
+  /** hit points (default 1); +hpPerPlayer for every player beyond the first */
+  hp?: number
+  hpPerPlayer?: number
+  /** extra radius against shells (big boss hulls) */
+  hitBonus?: number
+  /** every shot is a fan of `count` shells `angle` degrees apart */
+  spread?: { count: number; angle: number }
+  /** shells steer toward the nearest player (degrees per frame, after `delay` frames) */
+  homing?: { turn: number; delay: number }
+  /** shells from within +-`angle` degrees of the hull's front ricochet off */
+  frontShield?: { angle: number }
+  /** teleports to a free cell away from the players every `interval` frames (`warn` frames telegraphed) */
+  teleport?: { interval: number; warn: number; minDist: number }
+  /** lays mines on a timer while driving, `pattern` 'trail' (one behind) or 'cross' (a burst of 3) */
+  minePattern?: { interval: number; pattern: 'trail' | 'cross'; max: number }
+  /** no gun; arms a short fuse near a player and explodes like a mine */
+  kamikaze?: { trigger: number; fuse: number }
+  /** a shot is charged with a visible laser sight for `charge` frames, then fired at `speed` */
+  sniper?: { charge: number; speed: number }
+  /** gives allies within `radius` a one-hit shield every `interval` frames */
+  medic?: { interval: number; radius: number }
+  /** releases tanks of `type` every `interval` frames, at most `max` alive */
+  spawner?: { type: number; interval: number; max: number }
+  /** invisible while (nearly) standing still */
+  ghost?: boolean
+}
+
+export type TankMeta = {
+  name: string
+  /** CSS colour (HUD / results / editor swatch) */
+  colour: string
+  description: string
+  /** BGM track-mask row (original type 1-9 whose music intensity this type gets) */
+  bgmRank: number
+  /** original type (1-9) whose shell look / sounds this type's shells use (3/7/9 = rockets) */
+  shellLook?: number
+  /** boss tank (shown with a hit-point bar) */
+  boss?: boolean
+  behaviours?: TankBehaviours
+}
+
+export type TankTypeInfo = { id: number; name: string; colour: string; description: string; original: boolean; boss: boolean; bgmRank: number }
+
+const added = new Map<number, { record: number[]; meta: TankMeta }>()
+
+const ORIGINAL: [string, string, string][] = [
+  ['Brown', '#a17a3a', 'Stationary; its turret wanders and it rarely fires.'],
+  ['Ash', '#767064', 'Slow and defensive; dodges shells.'],
+  ['Marine', '#407c71', 'Fires fast rockets with perfect aim; keeps its distance.'],
+  ['Pink', '#ca5f69', 'Aggressive; fires three shells in quick succession.'],
+  ['Yellow', '#d8c130', 'Fast mine layer.'],
+  ['Violet', '#815c80', 'Fast and aggressive; five shells and mines.'],
+  ['Green', '#52874a', 'Stationary bank-shot specialist with double-ricochet rockets.'],
+  ['White', '#e7dbae', 'Turns invisible when the mission starts; only its tracks show.'],
+  ['Black', '#383630', 'Very fast with accurate rockets; ignores your mines.'],
+]
+
+/** registers an added enemy type (id 10..31) */
+export function registerTankType(id: number, record42: number[], meta: TankMeta) {
+  if (id < FIRST_ADDED_TYPE || id > MAX_TANK_TYPE) throw new Error(`tank type id ${id} outside ${FIRST_ADDED_TYPE}..${MAX_TANK_TYPE}`)
+  if (record42.length !== 42) throw new Error(`tank type ${id}: record has ${record42.length} words, not 42`)
+  added.set(id, { record: record42, meta })
+  cache.delete(id)
+}
+
+/** meta of an added type (undefined for 0-9 and unknown ids) */
+export function tankMeta(id: number): TankMeta | undefined {
+  return added.get(id)?.meta
+}
+
+/** every enemy type: the original 1-9 and the registered added ones, by id */
+export function tankTypes(): TankTypeInfo[] {
+  const out: TankTypeInfo[] = ORIGINAL.map(([name, colour, description], i) => ({ id: i + 1, name, colour, description, original: true, boss: false, bgmRank: i + 1 }))
+  for (const [id, { meta }] of [...added].sort((a, b) => a[0] - b[0]))
+    out.push({ id, name: meta.name, colour: meta.colour, description: meta.description, original: false, boss: !!meta.boss, bgmRank: meta.bgmRank })
+  return out
 }
 
 export const statsFor = paramsFor

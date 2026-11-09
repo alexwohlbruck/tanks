@@ -40,9 +40,11 @@
 
 import { Actor, ActorPool, nextId } from './actor'
 import { POOL, TANK, MAX_PLAYERS, HIT_ENEMY, TEAM_ENEMY, MAX_ENEMIES } from './consts'
-import { BlockPool, Field } from './field'
+import { type Block, BlockPool, Field } from './field'
 import { Mine, MinePool } from './mine'
+import { Plus, needsPlus, type PlusEventKind } from './plus'
 import { RPRandom } from './rng'
+import { bgmRow } from './bgm'
 import { Shell, ShellPool, type ShellDeath } from './shell'
 import { Tank } from './tank'
 import { type V3, normalize, v3, vcopy } from './vec'
@@ -90,6 +92,8 @@ export type SimEvent =
   | { t: 'bgm'; name: string }
   | { t: 'bgmStop'; fade: number }
   | { t: 'bgmMask'; mask: number }
+  // [tanks+] added mechanics (src/sim/plus.ts); never emitted for the original missions
+  | { t: 'plus'; kind: PlusEventKind; pos?: V3; tank?: Tank; n?: number }
 
 /** RPTnkCheckMark: the X left where a tank was destroyed */
 export class CheckMark extends Actor {
@@ -151,6 +155,8 @@ export class World {
   enemyCap: number
   /** rules of the loaded level (custom levels; empty for the original missions) */
   rules: Record<string, unknown> = {}
+  /** [tanks+] added tank types / tiles / rules of the loaded level; null for the original missions */
+  plus: Plus | null = null
 
   constructor(players: number, opts: { aspect?: '16_9' | '4_3'; rng?: RPRandom; enemyCap?: number } = {}) {
     this.enemyCap = Math.min(MAX_ENEMIES, opts.enemyCap ?? POOL.enemies)
@@ -256,6 +262,10 @@ export class World {
         if (code >= 100 && code <= 107) this.blocks.spawnAt(x, y, (code - 100) << 4)
         else if (code >= 200 && code <= 207) this.blocks.spawnAt(x, y, ((code - 200) << 4) | 1)
       }
+    // [tanks+] custom levels with added types / tiles / rules get the extension (the disc
+    // missions load with chooseType, and their reloads only carry resolved types 1-9)
+    this.plus = !opts.chooseType && needsPlus(map.cells, slots, this.rules) ? new Plus(this, map.cells) : null
+    if (this.plus) this.plus.spawnTiles()
     // players
     // spawns the map lacks (3-4 players on original maps) go to the nearest free cell
     const spawns = this.fillPlayerSpawns(playerPos)
@@ -280,8 +290,8 @@ export class World {
   }
 
   /** RPTnkTankManager::SpawnNextEnemy */
-  private spawnNextEnemy(pos: V3, type: number, idx: number, show: boolean) {
-    if (this.enemyAliveNum >= this.enemyCap) return
+  private spawnNextEnemy(pos: V3, type: number, idx: number, show: boolean): Tank | null {
+    if (this.enemyAliveNum >= this.enemyCap) return null
     let i = this.enemyNext
     do {
       const t = this.enemyTanks[i]
@@ -289,10 +299,19 @@ export class World {
         t.spawnEnemy(pos, type, idx, show)
         this.enemyAliveNum++
         this.enemyNext = i === this.enemyCap - 1 ? 0 : i + 1
-        return
+        return t
       }
       i = i === this.enemyCap - 1 ? 0 : i + 1
     } while (i !== this.enemyNext)
+    return null
+  }
+
+  /** [tanks+] an enemy released mid-stage (Hive drones): already active, spawn slot 15 (no
+   * level slot, so ReloadStage never brings it back) */
+  spawnExtraEnemy(pos: V3, type: number): Tank | null {
+    const t = this.spawnNextEnemy(pos, type, 15, false)
+    if (t) this.tanks = [...this.playerTanks.slice(0, this.players).filter((k) => k.active), ...this.enemyTanks.filter((k) => k.active)]
+    return t
   }
 
   /** RPTnkTankManager::DeactivateAll + RPTnkWeaponManager::DeactivateAll + KillAllBlocks */
@@ -379,10 +398,11 @@ export class World {
     return nearest
   }
 
-  /** RPTnkTankManager::GetMaxActiveEnemyType (at least 1) */
+  /** RPTnkTankManager::GetMaxActiveEnemyType (at least 1). [tanks+] added types count as the
+   * original type whose music row they use (bgmRow; identity for 1-9) */
   maxActiveEnemyType(): number {
     let type = 1
-    for (const t of this.enemyTanks) if (t.active && t.enemyType > type) type = t.enemyType
+    for (const t of this.enemyTanks) if (t.active && bgmRow(t.enemyType) > type) type = bgmRow(t.enemyType)
     return type
   }
 
@@ -489,6 +509,8 @@ export class World {
     this.shellPool.collideAllWithField()
     this.minePool.collideAllWithField()
     this.blocks.collideAllWithField()
+    // [tanks+] lasers, mine arming (no-op for the original missions: plus is null)
+    if (this.plus) this.plus.collide()
     // UpdateTreadDistances / IntegrateAll
     tanks((t) => t.integrateStep())
     this.shellPool.integrateAll()
@@ -502,6 +524,8 @@ export class World {
     this.shellPool.calcAll()
     this.minePool.calcAll()
     this.blocks.calcAll()
+    // [tanks+] tiles, added behaviours, power-ups (no-op for the original missions)
+    if (this.plus) this.plus.afterCalc()
     // IncrementTimers / TickAge
     for (let i = 0; i < this.players; i++) if (this.playerTanks[i].age >= 0) this.playerTanks[i].age++
     for (const t of this.enemyTanks) if (t.age >= 0) t.age++
@@ -614,6 +638,8 @@ export class World {
       g.height = 0
     }
     this.emit({ t: 'blockBreak', cx: b.col, cz: b.row, height: b.blockHeight })
+    // [tanks+] glass / crates
+    if (this.plus) this.plus.onBlockBreak(b as Block)
   }
 
   // ---- AI-style queries for tools ----------------------------------------------------------
