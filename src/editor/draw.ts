@@ -2,6 +2,7 @@
 
 import type { EnemySlot } from '../levels/format'
 import { LEVEL_H, LEVEL_W } from '../levels/format'
+import { drawTileSwatch } from './tileswatch'
 import { blockHeight, isCork, isEnemy, isHole, isPlayer, isTile, isWood, PLAYER_COLORS, PLAYER_NAMES, tankType, tileType } from './catalog'
 
 export const PALETTE = {
@@ -142,6 +143,7 @@ export function drawCell(c: CanvasRenderingContext2D, code: number, x: number, y
       c.setLineDash([])
     }
   } else if (isTile(code)) {
+    if (drawTileSwatch(c, code, x, y, s)) return
     const t = tileType(code)
     c.fillStyle = t.color
     roundRect(c, x + s * 0.08, y + s * 0.08, s * 0.84, s * 0.84, s * 0.18)
