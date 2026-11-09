@@ -46,7 +46,7 @@ function level(): LevelDef {
   return { v: 1, name: 'Tile showcase', cells: g.map((row) => row.map((ch) => LEGEND[ch])), enemies: [21, 17, 16, 15] }
 }
 
-export function show(o: { frames?: number; players?: number } = {}) {
+export function show(o: { frames?: number; players?: number; toggle?: boolean; smash?: boolean } = {}) {
   const app = (window as unknown as { app: App }).app
   const pack: LevelPack = { v: 1, id: 'tileshow', name: 'Tile showcase', levels: [level()] }
   app.playPack(pack, o.players ?? 2, 0)
@@ -54,8 +54,17 @@ export function show(o: { frames?: number; players?: number } = {}) {
   // through the intro and the start card, then `frames` frames of play
   for (let i = 0; i < 2000 && game.phase !== 'play'; i++) game.tick(() => {})
   for (let i = 0; i < (o.frames ?? 2); i++) game.tick(() => {})
-  game.paused = true
   const w = game.world!
+  // flip the gates (as if a player drove onto the switch) / break the glass and crates
+  const tiles = w.plus!.tiles
+  if (o.toggle) (tiles as unknown as { toggleGates(t: unknown): void }).toggleGates(tiles.list.find((t) => t.code === 540))
+  if (o.smash)
+    for (const t of tiles.list) if ((t.code === 531 || t.code === 532) && t.block) {
+        t.block.breakRequested = true
+        t.block.calculate()
+      }
+  if (o.toggle || o.smash) for (let i = 0; i < 40; i++) game.tick(() => {})
+  game.paused = true
   // extras on display
   const p1 = w.playerTanks[0]
   if (p1.ext) p1.ext.shield = 1
