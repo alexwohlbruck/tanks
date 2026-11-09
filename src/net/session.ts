@@ -93,6 +93,9 @@ export class NetSession implements Session {
   private seq = 0
   private aim = { x: 0, z: 0 }
   private predicting = false
+  /** prediction ended (our tank was destroyed): hold the last predicted pose until the
+   * playhead reaches the destruction, instead of snapping back to the older server pose */
+  private hold: { x: number; z: number; fx: number; fz: number } | null = null
   private err = { x: 0, z: 0 }
   private shells = 0
   private mines = 0
@@ -166,7 +169,7 @@ export class NetSession implements Session {
       this.cur = full
       this.items.push({ kind: 'snap', tick: s.tick, full, snap: s })
       if (s.you) this.reconcile(s.you, s.gen)
-      else this.predicting = false
+      else this.stopPredicting()
     } else this.items.push({ kind: 'snap', tick: s.tick, full: null, snap: s })
   }
 
@@ -236,6 +239,7 @@ export class NetSession implements Session {
     this.ghost = this.me >= 0 ? new Tank(w, false, this.me) : null
     if (this.ghost) this.ghost.spawn(v3(), 0)
     this.predicting = false
+    this.hold = null
     this.inputs = []
     if (this.meta) w.enemyAliveNum = this.meta.enemies
     this.game.listener?.onWorld(w)
@@ -421,6 +425,7 @@ export class NetSession implements Session {
         if (slot === this.me && this.predicting) {
           // still alive in the prediction (the death arrives with the playhead)
         } else {
+          if (slot === this.me) this.hold = null
           if (t.active) t.age = -999
           continue
         }
@@ -527,9 +532,10 @@ export class NetSession implements Session {
     const canPredict = !!w && !!g && gen === this.gen && this.me >= 0 && !!rec && !!(rec.flags & TF_ALIVE) && ((rec.flags >> TF_STATE_SHIFT) & 7) === 1
     while (this.inputs.length && this.inputs[0].seq <= you.ack) this.inputs.shift()
     if (!canPredict) {
-      this.predicting = false
+      this.stopPredicting()
       return
     }
+    this.hold = null
     const before = { x: g.pos.x + this.err.x, z: g.pos.z + this.err.z }
     const was = this.predicting
     // rewind to the server's tank...
@@ -560,6 +566,12 @@ export class NetSession implements Session {
       this.stats.predError = this.stats.predError * 0.9 + e * 0.1
       if (e > SNAP_DIST) this.err.x = this.err.z = 0
     } else this.err.x = this.err.z = 0
+  }
+
+  private stopPredicting() {
+    const g = this.ghost
+    if (this.predicting && g && this.world) this.hold = { x: g.pos.x + this.err.x, z: g.pos.z + this.err.z, fx: g.rot.z.x, fz: g.rot.z.z }
+    this.predicting = false
   }
 
   /** one frame of RPTnkTank physics + StatePlayerControl for the predicted tank */
@@ -643,6 +655,13 @@ export class NetSession implements Session {
       t.lives = 1
       t.state = 1
       t.speed = g.speed
+    } else if (this.hold) {
+      if (!t.lives || t.state !== 1) this.hold = null
+      else {
+        t.pos.x = this.hold.x
+        t.pos.z = this.hold.z
+        axesFromForward(t.rot, v3(this.hold.fx, 0, this.hold.fz))
+      }
     }
     // the turret follows this client's cursor immediately (idle and driving states)
     if (t.lives && (t.state === 0 || t.state === 1)) {
