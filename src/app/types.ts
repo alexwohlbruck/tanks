@@ -16,6 +16,11 @@ export interface Session {
   step(pads: Pads): void
   /** called when the session is replaced */
   dispose?(): void
+  /** [net] when present, replaces the pause menu / pre-game input handling (online sessions
+   * cannot pause); returns true when it owns the frame */
+  hudInput?(pad: PadState): boolean
+  /** [net] aiming cursors to draw (layout units), per player */
+  cursors?: { x: number; y: number; clamped: boolean; far: boolean; visible: boolean }[]
 }
 
 export type Pads = { kbm: PadState; gamepads: PadState[]; merged: PadState }

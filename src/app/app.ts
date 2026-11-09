@@ -15,6 +15,8 @@ import { loadPlayerData } from '../ui/shared/save'
 import { Router } from './router'
 import { LocalSession, type Cursor } from './session'
 import type { AppContext, Pads, Session } from './types'
+// [net] online play: registers the 'lobby' and 'net-hud' screens (src/net/index.ts)
+import { handleJoinParam } from '../net'
 
 /** layout space: 832 x 456 in 16:9, panes with locationAdjust spread by 832/608 */
 const LAYOUT_W = 832
@@ -113,6 +115,8 @@ export class App implements AppContext {
     }
     requestAnimationFrame(loop)
     if (this.params.has('mission')) this.playClassic(this.params.get('p2') ? 2 : 1, Number(this.params.get('mission')) - 1)
+    // [net] ?join=CODE (shared room link) / ?online opens the lobby
+    handleJoinParam(this)
     ;(window as unknown as { game: Game; audio: Audio; app: App }).game = game
     ;(window as unknown as { audio: Audio }).audio = audio
     ;(window as unknown as { app: App }).app = this
@@ -158,10 +162,12 @@ export class App implements AppContext {
     const pads: Pads = { kbm: all.kbm, gamepads, merged }
     this.frame++
     const view = this.view
-    const cursors = this.session instanceof LocalSession ? this.session.cursors : null
+    const cursors: Cursor[] | null = this.session.cursors ?? null
     // DOM screens with pointer focus, the pre-game screens, pause menu and scene fades own the
     // frame; the aiming cursors hide (RPTnkScene::pauseCallBack sets their display mode to 0)
-    if (this.router.modal || this.hud.input(merged)) {
+    // [net] online sessions handle Esc / pre-game themselves (and the pre-game screens close)
+    if (this.session.hudInput && this.hud.preGame.active) this.hud.preGame.close()
+    if (this.router.modal || (this.session.hudInput ? this.session.hudInput(merged) : this.hud.input(merged))) {
       for (let i = 0; i < 4; i++) view.updateCursor(i, { x: 0, y: 0, visible: false, mode: 0 }, null)
       view.stepCursorFx()
       return

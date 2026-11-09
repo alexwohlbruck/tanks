@@ -1,0 +1,165 @@
+/* Online play screens (lobby, in-game overlay). Everything is scoped under .net-ui. */
+
+.net-ui {
+  --cork: #c79a5f;
+  --cork-dark: #a77a43;
+  --wood: #8b5a2b;
+  --wood-dark: #5a3818;
+  --paper: #fbf3e2;
+  --ink: #3b2714;
+  --muted: #8a6c4c;
+  --red: #c8402f;
+  --green: #3f9b4f;
+  font: 600 15px/1.35 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+  color: var(--ink);
+  box-sizing: border-box;
+}
+.net-ui *, .net-ui *::before, .net-ui *::after { box-sizing: inherit; }
+.net-ui [hidden] { display: none !important; }
+
+/* ---- buttons / inputs ---- */
+.net-ui .net-btn {
+  font: inherit; cursor: pointer; border: 0; border-radius: 10px; padding: 9px 16px;
+  color: #fff; background: linear-gradient(#a06a36, var(--wood)); box-shadow: inset 0 1px 0 #ffffff40, 0 3px 0 var(--wood-dark), 0 5px 10px #0003;
+  text-shadow: 0 1px 0 #0005; transition: transform 0.06s, filter 0.15s;
+}
+.net-ui .net-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.net-ui .net-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 1px 0 #ffffff40, 0 1px 0 var(--wood-dark); }
+.net-ui .net-btn:disabled { opacity: 0.5; cursor: default; }
+.net-ui .net-btn.primary { background: linear-gradient(#e0574a, var(--red)); box-shadow: inset 0 1px 0 #ffffff50, 0 3px 0 #86281c, 0 5px 10px #0003; }
+.net-ui .net-btn.danger { background: linear-gradient(#7a4a3a, #5b3326); }
+.net-ui .net-btn.ghost { background: #0000; color: var(--paper); box-shadow: inset 0 0 0 2px #fbf3e270; }
+.net-ui .net-btn.big { font-size: 18px; padding: 12px 22px; width: 100%; margin-top: 6px; }
+.net-ui .net-btn.small { padding: 5px 11px; font-size: 13px; border-radius: 8px; }
+.net-ui .net-btn.file { display: inline-block; }
+.net-ui .nl-input {
+  font: inherit; color: var(--ink); background: #fff; border: 2px solid #d9c3a0; border-radius: 9px; padding: 7px 10px; outline: none; min-width: 0;
+}
+.net-ui .nl-input:focus { border-color: var(--wood); }
+.net-ui .nl-input.num { width: 76px; }
+.net-ui .nl-code { text-transform: uppercase; letter-spacing: 0.25em; font-size: 20px; text-align: center; width: 100%; margin: 4px 0 8px; }
+.net-ui .tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 99px; background: #ead9bb; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; vertical-align: middle; }
+.net-ui .tag.host { background: #f3d36b; color: #6b4b00; }
+.net-ui .nh-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #999; vertical-align: 0; }
+.net-ui .nh-dot.good { background: #4cd164; } .net-ui .nh-dot.ok { background: #f0c03c; } .net-ui .nh-dot.bad, .net-ui .nh-dot.off { background: #e0483f; }
+
+/* ---- lobby ---- */
+.net-lobby {
+  overflow: auto;
+  background:
+    radial-gradient(circle at 20% 30%, #0000001a 0 1.5px, #0000 2px) 0 0 / 23px 19px,
+    radial-gradient(circle at 70% 60%, #ffffff1f 0 1px, #0000 1.5px) 0 0 / 17px 13px,
+    radial-gradient(circle at 40% 80%, #0000001a 0 1px, #0000 1.6px) 0 0 / 31px 27px,
+    radial-gradient(ellipse at 50% 0%, #e0b878, var(--cork) 55%, var(--cork-dark));
+}
+.net-lobby .nl-wrap { max-width: 980px; margin: 0 auto; padding: 18px 20px 40px; min-height: 100%; }
+.net-lobby .nl-head {
+  display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-radius: 14px; margin-bottom: 16px;
+  background: repeating-linear-gradient(90deg, #ffffff08 0 3px, #0000 3px 11px), repeating-linear-gradient(90deg, #00000014 0 1px, #0000 1px 37px), linear-gradient(#9a6431, var(--wood) 60%, #774a22);
+  box-shadow: inset 0 1px 0 #ffffff30, 0 4px 0 var(--wood-dark), 0 8px 18px #0004; color: var(--paper);
+}
+.net-lobby .nl-head h1 { margin: 0; flex: 1; font-size: 26px; letter-spacing: 0.02em; text-shadow: 0 2px 0 #0006; }
+.net-lobby .nl-head h1 span { color: #ffd88a; }
+.net-lobby .nl-status { font-size: 13px; opacity: 0.9; white-space: nowrap; }
+.net-lobby .nl-card {
+  background: var(--paper); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px;
+  box-shadow: 0 1px 0 #fff inset, 0 3px 0 #d7bf98, 0 8px 18px #5a38182e; position: relative;
+}
+.net-lobby .nl-card::before { /* push pin */
+  content: ''; position: absolute; top: -6px; left: 50%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ff8a7a, var(--red) 60%, #7a1d12); box-shadow: 0 2px 3px #0005;
+}
+.net-lobby .nl-card h2 { margin: 0 0 8px; font-size: 18px; color: var(--wood-dark); }
+.net-lobby .nl-card p { margin: 0 0 10px; color: var(--muted); font-weight: 500; font-size: 14px; }
+.net-lobby .nl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.net-lobby .nl-grid.two { grid-template-columns: 1fr 1.3fr; }
+.net-lobby .nl-grid > .nl-card { margin-bottom: 0; display: flex; flex-direction: column; }
+.net-lobby .nl-grid > .nl-card > .net-btn:last-child { margin-top: auto; }
+.net-lobby section.nl-grid { margin-bottom: 14px; }
+.net-lobby .nl-name label { display: flex; align-items: center; gap: 12px; color: var(--wood-dark); }
+.net-lobby .nl-name input { flex: 1; max-width: 320px; }
+.net-lobby .nl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; color: var(--ink); }
+.net-lobby .nl-row.check { justify-content: flex-start; }
+.net-lobby .nl-seg { display: flex; background: #ead9bb; border-radius: 10px; padding: 3px; margin: 4px 0 8px; }
+.net-lobby .nl-seg button { flex: 1; font: inherit; border: 0; background: #0000; padding: 7px 8px; border-radius: 8px; cursor: pointer; color: var(--muted); }
+.net-lobby .nl-seg button.on { background: #fff; color: var(--ink); box-shadow: 0 2px 4px #5a38182e; }
+.net-lobby .nl-seg button:disabled { cursor: default; }
+.net-lobby .nl-rooms { display: flex; flex-direction: column; gap: 6px; }
+.net-lobby .nl-room { display: grid; grid-template-columns: 1fr auto 60px 80px auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #f2e5cc; }
+.net-lobby .nl-room .state { font-size: 12px; color: var(--muted); } .net-lobby .nl-room .state.playing { color: var(--red); }
+.net-lobby .nl-empty { font-style: italic; }
+.net-lobby .nl-center { text-align: center; max-width: 460px; margin: 60px auto; }
+.net-lobby .nl-loading { text-align: center; color: var(--paper); font-size: 18px; margin-top: 80px; text-shadow: 0 1px 2px #0006; }
+.net-lobby .nl-roomhead { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.net-lobby .nl-roomhead > div:first-child { flex: 1; }
+.net-lobby .nl-roomname { display: inline; margin-right: 8px !important; }
+.net-lobby .nl-codebox { text-align: center; background: #3b2714; color: #ffd88a; border-radius: 10px; padding: 4px 16px 6px; }
+.net-lobby .nl-codebox small { display: block; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: #d9c3a0; }
+.net-lobby .nl-bigcode { font-size: 28px; letter-spacing: 0.25em; font-family: ui-monospace, 'Courier New', monospace; }
+.net-lobby .nl-share { display: flex; gap: 8px; }
+.net-lobby .nl-share .ghost { color: var(--wood); box-shadow: inset 0 0 0 2px #8b5a2b60; text-shadow: none; }
+.net-lobby .nl-players { display: flex; flex-direction: column; gap: 8px; }
+.net-lobby .nl-player { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; background: #f2e5cc; }
+.net-lobby .nl-player.you { box-shadow: inset 0 0 0 2px #8b5a2b70; }
+.net-lobby .nl-player.away { opacity: 0.6; }
+.net-lobby .nl-player.empty { color: var(--muted); font-weight: 500; font-style: italic; background: repeating-linear-gradient(45deg, #f2e5cc 0 8px, #efdfc2 8px 16px); }
+.net-lobby .nl-player.empty .tankdot { opacity: 0.35; }
+.net-lobby .nl-player small { margin-left: auto; color: var(--muted); font-weight: 500; }
+.net-lobby .tankdot { /* a little tank in the player's colour */
+  width: 26px; height: 18px; border-radius: 4px; background: var(--c); position: relative; flex: none; box-shadow: inset 0 -3px 0 #0003;
+}
+.net-lobby .tankdot::after { content: ''; position: absolute; left: 7px; top: -5px; width: 12px; height: 9px; border-radius: 4px 4px 2px 2px; background: var(--c); filter: brightness(1.15); }
+.net-lobby .nl-desc { min-height: 38px; }
+.net-lobby .nl-opts { margin-bottom: 8px; }
+.net-lobby .nl-pack { padding: 8px 10px; background: #f2e5cc; border-radius: 9px; margin-bottom: 6px; }
+.net-lobby .nl-wait { text-align: center; color: var(--muted); font-style: italic; margin-top: auto !important; }
+.net-lobby .nl-toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #3b2714f0; color: var(--paper); padding: 10px 18px; border-radius: 10px;
+  box-shadow: 0 6px 18px #0006; max-width: 90%; word-break: break-all;
+}
+@media (max-width: 760px) {
+  .net-lobby .nl-grid, .net-lobby .nl-grid.two { grid-template-columns: 1fr; }
+  .net-lobby .nl-room { grid-template-columns: 1fr auto auto; }
+  .net-lobby .nl-room .state, .net-lobby .nl-room .tag { display: none; }
+}
+
+/* ---- in-game overlay ---- */
+#screens > .screen.net-hud { pointer-events: none; }
+.net-hud { color: #fff; font-size: 13px; }
+.net-hud .nh-bar {
+  position: absolute; top: 8px; right: 10px; display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 99px;
+  background: #2b1a0bb0; text-shadow: 0 1px 1px #000; white-space: nowrap;
+}
+.net-hud .nh-room { color: #e9d3ad; font-weight: 500; }
+.net-hud .nh-players { position: absolute; top: 38px; right: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.net-hud .nh-chip { display: flex; align-items: center; gap: 6px; padding: 2px 9px 2px 4px; border-radius: 99px; background: #2b1a0b90; }
+.net-hud .nh-chip i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff8; }
+.net-hud .nh-chip small { color: #e9d3ad; font-weight: 500; }
+.net-hud .nh-chip.away { opacity: 0.55; }
+.net-hud .nh-chip.you { box-shadow: inset 0 0 0 1.5px #ffd88a; }
+.net-hud .nh-host { color: #ffd34d; }
+.net-hud .nh-vs { position: absolute; top: 8px; left: 10px; }
+.net-hud .nh-vs:empty { display: none; }
+.net-hud .nh-vs { background: #2b1a0bb8; border-radius: 12px; padding: 6px 10px; min-width: 190px; }
+.net-hud .nh-vs-title { color: #ffd88a; font-size: 12px; margin-bottom: 4px; }
+.net-hud .nh-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.net-hud .nh-row i { width: 10px; height: 10px; border-radius: 3px; }
+.net-hud .nh-row .nm { min-width: 70px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-hud .nh-row small { margin-left: auto; color: #e9d3ad; padding-left: 8px; }
+.net-hud .pip { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--c); }
+.net-hud .pip.on { background: var(--c); }
+.net-hud .nh-banner { position: absolute; left: 0; right: 0; top: 38%; text-align: center; }
+.net-hud .nh-big {
+  display: inline-block; font-size: clamp(22px, 4vw, 44px); padding: 8px 26px; border-radius: 16px; background: #2b1a0bb8; text-shadow: 0 2px 0 #000; animation: nh-pop 0.35s ease-out;
+}
+.net-hud .nh-big b { text-shadow: 0 2px 0 #000, 0 0 12px #0008; }
+.net-hud .nh-spec { display: inline-block; margin-bottom: 10px; padding: 5px 14px; border-radius: 99px; background: #2b1a0bb0; color: #ffd88a; }
+@keyframes nh-pop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.net-hud .nh-panel {
+  pointer-events: auto; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: 280px; text-align: center;
+  color: var(--ink); background: var(--paper); border-radius: 16px; padding: 18px 22px; box-shadow: 0 4px 0 #d7bf98, 0 14px 30px #0008;
+}
+.net-hud .nh-panel h2 { margin: 0 0 8px; color: var(--wood-dark); }
+.net-hud .nh-panel p { margin: 0 0 12px; color: var(--muted); font-weight: 500; }
+.net-hud .nh-end { top: auto; bottom: 8%; transform: translateX(-50%); }
+.net-hud .nh-buttons { display: flex; gap: 10px; justify-content: center; }
