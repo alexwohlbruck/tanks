@@ -150,6 +150,12 @@ export class World {
   hooks: WorldHooks = { addKill() {}, enemySpawned() {}, enemyDestroyed() {} }
   /** 1P: enemy-on-enemy kills are credited to P1 (RPTnkTank::Explode hitId 3) */
   twoPlayerMode: boolean
+  /**
+   * [versus] a mine's blast is credited to whoever set it off (the shooter whose shell hit it,
+   * or whoever's blast chained it) instead of its owner. Off for the campaign and co-op, which
+   * keep the original crediting; only the server's VersusRunner turns it on.
+   */
+  mineCreditTrigger = false
 
   /** enemy slots: 8 in the original; custom levels may use up to MAX_ENEMIES */
   enemyCap: number

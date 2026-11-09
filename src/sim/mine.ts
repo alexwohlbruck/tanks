@@ -26,6 +26,10 @@ export class Mine extends Actor {
   fuseLit = false
   state = 0
   owner: Tank | null = null
+  /** [versus] owner slot credited with the blast (World.mineCreditTrigger), -1 = the owner */
+  creditSlot = -1
+  /** [versus] this frame's trigger: the slot whose shell / blast hit the mine, -1 none */
+  private triggerSlot = -1
 
   constructor(private w: World) {
     super()
@@ -65,6 +69,13 @@ export class Mine extends Actor {
     this.fuseLit = false
     this.owner = null
     this.state = 0
+    this.creditSlot = -1
+    this.triggerSlot = -1
+  }
+
+  /** the slot a blast of this mine is credited to */
+  get blastSlot() {
+    return this.creditSlot >= 0 ? this.creditSlot : this.slot
   }
 
   override applySpawnParam(param: number) {
@@ -75,6 +86,7 @@ export class Mine extends Actor {
   override clearForcesStep() {
     this.clearForces()
     for (let i = 0; i < 5; i++) this.hitFlags[i] = false
+    this.triggerSlot = -1
   }
 
   /** RPTnkMine::CollideWithField */
@@ -92,14 +104,20 @@ export class Mine extends Actor {
       }
       this.hitRadius = MINE.bodyRadius
       if (this.w.shellPool.isObjectHit(this, true)) this.hitFlags[1] = true
+      // [versus] who set it off: the first shell over it, else the first blast it is in
+      if (this.w.mineCreditTrigger && this.hitFlags[1]) this.triggerSlot = this.w.shellPool.objectHitSlot(this, true)
       this.hitRadius = MINE.bodyRadius
-      if (this.w.minePool.isInOtherExplosion(this)) this.hitFlags[2] = true
+      if (this.w.minePool.isInOtherExplosion(this)) {
+        this.hitFlags[2] = true
+        if (this.w.mineCreditTrigger && !this.hitFlags[1]) this.triggerSlot = this.w.minePool.otherExplosionSlot(this)
+      }
     } else if (this.state === 2) {
       if (this.timer < MINE.blastKillFrames) {
         this.hitRadius = this.blastRadius
         const r = this.w.findMineHit(this)
         if (r) {
-          const kind = this.slot < ENEMY_SLOT0 ? this.slot + 1 : HIT_ENEMY
+          const slot = this.w.mineCreditTrigger ? this.blastSlot : this.slot
+          const kind = slot < ENEMY_SLOT0 ? slot + 1 : HIT_ENEMY
           r.tank.keepNearestMineHit(kind, r.dist)
         }
       }
@@ -139,7 +157,10 @@ export class Mine extends Actor {
   private stateArmed() {
     vset(this.vel, ZERO)
     if (this.hitFlags[4]) this.kill()
-    else if (this.hitFlags[1] || this.hitFlags[2]) this.explode()
+    else if (this.hitFlags[1] || this.hitFlags[2]) {
+      if (this.w.mineCreditTrigger) this.creditSlot = this.triggerSlot
+      this.explode()
+    }
     else if (!this.fuseLit) {
       if (this.age >= MINE.fuse) {
         this.timer = MINE.fuseLit
@@ -253,6 +274,12 @@ export class MinePool extends ActorPool<Mine> {
     if (this.activeNum === 0) return false
     for (const m of this.items) if (m.active && m !== a && m.isInBlastRadius(a)) return true
     return false
+  }
+
+  /** [versus] the slot credited with the first other blast `a` is in (-1 none) */
+  otherExplosionSlot(a: Actor): number {
+    for (const m of this.items) if (m.active && m !== a && m.isInBlastRadius(a)) return m.blastSlot
+    return -1
   }
 
   isNearAnyMine(a: Actor): boolean {
