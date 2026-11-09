@@ -238,7 +238,7 @@ class Editor implements Screen {
     const pk = this.paint
     const isPaint = (p: M.Paint) => JSON.stringify(p) === JSON.stringify(pk)
     const swatch = (p: M.Paint, title: string, draw: (c: CanvasRenderingContext2D, s: number) => void, label?: string) => {
-      const cv = h('canvas', { width: 64, height: 64, style: 'width:40px;height:40px' })
+      const cv = h('canvas', { width: 64, height: 64, style: 'width:100%;max-width:40px;height:auto;aspect-ratio:1' })
       draw(cv.getContext('2d')!, 64)
       return h('button', { class: `ed-sw ${isPaint(p) ? 'ed-sw-on' : ''}`, title, on: { click: () => this.setPaint(p) } }, cv, label ? h('span', null, label) : null)
     }
@@ -311,7 +311,7 @@ class Editor implements Screen {
                 on: { click: () => ((this.enemyType = t.id), this.setPaint({ kind: 'enemy', type: t.id })) },
               },
               (() => {
-                const cv = h('canvas', { width: 48, height: 48, style: 'width:32px;height:32px' })
+                const cv = h('canvas', { width: 48, height: 48, style: 'width:100%;max-width:32px;height:auto;aspect-ratio:1' })
                 drawTank(cv.getContext('2d')!, 24, 24, 40, t.color, undefined, Math.PI)
                 return cv
               })(),
