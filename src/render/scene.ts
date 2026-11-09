@@ -58,6 +58,12 @@ export class SceneView {
   renderer: THREE.WebGPURenderer
   scene = new THREE.Scene()
   camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 10, 100000)
+  /** first-person view (not in the original): a perspective camera on a player's turret */
+  fpvCam = new THREE.PerspectiveCamera(75, 16 / 9, 1, 5000)
+  /** player index carrying the camera and the view heading (atan2(z, x)); null = the fixed camera */
+  fpv: { player: number; yaw: number; pitch: number } | null = null
+  private fpvPos = new THREE.Vector3()
+  private fpvReady = false
   /** effects and other world-space extras are parented here */
   root = new THREE.Group()
   private stage = new THREE.Group()
@@ -131,6 +137,8 @@ export class SceneView {
   resize(w: number, h: number, fill = false) {
     this.renderer.setSize(w, h, false)
     this.aspect = w / h
+    this.fpvCam.aspect = w / h
+    this.fpvCam.updateProjectionMatrix()
     let halfW = this.fieldAspect === '16_9' ? ORTHO.halfW16_9 : ORTHO.halfW4_3
     let halfH = ORTHO.halfH
     if (fill && w > 0 && h > 0) {
@@ -493,7 +501,8 @@ export class SceneView {
         this.tankObjs.set(t, o)
         this.stage.add(o.root)
       }
-      o.root.visible = t.alive && !t.invisible
+      // the first-person tank is the camera: its own model would fill the view
+      o.root.visible = t.alive && !t.invisible && !(this.fpv && !t.isEnemy && t.index === this.fpv.player)
       this.models.poseTank(o, t.pos.x, t.pos.z, yaw(t.body), yaw(t.turret))
     }
     for (const [t, o] of this.tankObjs)
@@ -513,13 +522,37 @@ export class SceneView {
     syncSet(this.markObjs, w.checkMarks, this.stage, (m) => this.models.checkMark(m.color, [PLAYER_COLORS.p3, PLAYER_COLORS.p4]), (o, m) => o.position.set(m.pos.x, 0.2, m.pos.z))
   }
 
+  /** the camera this frame: first person while the player's tank is alive, else the fixed view */
+  activeCamera(): THREE.Camera {
+    const t = this.fpv && this.world?.playerTanks[this.fpv.player]
+    if (!this.fpv || !t || !t.alive) {
+      this.fpvReady = false
+      return this.camera
+    }
+    // eye on the turret, a little behind the pivot; ease the position so the 60 Hz steps don't judder
+    const { yaw, pitch } = this.fpv
+    const target = new THREE.Vector3(t.pos.x - Math.cos(yaw) * 6, 30, t.pos.z - Math.sin(yaw) * 6)
+    if (this.fpvReady) this.fpvPos.lerp(target, 0.5)
+    else this.fpvPos.copy(target)
+    this.fpvReady = true
+    const cam = this.fpvCam
+    cam.position.copy(this.fpvPos)
+    cam.up.set(0, 1, 0)
+    cam.lookAt(this.fpvPos.x + Math.cos(yaw) * 100, this.fpvPos.y + Math.tan(pitch) * 100, this.fpvPos.z + Math.sin(yaw) * 100)
+    return cam
+  }
+
   render() {
     this.tread.flush()
     this.models.setTreadTexture(this.tread.texture)
     this.renderer.clear()
-    this.renderer.render(this.scene, this.camera)
-    this.renderer.clearDepth()
-    this.renderer.render(this.overlay, this.overlayCam)
+    const cam = this.activeCamera()
+    this.renderer.render(this.scene, cam)
+    // the 2D cursor effects belong to the fixed view
+    if (cam === this.camera) {
+      this.renderer.clearDepth()
+      this.renderer.render(this.overlay, this.overlayCam)
+    }
   }
 
   /**

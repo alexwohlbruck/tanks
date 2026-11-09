@@ -51,6 +51,15 @@ class PauseScreen extends WebScreen {
             null,
             button('Continue', { icon: 'play', class: 'primary', autofocus: true, onclick: () => this.back() }),
             button('Restart', { icon: 'restart', onclick: () => this.app.restart() }),
+            button(this.app.fpvOn ? 'Top-down view' : 'First-person view', {
+              icon: 'play',
+              hint: 'V',
+              onclick: () => {
+                const on = !this.app.fpvOn
+                this.back()
+                this.app.toggleFpv(on)
+              },
+            }),
             button('Settings', { icon: 'settings', onclick: () => this.app.show('settings', { from: 'pause' }) }),
             button('Quit to menu', { icon: 'home', onclick: () => this.app.toMenu() }),
           ),

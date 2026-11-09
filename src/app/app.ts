@@ -119,6 +119,7 @@ export class App implements AppContext {
         },
       })
     this.session = new LocalSession(game, this.aim)
+    this.setupFpv()
     this.pauseBtn = document.getElementById('pause-btn')
     this.pauseBtn?.addEventListener('pointerdown', (e) => e.stopPropagation())
     this.pauseBtn?.addEventListener('click', () => this.pause())
@@ -311,6 +312,7 @@ export class App implements AppContext {
         return hideCursors()
       }
     }
+    this.updateFpv(merged)
     this.session.step(pads)
     view.stepFx()
     const w = game.world
@@ -382,6 +384,72 @@ export class App implements AppContext {
   }
 
   /** in-game pause overlay ('pause' screen) */
+  // ---- first-person view (V) -------------------------------------------------------------
+
+  /** first-person view on (persists across missions until toggled off) */
+  fpvOn = false
+  private fpvLook = { yaw: 0, pitch: -0.2, tank: null as unknown }
+  private crosshair!: HTMLElement
+
+  private setupFpv() {
+    this.crosshair = document.createElement('div')
+    this.crosshair.id = 'fpv-cross'
+    this.crosshair.innerHTML = '<i></i><span>First person · V to exit</span>'
+    this.stage.appendChild(this.crosshair)
+    addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.code !== 'KeyV' || e.repeat || e.ctrlKey || e.metaKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      this.toggleFpv()
+    })
+    // clicking the game while in first person takes the mouse again (Esc releases it)
+    this.stage.addEventListener('pointerdown', () => {
+      if (this.fpvActive() && !document.pointerLockElement) this.stage.requestPointerLock?.()
+    })
+  }
+
+  private fpvActive() {
+    return this.fpvOn && this.session instanceof LocalSession && !this.router.modal && !this.game.paused && this.game.state !== 0
+  }
+
+  toggleFpv(on = !this.fpvOn) {
+    if (!(this.session instanceof LocalSession) || this.game.state === 0) on = false
+    this.fpvOn = on
+    this.fpvLook.tank = null
+    if (on) this.stage.requestPointerLock?.()
+    else if (document.pointerLockElement) document.exitPointerLock()
+    this.crosshair.classList.toggle('hint', on)
+    if (on) setTimeout(() => this.crosshair.classList.remove('hint'), 2500)
+  }
+
+  /** per frame: mouse / right stick turn the view; the session aims and drives along it */
+  private updateFpv(pad: PadState) {
+    const s = this.session
+    const t = this.game.world?.playerTanks[0]
+    const active = this.fpvActive() && !!t
+    if (s instanceof LocalSession) s.fpv = null
+    if (!active || !t) {
+      this.view.fpv = null
+      this.crosshair.classList.remove('on')
+      if (this.fpvOn && document.pointerLockElement && (this.router.modal || this.game.paused)) document.exitPointerLock()
+      return
+    }
+    const L = this.fpvLook
+    // a new tank (mission start / retry) looks where its turret points
+    if (L.tank !== t || !t.alive) {
+      L.tank = t
+      L.yaw = t.turret
+      L.pitch = -0.2
+    }
+    const look = this.input.takeLook()
+    L.yaw += look.x * 0.0028
+    L.pitch = Math.max(-0.7, Math.min(0.25, L.pitch - look.y * 0.002))
+    if (pad.aimStick) L.yaw += pad.aimStick.x * 0.06
+    ;(s as LocalSession).fpv = { player: 0, yaw: L.yaw }
+    this.view.fpv = { player: 0, yaw: L.yaw, pitch: L.pitch }
+    this.crosshair.classList.toggle('on', t.alive)
+  }
+
   pause() {
     const g = this.game
     if (this.classic || g.paused || !PAUSABLE(g.state) || !this.presenter.pauseEnabled) return

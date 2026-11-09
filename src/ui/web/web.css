@@ -223,9 +223,13 @@
 }
 
 /* campaign page */
-.panel.campaign { width: min(40em, 94vw); }
+.panel.campaign { width: min(40em, 94vw); container-type: inline-size; }
 .campaign-cards { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0.9em; }
-@media (max-aspect-ratio: 1/1) { .campaign-cards { grid-template-columns: 1fr; } }
+/* narrow panel: the cards stack */
+@container (max-width: 30em) { .campaign-cards { grid-template-columns: 1fr; } }
+/* the campaign page has the screen to itself: no logo */
+.menu-screen.page-campaign .menu-logo { display: none; }
+
 .card {
   display: flex; flex-direction: column; gap: 0.5em;
   background: rgba(255, 250, 238, 0.82);
@@ -378,3 +382,4 @@
 .tp-players > span { font-weight: 700; margin-right: 0.4em; color: var(--wood-dark); }
 .tp-levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(14em, 1fr)); gap: 0.5em; }
 .web .btn.tp-boss { box-shadow: inset 0 0 0 0.15em #d9443a; }
+.card-actions .btn .t { white-space: nowrap; }

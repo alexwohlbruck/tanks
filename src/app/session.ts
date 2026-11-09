@@ -36,9 +36,25 @@ export function assignPads(p: Pads, players: number): PadState[] {
   return out.slice(0, players)
 }
 
+/** first-person view: the player whose tank carries the camera, and the view heading
+ * (simulation angle convention: atan2(z, x)) */
+export type Fpv = { player: number; yaw: number }
+
+/** rotate a stick/keys move (x right, y down the screen) into the world, relative to `yaw` */
+export function fpvMove(pd: PadState, yaw: number): PadState {
+  const fwd = -pd.moveY
+  const side = pd.moveX
+  const c = Math.cos(yaw)
+  const s = Math.sin(yaw)
+  // forward is (cos, sin); right (seen from the camera, y up) is (-sin, cos)
+  return { ...pd, moveX: fwd * c - side * s, moveY: fwd * s + side * c, analog: true }
+}
+
 export class LocalSession implements Session {
   readonly kind = 'local'
   cursors: Cursor[] = [0, 1, 2, 3].map(() => ({ x: 0, y: 0, clamped: false, far: false, visible: false }))
+  /** set by the app while the first-person view is on */
+  fpv: Fpv | null = null
 
   constructor(
     private game: Game,
@@ -51,8 +67,15 @@ export class LocalSession implements Session {
     game.tick((w) => {
       for (let i = 0; i < game.players; i++) {
         const t = w.playerTanks[i]
-        const pd = per[i]
         const cur = this.cursors[i]
+        if (this.fpv?.player === i) {
+          // first person: aim straight ahead, drive relative to the view
+          const yaw = this.fpv.yaw
+          cur.visible = false
+          padToIntent(t, fpvMove(per[i], yaw), { x: t.pos.x + Math.cos(yaw) * 400, z: t.pos.z + Math.sin(yaw) * 400 })
+          continue
+        }
+        const pd = per[i]
         const ptr = pd.pointer ? wiiPointer(pd.pointer) : null
         let aim: { x: number; z: number } | null = null
         if (pd.pointer && this.aim) {

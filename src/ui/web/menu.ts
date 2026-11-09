@@ -30,6 +30,7 @@ class MenuScreen extends WebScreen {
   }
 
   private render() {
+    this.root.querySelector('.menu-screen')?.classList.toggle('page-campaign', this.page === 'campaign')
     const b = this.body
     b.replaceChildren()
     if (this.page === 'main') {

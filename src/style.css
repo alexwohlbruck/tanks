@@ -29,3 +29,12 @@ body.modern #stage { background:
 #pause-btn:hover { opacity: 1; }
 #pause-btn[hidden] { display: none; }
 #pause-btn svg { width: 55%; height: 55%; display: block; }
+/* first-person crosshair (App.setupFpv) */
+#fpv-cross { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 3; }
+#fpv-cross.on { display: block; }
+#fpv-cross i { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  border: 2.5px solid #fff; box-shadow: 0 0 0 1.5px #2a6cf0, inset 0 0 0 1.5px #2a6cf0; }
+#fpv-cross i::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: #2a6cf0; }
+#fpv-cross span { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); font: 700 15px/1 system-ui, sans-serif; color: #fff;
+  background: rgba(30, 20, 10, 0.6); padding: 0.5em 0.9em; border-radius: 1em; opacity: 0; transition: opacity 0.4s; }
+#fpv-cross.hint span { opacity: 1; }

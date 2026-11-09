@@ -18,6 +18,9 @@ export type WebApp = AppContext & {
   restart(): void
   resultChoice(c: 0 | 1): void
   hasScreen(id: string): boolean
+  /** first-person view (V) */
+  fpvOn: boolean
+  toggleFpv(on?: boolean): void
   music(name: string | null, frames?: number): void
 }
 

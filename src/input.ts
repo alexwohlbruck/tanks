@@ -53,6 +53,8 @@ export class Input {
   private mousePressed = new Set<number>()
   private mouse: { x: number; y: number } | null = null
   private pads = new Map<number, GamepadSlot>()
+  /** mouse movement while the pointer is locked (first-person view), consumed by takeLook() */
+  private look = { x: 0, y: 0 }
   /** devices in the order they were first used: 'kbm' or a gamepad index */
   order: (string | number)[] = []
   keyBindings: KeyBindings = {
@@ -82,7 +84,10 @@ export class Input {
       this.use('kbm')
     })
     el.addEventListener('pointermove', (e) => {
-      this.setPointer(e)
+      if (document.pointerLockElement) {
+        this.look.x += e.movementX
+        this.look.y += e.movementY
+      } else this.setPointer(e)
       this.use('kbm')
     })
   }
@@ -164,6 +169,13 @@ export class Input {
     slot.prev[100] = ly < -0.6
     slot.prev[101] = ly > 0.6
     return s
+  }
+
+  /** mouse movement since the last call while the pointer is locked */
+  takeLook() {
+    const l = { ...this.look }
+    this.look.x = this.look.y = 0
+    return l
   }
 
   /** all devices this frame: keyboard+mouse first, then gamepads by index */
