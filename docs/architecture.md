@@ -12,8 +12,21 @@
 | levels | `src/levels/format.ts` | `LevelDef` / `LevelPack`; cell codes as the disc maps + 300-303 players, 400-411 enemy slots, 500-599 special tiles |
 | level editor / store | `src/editor/`, `src/store/`, `src/levels/check.ts` | screens `editor` and `store`; see `docs/levels.md` |
 | render | `src/render/` | three.js WebGPU (WebGL2 fallback), TSL materials, nw4r effects |
-| original UI | `src/ui/` | NW4R layout runtime + Tanks layouts + Wii Play shared screens |
+| original UI | `src/ui/` | NW4R layout runtime + Tanks layouts + Wii Play shared screens (classic UI) |
+| web UI | `src/ui/web/` | screens `title`, `menu`, `settings`, `pause`, `results`, `credits`; attract-mode `DemoSession`; settings (`tanks.settings`); vector text + texture upscaling for the layouts |
 | audio | `src/audio/` | WebAudio; layered BGM stems with track masks |
+
+### Front ends
+
+- **Modern** (default): the stage fills the window at any aspect (`SceneView.resize(w, h, true)`:
+  `ORTHO_FIT` stays in view, layout space scales by the short side so 608x456 always fits);
+  the pointer is cast through the camera onto the turret plane; layouts render at device
+  resolution with the M+ 1 web font (`public/fonts`, SIL OFL). The game manager's end flow
+  opens `results` via `UiPresenter.web`; Esc / P / Start (or the touch pause button) opens
+  `pause` in local play. The menu enables Online / Level Editor / Community Levels / Tanks+
+  when the screens `lobby` / `editor` / `store` / `tanksplus` are registered.
+- **Classic** (Settings > Classic Wii UI, or `?classic`): the 16:9 TV picture with Wii Play's
+  pre-game, pause and result screens and bitmap fonts (`src/ui/hud.ts`, `src/ui/shared`).
 
 ## Server (`server/`)
 

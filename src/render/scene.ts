@@ -12,6 +12,12 @@ import { TilesView, pieceColour } from './tiles'
 // screen at scale 1.125, in world units. The Wii output is anamorphic, so the 16:9 view is
 // stretched to the display aspect exactly as on the TV.
 export const ORTHO = { halfW16_9: (832 * 1.125) / 2, halfW4_3: (608 * 1.125) / 2, halfH: (456 * 1.125) / 2 }
+/**
+ * Filling a window of any shape (`resize(w, h, true)`): world units that always stay in view —
+ * the field plus a bit of its border model (the full original height, so the HUD band fits) —
+ * with square pixels; the long axis shows more of the surroundings instead of letterboxing.
+ */
+export const ORTHO_FIT = { w16_9: 900, w4_3: 660, h: 456 * 1.125 }
 
 /** body/turret angle (atan2(z, x), 0 = +x) -> yaw of a +Z-facing model */
 const yaw = (angle: number) => Math.PI / 2 - angle
@@ -140,15 +146,37 @@ export class SceneView {
     this.models.frameCamera(this.camera)
   }
 
-  resize(w: number, h: number) {
+  /**
+   * Layout space (origin centre, y up): half extents of the view. 416 x 228 for the original
+   * 16:9 picture; when filling the window, the 608 x 456 safe area fits and the rest extends.
+   */
+  layoutHalf = { x: 416, y: 228 }
+
+  /** `fill`: square pixels at any aspect (ORTHO_FIT stays visible), else the anamorphic 16:9 TV view */
+  resize(w: number, h: number, fill = false) {
     this.renderer.setSize(w, h, false)
     this.aspect = w / h
-    const halfW = this.fieldAspect === '16_9' ? ORTHO.halfW16_9 : ORTHO.halfW4_3
+    let halfW = this.fieldAspect === '16_9' ? ORTHO.halfW16_9 : ORTHO.halfW4_3
+    let halfH = ORTHO.halfH
+    if (fill && w > 0 && h > 0) {
+      const k = Math.max((this.fieldAspect === '16_9' ? ORTHO_FIT.w16_9 : ORTHO_FIT.w4_3) / w, ORTHO_FIT.h / h)
+      halfW = (w * k) / 2
+      halfH = (h * k) / 2
+    }
     this.camera.left = -halfW
     this.camera.right = halfW
-    this.camera.top = ORTHO.halfH
-    this.camera.bottom = -ORTHO.halfH
+    this.camera.top = halfH
+    this.camera.bottom = -halfH
     this.camera.updateProjectionMatrix()
+    // the 2D layouts scale with the short side: their 4:3 safe area (608 x 456) always fits
+    const k = Math.min(w / 608, h / 456)
+    this.layoutHalf = fill && k > 0 ? { x: w / k / 2, y: h / k / 2 } : { x: 416, y: 228 }
+    const o = this.overlayCam
+    o.left = -this.layoutHalf.x
+    o.right = this.layoutHalf.x
+    o.top = this.layoutHalf.y
+    o.bottom = -this.layoutHalf.y
+    o.updateProjectionMatrix()
   }
 
   /** (re)build the static field and blocks for a stage load */
@@ -351,10 +379,10 @@ export class SceneView {
     this.cursorFx.update()
   }
 
-  /** world point -> layout units (832 x 456 centred, y up), like RPTnkCamera::ProjectToScreen */
+  /** world point -> layout units (832 x 456 centred, y up, in 16:9), like RPTnkCamera::ProjectToScreen */
   projectToLayout(x: number, y: number, z: number) {
     const v = new THREE.Vector3(x, y, z).project(this.camera)
-    return { x: (v.x * 832) / 2, y: (v.y * 456) / 2 }
+    return { x: v.x * this.layoutHalf.x, y: v.y * this.layoutHalf.y }
   }
 }
 

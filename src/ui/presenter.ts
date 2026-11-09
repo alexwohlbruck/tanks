@@ -12,6 +12,16 @@ import { ResultMenu, VsWinner } from './shared/vsResult'
 import type { Lyt } from './lyt'
 import { TnkLayouts, type TnkInfo } from './tnk'
 
+/**
+ * The modern web UI's end-of-run hook: instead of Wii Play's medal / VS winner / result menu
+ * screens, the game manager's result flow opens the DOM 'results' screen, which answers through
+ * `UiPresenter.choose` (0 play again, 1 back to the menu).
+ */
+export type WebResultsHost = {
+  /** the run is over (after the Tanks result list): show the results screen */
+  results(players: number): void
+}
+
 export type PresenterHost = {
   /** world point -> layout units (832 x 456, centred, y up) */
   project(x: number, y: number, z: number): { x: number; y: number }
@@ -63,6 +73,9 @@ export class UiPresenter implements Presenter {
   private screenFadeIn = false
   private menuChoiceReady: -1 | 0 | 1 = -1
   private offscreen: HTMLCanvasElement | null = null
+  /** modern web UI: end-of-run screens are DOM; null keeps Wii Play's own screens */
+  web: WebResultsHost | null = null
+  private webChoice: -1 | 0 | 1 = -1
 
   constructor(private host: PresenterHost) {
     const g = (): Game => this.game!
@@ -121,7 +134,13 @@ export class UiPresenter implements Presenter {
     this.screenFade = 0
     this.screenFadeIn = false
     this.menuChoiceReady = -1
+    this.webChoice = -1
     this.host.screenFade?.(0)
+  }
+
+  /** the results screen's answer: 0 play again, 1 quit to the menu */
+  choose(c: 0 | 1) {
+    this.webChoice = c
   }
 
   bind(game: Game) {
@@ -222,27 +241,38 @@ export class UiPresenter implements Presenter {
   }
   // Medal / VS winner / result menu: Wii Play's shared screens (RPCommon)
   medalStart(kills: number) {
+    if (this.web) return this.web.results(1)
     this.medal.start(kills)
     this.startScreenFade()
   }
   medalDone() {
+    if (this.web) return true
     return this.medal.state === 4
   }
   winnerStart(winner: -1 | 0 | 1) {
+    if (this.web) return this.web.results(this.game?.players ?? 2)
     this.winner.start(winner)
     this.startScreenFade()
   }
   winnerDone() {
+    if (this.web) return true
     return this.winner.state === 5
   }
   winnerTotals() {
+    if (this.web) return false
     return this.winner.closing
   }
   menuStart(players: 1 | 2) {
+    if (this.web) return
     this.menu.start(players === 1 ? 1 : 2, players === 2 ? ((this.game?.winner() ?? -1) as -1 | 0 | 1) : -1)
   }
   /** RPResultMenu::GetChoice, held back until the scene change has faded to black */
   menuChoice() {
+    if (this.web) {
+      const c = this.webChoice
+      this.webChoice = -1
+      return c
+    }
     const c = this.menu.getChoice() as -1 | 0 | 1
     if (c === -1) return -1
     if (this.menuChoiceReady !== -1) {
@@ -307,6 +337,7 @@ export class UiPresenter implements Presenter {
       ctx.restore()
     } else this.ui.draw(ctx, wideX)
     // RPCommon::UserDraw (layers 1A / 1C) and the pause hint
+    if (this.web) return
     this.medal.draw(ctx, wideX)
     this.menu.draw(ctx, wideX)
     this.winner.draw(ctx)

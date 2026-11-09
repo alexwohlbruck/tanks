@@ -42,6 +42,9 @@ const empty = (): PadState => ({
   right: false,
 })
 
+/** rebindable keyboard controls (KeyboardEvent.code lists); the app replaces them from settings */
+export type KeyBindings = { up: string[]; down: string[]; left: string[]; right: string[]; fire: string[]; mine: string[]; pause: string[] }
+
 type GamepadSlot = { index: number; prev: boolean[]; pointer: { x: number; y: number } }
 
 export class Input {
@@ -52,6 +55,15 @@ export class Input {
   private pads = new Map<number, GamepadSlot>()
   /** devices in the order they were first used: 'kbm' or a gamepad index */
   order: (string | number)[] = []
+  keyBindings: KeyBindings = {
+    up: ['KeyW', 'ArrowUp'],
+    down: ['KeyS', 'ArrowDown'],
+    left: ['KeyA', 'ArrowLeft'],
+    right: ['KeyD', 'ArrowRight'],
+    fire: ['KeyJ'],
+    mine: ['Space', 'KeyE', 'ShiftLeft', 'ShiftRight', 'KeyK'],
+    pause: ['Escape', 'KeyP'],
+  }
 
   constructor(private el: HTMLElement) {
     addEventListener('keydown', (e: KeyboardEvent) => {
@@ -87,8 +99,9 @@ export class Input {
   private pollKbm(): PadState {
     const k = (...codes: string[]) => codes.some((c) => this.keys.has(c))
     const p = (...codes: string[]) => codes.some((c) => this.pressed.has(c))
-    let mx = (k('KeyD', 'ArrowRight') ? 1 : 0) - (k('KeyA', 'ArrowLeft') ? 1 : 0)
-    let my = (k('KeyS', 'ArrowDown') ? 1 : 0) - (k('KeyW', 'ArrowUp') ? 1 : 0)
+    const b = this.keyBindings
+    let mx = (k(...b.right) ? 1 : 0) - (k(...b.left) ? 1 : 0)
+    let my = (k(...b.down) ? 1 : 0) - (k(...b.up) ? 1 : 0)
     if (mx && my) {
       mx *= Math.SQRT1_2
       my *= Math.SQRT1_2
@@ -98,15 +111,15 @@ export class Input {
       moveX: mx,
       moveY: my,
       pointer: this.mouse,
-      fire: this.mousePressed.has(0) || p('KeyJ'),
-      mine: this.mousePressed.has(2) || p('Space', 'KeyE', 'ShiftLeft', 'ShiftRight', 'KeyK'),
-      pause: p('Escape', 'KeyP'),
+      fire: this.mousePressed.has(0) || p(...b.fire),
+      mine: this.mousePressed.has(2) || p(...b.mine),
+      pause: p(...b.pause),
       confirm: p('Enter', 'Space', 'KeyZ') || this.mousePressed.has(0),
       back: p('Backspace', 'KeyX'),
-      up: p('ArrowUp', 'KeyW'),
-      down: p('ArrowDown', 'KeyS'),
-      left: p('ArrowLeft', 'KeyA'),
-      right: p('ArrowRight', 'KeyD'),
+      up: p('ArrowUp', ...b.up),
+      down: p('ArrowDown', ...b.down),
+      left: p('ArrowLeft', ...b.left),
+      right: p('ArrowRight', ...b.right),
     }
     this.pressed.clear()
     this.mousePressed.clear()

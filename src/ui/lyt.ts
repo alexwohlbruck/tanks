@@ -3,6 +3,9 @@
 // with a software version of the default nw4r TEV setup
 // (out = lerp(C0, C1, tex) * vertexColor * materialColor).
 
+import { upscaled } from './web/upscale'
+import { drawVectorText, vectorFontOf } from './web/vectorText'
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Img = ImageData
 type Json = any
@@ -209,8 +212,34 @@ function applyAnim(L: Json, A: Json, frame: number, bindPane?: string, force = f
 
 // ---- shading -----------------------------------------------------------------
 
-/** shaded quads are rendered at this many pixels per layout unit, independent of display size */
-const QUALITY = 2
+/**
+ * Rendering options. Classic: the Wii's own pixels (bitmap fonts, textures at their size,
+ * shaded quads at 2 px per layout unit). Modern: vector text in the bundled web font,
+ * textures upscaled with edge-preserving filtering, quads shaded at the display resolution.
+ */
+export const lytOptions = {
+  vectorText: false,
+  hiresTextures: false,
+  /** panes spanning the whole 16:9 screen (backdrops, bands) extend to cover any window shape */
+  coverScreen: false,
+}
+
+/** shaded quads are rendered at this many pixels per layout unit */
+let QUALITY = 2
+
+/** pixels per layout unit of the display (modern rendering shades at the device resolution) */
+export function setLytResolution(pxPerUnit: number) {
+  const q = lytOptions.hiresTextures ? Math.max(1, Math.min(4, Math.ceil(pxPerUnit * 4) / 4)) : 2
+  if (q !== QUALITY) {
+    QUALITY = q
+    shadeCache.clear()
+  }
+}
+
+/** the texture as sampled: upscaled in modern rendering (sizes in layout units stay T.width / scale) */
+function texOf(T: Img): Img & { scale?: number } {
+  return lytOptions.hiresTextures ? upscaled(T) : T
+}
 const shadeCache = new Map<string, HTMLCanvasElement>()
 
 function texFileOf(R: LytRes, m: Json, i: number): string | null {
@@ -246,7 +275,7 @@ function texMtx(srt: Json) {
 
 function shadeQuad(R: LytRes, m: Json, tc: number[][] | null, vc: number[][], rw: number, rh: number) {
   const file = texFileOf(R, m, 0)
-  const key = JSON.stringify([file, m.tevColors, m.materialColor, m.texSRT[0], m.texMaps[0] && [m.texMaps[0].wrapS, m.texMaps[0].wrapT], tc, vc, rw, rh])
+  const key = JSON.stringify([file, m.tevColors, m.materialColor, m.texSRT[0], m.texMaps[0] && [m.texMaps[0].wrapS, m.texMaps[0].wrapT], tc, vc, rw, rh, lytOptions.hiresTextures])
   let c = shadeCache.get(key)
   if (c) return c
   c = document.createElement('canvas')
@@ -255,7 +284,7 @@ function shadeQuad(R: LytRes, m: Json, tc: number[][] | null, vc: number[][], rw
   const x = c.getContext('2d')!
   const out = x.createImageData(rw, rh)
   const o = out.data
-  const T = file ? R.tex[file] : null
+  const T = file && R.tex[file] ? texOf(R.tex[file]) : null
   const [c0, c1] = m.tevColors
   const mc = m.materialColor
   const M = texMtx(m.texSRT[0])
@@ -337,27 +366,50 @@ function shadeQuad(R: LytRes, m: Json, tc: number[][] | null, vc: number[][], rw
 
 const glyphCache = new Map<string, HTMLCanvasElement>()
 
+/** one glyph cell of a font sheet, upscaled (hi-res rendering of the button icons) */
+const glyphCells = new Map<string, Img>()
+function glyphCell(F: { info: Json; img: Img }, g: Json): Img {
+  const key = F.info.name + ':' + g.index
+  let c = glyphCells.get(key)
+  if (!c) {
+    const w = Math.max(1, g.glyphWidth)
+    const h = F.info.cellHeight
+    const cell = new ImageData(w, h)
+    const W = F.img.width
+    for (let y = 0; y < h; y++) {
+      const s = ((g.y + y) * W + g.x) * 4
+      cell.data.set(F.img.data.subarray(s, s + w * 4), y * w * 4)
+    }
+    glyphCells.set(key, (c = upscaled(cell)))
+  }
+  return c
+}
+
 function shadeGlyph(F: { info: Json; img: Img }, g: Json, m: Json, top: number[], bot: number[]) {
-  const key = F.info.name + ':' + g.index + ':' + m.tevColors[0] + m.tevColors[1] + ':' + top + ':' + bot + ':' + m.materialColor
+  const hi = lytOptions.hiresTextures
+  const key = F.info.name + ':' + g.index + ':' + m.tevColors[0] + m.tevColors[1] + ':' + top + ':' + bot + ':' + m.materialColor + ':' + hi
   let c = glyphCache.get(key)
   if (c) return c
-  const w = Math.max(1, g.glyphWidth)
-  const h = F.info.cellHeight
+  const src = hi ? glyphCell(F, g) : null
+  const w = src ? src.width : Math.max(1, g.glyphWidth)
+  const h = src ? src.height : F.info.cellHeight
   c = document.createElement('canvas')
   c.width = w
   c.height = h
   const x = c.getContext('2d')!
   const out = x.createImageData(w, h)
   const o = out.data
-  const d = F.img.data
-  const W = F.img.width
+  const d = src ? src.data : F.img.data
+  const W = src ? src.width : F.img.width
+  const gx = src ? 0 : g.x
+  const gy = src ? 0 : g.y
   const [c0, c1] = m.tevColors
   const mc = m.materialColor
   for (let py = 0; py < h; py++) {
     const fy = (py + 0.5) / h
     const vc = [0, 1, 2, 3].map((i) => top[i] + (bot[i] - top[i]) * fy)
     for (let px = 0; px < w; px++) {
-      const s = ((g.y + py) * W + g.x + px) * 4
+      const s = ((gy + py) * W + gx + px) * 4
       const q = (py * w + px) * 4
       for (let i = 0; i < 4; i++) {
         const tv = d[s + (i === 3 ? 3 : i)] / 255
@@ -389,7 +441,49 @@ function blit(ctx: CanvasRenderingContext2D, img: CanvasImageSource, sx: number,
   ctx.restore()
 }
 
-type DrawCtx = { R: LytRes; L: Json; text: Record<string, string>; wideX: number }
+type DrawCtx = { R: LytRes; L: Json; text: Record<string, string>; wideX: number; /** pixels per layout unit, when extending full-screen panes */ unitPx: number }
+
+type Rect = ReturnType<typeof paneRect>
+
+/** full-screen panes (>= the 16:9 width / height): the local rect that also covers the canvas */
+function coverRect(ctx: CanvasRenderingContext2D, D: DrawCtx, rect: Rect): Rect | null {
+  if (!D.unitPx) return null
+  const M = ctx.getTransform()
+  const gw = (Math.abs(rect.w) * Math.hypot(M.a, M.b)) / D.unitPx
+  const gh = (Math.abs(rect.h) * Math.hypot(M.c, M.d)) / D.unitPx
+  const ex = gw >= 828
+  const ey = gh >= 450 && ex
+  if (!ex) return null
+  const inv = M.inverse()
+  const W = ctx.canvas.width
+  const H = ctx.canvas.height
+  let x0 = Infinity
+  let x1 = -Infinity
+  let y0 = Infinity
+  let y1 = -Infinity
+  for (const [px, py] of [
+    [0, 0],
+    [W, 0],
+    [0, H],
+    [W, H],
+  ]) {
+    const q = inv.transformPoint(new DOMPoint(px, py))
+    x0 = Math.min(x0, q.x)
+    x1 = Math.max(x1, q.x)
+    y0 = Math.min(y0, q.y)
+    y1 = Math.max(y1, q.y)
+  }
+  const r = { ...rect }
+  const left = Math.min(rect.x, x0 - 1)
+  r.w = Math.max(rect.x + rect.w, x1 + 1) - left
+  r.x = left
+  if (ey) {
+    const top = Math.max(rect.top, y1 + 1)
+    r.h = top - Math.min(rect.top - rect.h, y0 - 1)
+    r.top = top
+  }
+  return r
+}
 
 function resolveText(D: DrawCtx, p: Json): string {
   if (p.name in D.text) return D.text[p.name]
@@ -406,6 +500,7 @@ function drawText(ctx: CanvasRenderingContext2D, D: DrawCtx, p: Json, rect: Retu
   if (!F) return
   const fi = F.info
   const m = D.L.materials[p.material]
+  const vf = lytOptions.vectorText ? vectorFontOf(fi) : null
   const sx = p.fontSize[0] / fi.width
   const sy = p.fontSize[1] / fi.height
   const lines = resolveText(D, p).split('\n')
@@ -429,6 +524,17 @@ function drawText(ctx: CanvasRenderingContext2D, D: DrawCtx, p: Json, rect: Retu
   let y = rect.top - ((rect.h - bh) * vy) / 2
   lines.forEach((l, i) => {
     let x = bx + ((bw - lw[i]) * hx) / 2
+    if (vf) {
+      // each character centred where the bitmap glyph's cell would be; Wii button icons
+      // (private use area) keep their bitmap glyph, smoothly upscaled
+      drawVectorText(ctx, vf, l, x, y, sx, sy, p.charSpace, fi, m, p.topColor, p.bottomColor, (ch, g, gx) => {
+        const c = shadeGlyph(F, g, m, p.topColor, p.bottomColor)
+        blit(ctx, c, 0, 0, c.width, c.height, gx + g.left * sx, y, g.glyphWidth * sx, fi.cellHeight * sy)
+        void ch
+      })
+      y -= lh
+      return
+    }
     for (const ch of l) {
       const g = glyph(ch)
       if (g) {
@@ -483,16 +589,16 @@ function shadeTexture(T: Img, file: string, m: Json, vc: number[], mirrorS: bool
   return c
 }
 
-function fastQuad(ctx: CanvasRenderingContext2D, R: LytRes, m: Json, tc: number[][] | null, vc: number[][], rect: ReturnType<typeof paneRect>) {
+function fastQuad(ctx: CanvasRenderingContext2D, R: LytRes, m: Json, tc: number[][] | null, vc: number[][], rect: ReturnType<typeof paneRect>, fill: Rect = rect) {
   if (!uniform(vc)) return false
   const file = texFileOf(R, m, 0)
-  const T = file ? R.tex[file] : null
+  const T = file && R.tex[file] ? texOf(R.tex[file]) : null
   if (!T) {
     const c1 = m.tevColors[1]
     const mc = m.materialColor
     const k = (i: number) => (c1[i] * vc[0][i] * mc[i]) / 65025
     ctx.fillStyle = `rgba(${k(0)},${k(1)},${k(2)},${k(3) / 255})`
-    ctx.fillRect(rect.x, rect.top - rect.h, rect.w, rect.h)
+    ctx.fillRect(fill.x, fill.top - fill.h, fill.w, fill.h)
     return true
   }
   const tm = m.texMaps[0]
@@ -507,7 +613,10 @@ function fastQuad(ctx: CanvasRenderingContext2D, R: LytRes, m: Json, tc: number[
   }
   const mirS = tm?.wrapS === 'mirror'
   const mirT = tm?.wrapT === 'mirror'
-  const S = shadeTexture(T, file!, m, vc[0], mirS, mirT)
+  // vertex alpha is a plain multiply: draw with globalAlpha instead of a re-shaded texture per
+  // animation frame
+  const va = vc[0][3]
+  const S = shadeTexture(T, file!, m, va > 0 ? [vc[0][0], vc[0][1], vc[0][2], 255] : vc[0], mirS, mirT)
   let pat = patternCache.get(S)
   if (!pat) {
     const rep = tm?.wrapS === 'clamp' && tm?.wrapT === 'clamp' ? 'no-repeat' : 'repeat'
@@ -530,13 +639,20 @@ function fastQuad(ctx: CanvasRenderingContext2D, R: LytRes, m: Json, tc: number[
   const Lm = new DOMMatrix([rect.w, 0, 0, -rect.h, rect.x, rect.top])
   pat.setTransform(Lm.multiply(A.inverse()))
   ctx.fillStyle = pat
-  ctx.fillRect(rect.x, rect.top - rect.h, rect.w, rect.h)
+  const ga = ctx.globalAlpha
+  if (va > 0) ctx.globalAlpha = (ga * va) / 255
+  ctx.fillRect(fill.x, fill.top - fill.h, fill.w, fill.h)
+  ctx.globalAlpha = ga
   return true
 }
 
 function drawPic(ctx: CanvasRenderingContext2D, D: DrawCtx, p: Json, rect: ReturnType<typeof paneRect>) {
   const m = D.L.materials[p.material]
-  if (fastQuad(ctx, D.R, m, p.texCoords[0] || null, p.vertexColors, rect)) return
+  const cover = coverRect(ctx, D, rect)
+  // clamped textures would smear across the extension: only tiled textures and flat colours extend
+  const tm = m.texMaps[0]
+  const fill = cover && (!tm || (tm.wrapS !== 'clamp' && (cover.h === rect.h || tm.wrapT !== 'clamp'))) ? cover : rect
+  if (fastQuad(ctx, D.R, m, p.texCoords[0] || null, p.vertexColors, rect, fill)) return
   const rw = shadeSize(rect.w)
   const rh = shadeSize(rect.h)
   const c = shadeQuad(D.R, m, p.texCoords[0] || null, p.vertexColors, rw, rh)
@@ -554,9 +670,13 @@ function drawWindow(ctx: CanvasRenderingContext2D, D: DrawCtx, p: Json, rect: Re
   const R = D.R
   const fm = D.L.materials[p.frames[0].material]
   const file = texFileOf(R, fm, 0)
-  const T = file && R.tex[file]
-  const fw = T ? T.width : 0
-  const fh = T ? T.height : 0
+  const T0 = file && R.tex[file]
+  const T = T0 ? texOf(T0) : null
+  // frame size in layout units (the texture's own size) and in texels of the sampled texture
+  const fw = T0 ? T0.width : 0
+  const fh = T0 ? T0.height : 0
+  const pw = T ? T.width : 0
+  const ph = T ? T.height : 0
   const cm = D.L.materials[p.content.material]
   const inf = p.inflation
   const cx = rect.x + fw - inf.l
@@ -570,7 +690,7 @@ function drawWindow(ctx: CanvasRenderingContext2D, D: DrawCtx, p: Json, rect: Re
   if (!T) return
   const corners = [0, 1, 2, 3].map((i) => {
     const f = p.frames[Math.min(i, p.frames.length - 1)]
-    return shadeQuad(R, D.L.materials[f.material], null, WHITE4, fw, fh)
+    return shadeQuad(R, D.L.materials[f.material], null, WHITE4, pw, ph)
   })
   const F = corners[0]
   const n = p.frames.length
@@ -595,18 +715,18 @@ function drawWindow(ctx: CanvasRenderingContext2D, D: DrawCtx, p: Json, rect: Re
     const [fx, fy] = n === 1 ? flip[i] : [1, 1]
     const ox = n === 1 ? pos[i][0] : i & 1 ? x0 + W - fw : x0
     const oy = n === 1 ? pos[i][1] : i & 2 ? t0 - H + fh : t0
-    blit(ctx, img, 0, 0, fw, fh, ox, oy, fw * fx, fh * fy)
+    blit(ctx, img, 0, 0, pw, ph, ox, oy, fw * fx, fh * fy)
   }
   if (n !== 1) return
   const ew = W - 2 * fw
   const eh = H - 2 * fh
   if (ew > 0) {
-    blit(ctx, F, fw - 1, 0, 1, fh, x0 + fw, t0, ew, fh)
-    blit(ctx, F, fw - 1, 0, 1, fh, x0 + fw, t0 - H, ew, -fh)
+    blit(ctx, F, pw - 1, 0, 1, ph, x0 + fw, t0, ew, fh)
+    blit(ctx, F, pw - 1, 0, 1, ph, x0 + fw, t0 - H, ew, -fh)
   }
   if (eh > 0) {
-    blit(ctx, F, 0, fh - 1, fw, 1, x0, t0 - fh, fw, eh)
-    blit(ctx, F, 0, fh - 1, fw, 1, x0 + W, t0 - fh, -fw, eh)
+    blit(ctx, F, 0, ph - 1, pw, 1, x0, t0 - fh, fw, eh)
+    blit(ctx, F, 0, ph - 1, pw, 1, x0 + W, t0 - fh, -fw, eh)
   }
 }
 
@@ -755,6 +875,8 @@ export class Lyt {
    * wideX: horizontal factor for locationAdjust panes (832/608 in 16:9).
    */
   draw(ctx: CanvasRenderingContext2D, wideX = 1) {
-    drawPane(ctx, { R: this.R, L: this.L, text: this.text, wideX }, this.L.root, 1, this.hook)
+    const M = ctx.getTransform()
+    const unitPx = lytOptions.coverScreen ? Math.hypot(M.a, M.b) : 0
+    drawPane(ctx, { R: this.R, L: this.L, text: this.text, wideX, unitPx }, this.L.root, 1, this.hook)
   }
 }
