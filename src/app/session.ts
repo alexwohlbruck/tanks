@@ -1,0 +1,57 @@
+// LocalSession: the game runs here, driven by local input devices (1-4 players).
+
+import type { Game } from '../game'
+import { padToIntent, pointerToScreen, screenToField } from '../game'
+import { Input, type PadState } from '../input'
+import type { Pads, Session } from './types'
+
+/** layout space the Wii pointer maps into (832 x 456, 16:9) */
+const LAYOUT_W = 832
+const LAYOUT_H = 456
+
+export type Cursor = { x: number; y: number; clamped: boolean; far: boolean; visible: boolean }
+
+/** stage pointer [0,1]^2 -> Wii pointer units (x right, y down, both in half screen widths) */
+export function wiiPointer(p: { x: number; y: number }) {
+  return { x: p.x * 2 - 1, y: (p.y * 2 - 1) * (LAYOUT_H / LAYOUT_W) }
+}
+
+/**
+ * Which device drives which player: 1P takes every device; with more players the keyboard
+ * and mouse are player 1 and gamepads follow, unless there is a gamepad for everyone.
+ */
+export function assignPads(p: Pads, players: number): PadState[] {
+  if (players === 1) return [p.merged]
+  const gp = p.gamepads
+  if (gp.length >= players) return gp.slice(0, players).map((g, i) => (i === 0 ? Input.merge(p.kbm, g) : g))
+  const out = [p.kbm, ...gp]
+  while (out.length < players) out.push({ ...p.kbm, fire: false, mine: false, moveX: 0, moveY: 0, pointer: null, aimStick: null })
+  return out.slice(0, players)
+}
+
+export class LocalSession implements Session {
+  readonly kind = 'local'
+  cursors: Cursor[] = [0, 1, 2, 3].map(() => ({ x: 0, y: 0, clamped: false, far: false, visible: false }))
+
+  constructor(private game: Game) {}
+
+  step(pads: Pads) {
+    const game = this.game
+    const per = assignPads(pads, game.players)
+    game.tick((w) => {
+      for (let i = 0; i < game.players; i++) {
+        const t = w.playerTanks[i]
+        const pd = per[i]
+        const cur = this.cursors[i]
+        const ptr = pd.pointer ? wiiPointer(pd.pointer) : null
+        let aim: { x: number; z: number } | null = null
+        if (ptr) {
+          const s = pointerToScreen(ptr.x, ptr.y, game.aspect, t.lives ? t : null)
+          Object.assign(cur, s, { visible: true })
+          aim = screenToField(s.x, s.y)
+        } else cur.visible = false
+        padToIntent(t, pd, aim)
+      }
+    })
+  }
+}

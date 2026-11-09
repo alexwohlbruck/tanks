@@ -11,3 +11,5 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-
 #debug input[type=number] { width: 52px; }
 #debug button { flex: 1; padding: 4px 6px; cursor: pointer; }
 #debug .info { color: #9cf; font-size: 11px; }
+#screens { position: absolute; inset: 0; pointer-events: none; }
+#screens > .screen { position: absolute; inset: 0; pointer-events: auto; }
