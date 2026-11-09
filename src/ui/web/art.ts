@@ -3,16 +3,16 @@
 
 import { svg } from './dom'
 
-/** enemy types 1-9 (RPTnkTank colours: tank_brown, _ash, _marin, _yellow, _pink, _green, _purple, _white, _black) */
+/** enemy types 1-9 (tnk_tank_e_N textures: brown, ash, marin, pink, yellow, violet, green, white, black) */
 export const TANK_TYPES: { name: string; body: string; dark: string }[] = [
   { name: 'Player', body: '#3d7fe0', dark: '#1d4c97' },
   { name: 'Brown', body: '#9a6a3c', dark: '#5e3c1c' },
   { name: 'Grey', body: '#8f9399', dark: '#55595f' },
   { name: 'Teal', body: '#2fa5a0', dark: '#196560' },
+  { name: 'Pink', body: '#e2676f', dark: '#932a31' },
   { name: 'Yellow', body: '#e8c33a', dark: '#9b7d14' },
-  { name: 'Red', body: '#e2575f', dark: '#932a31' },
+  { name: 'Violet', body: '#9a5ac9', dark: '#5c2f82' },
   { name: 'Green', body: '#5bb046', dark: '#2f6b22' },
-  { name: 'Purple', body: '#9a5ac9', dark: '#5c2f82' },
   { name: 'White', body: '#f3f1ea', dark: '#9d9a90' },
   { name: 'Black', body: '#3a3a3e', dark: '#141416' },
 ]

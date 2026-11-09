@@ -27,7 +27,7 @@
   font-family: 'Tanks Sans', 'Trebuchet MS', system-ui, sans-serif;
   font-weight: 600;
   color: var(--ink);
-  font-size: clamp(12px, min(3.1vh, 3.6vw), 24px);
+  font-size: clamp(13px, min(3.4vh, 3.8vw), 24px);
   line-height: 1.25;
   user-select: none;
   -webkit-user-select: none;
@@ -198,6 +198,9 @@
 .menu-logo { width: min(46vw, 52vh); flex: none; filter: drop-shadow(0 0.4em 0.5em rgba(40, 15, 0, 0.45)); }
 .menu-logo .logo { width: 100%; height: auto; display: block; }
 .menu-body { display: flex; justify-content: center; max-width: 100%; min-height: 0; }
+/* the menu column sizes to its content: let it scroll instead of capping the panel */
+.menu-body .panel { max-height: none; }
+.menu-screen { overflow-y: auto; justify-content: safe center; align-items: safe center; }
 .menu-grid { display: grid; grid-template-columns: 1fr; gap: 0.75em; width: min(24em, 92vw); animation: pop-in 0.25s ease-out; }
 .menu-grid .btn.big { min-height: 3.6em; font-size: 1.15em; }
 .menu-grid .btn.big .hint { opacity: 0.85; }
