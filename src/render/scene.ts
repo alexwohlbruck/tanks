@@ -385,6 +385,14 @@ export class SceneView {
     return this.models.tank(this.enemyLook(type).look)
   }
 
+  /** a mine model (the arena's nuke pickups); `frame` the fuse's colour frame */
+  mineModel() {
+    return this.models.mine()
+  }
+  mineFrame(o: THREE.Object3D, frame: number) {
+    this.models.setMineFrame(o, frame)
+  }
+
   // ---- stage --------------------------------------------------------------------------------
 
   /** (re)build the static field and blocks for a stage load */
@@ -508,7 +516,8 @@ export class SceneView {
           break
         }
         case 'mineExplode':
-          fx.spawn('Tnk_mine_bomb', { pos: { x: e.mine.pos.x, y: e.mine.pos.y, z: e.mine.pos.z }, scale: 1.6 })
+          // (the arena's nukes are bigger mines: `scale`)
+          fx.spawn('Tnk_mine_bomb', { pos: { x: e.mine.pos.x, y: e.mine.pos.y, z: e.mine.pos.z }, scale: 1.6 * ((e.mine as unknown as { arenaScale?: number }).arenaScale ?? 1) })
           break
         case 'stealth':
           this.stealthFx.set(e.tank, fx.spawn('Tnk_stealth_change', { pos: e.tank.pos, scale: 1.6 }))
@@ -574,6 +583,7 @@ export class SceneView {
     })
     syncSet(this.mineObjs, w.mines, this.stage, () => this.models.mine(), (o, m) => {
       o.position.set(m.pos.x, 0, m.pos.z)
+      o.scale.setScalar((m as unknown as { arenaScale?: number }).arenaScale ?? 1)
       this.models.setMineFrame(o, m.fuseLit ? (o.userData.blink = (o.userData.blink ?? 0) + 1) : 0)
     })
     this.tiles.sync(this.tankObjs)

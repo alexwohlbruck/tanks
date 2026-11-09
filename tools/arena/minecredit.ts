@@ -24,7 +24,7 @@ for (const mode of ['ffa', 'teams'] as const) {
   place(b, 400)
   place(c, 90)
   // C sits outside the trigger radius (70 + 14) but inside the blast (80 + 14)
-  sim.mines.push({ id: 999, owner: b.tank, pid: b.pid, team: b.team, pos: v3(0, 0, 0), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null })
+  sim.mines.push({ id: 999, owner: b.tank, pid: b.pid, team: b.team, pos: v3(0, 0, 0), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null, nuke: false, blastMax: MINE.blastMax })
   // A aims at the mine (it sits 16 behind its shell hit circle) and fires
   a.input = { ...a.input, ax: 0, az: 16, mx: 0, mz: 0 }
   b.input = { ...b.input, ax: 400, az: 100 }

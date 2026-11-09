@@ -2,9 +2,9 @@
 // and sends every client a snapshot of what is near its tank 20 times a second, a scoreboard +
 // minimap every half second, and global events (kills, broken blocks, match state) to all.
 
-import type { ArenaMode, ArenaSize, MapTheme, PickupKind } from './rules'
+import type { AnyPickup, ArenaMode, ArenaSize, MapTheme, PickupKind } from './rules'
 
-export const ARENA_PROTO = 5
+export const ARENA_PROTO = 6
 
 export type C2S =
   /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team) */
@@ -13,8 +13,8 @@ export type C2S =
   | { t: 'emote'; i: number }
   /** the next map's theme, during the intermission */
   | { t: 'vote'; theme: string }
-  /** input for one tick: seq, move x/z, analog, aim x/z, fire / mine pressed this tick (0/1) */
-  | { t: 'i'; s: number; mx: number; mz: number; an: number; ax: number; az: number; f: number; m: number }
+  /** input for one tick: seq, move x/z, analog, aim x/z, fire / mine / flare pressed this tick (0/1) */
+  | { t: 'i'; s: number; mx: number; mz: number; an: number; ax: number; az: number; f: number; m: number; fl?: number }
   | { t: 'ping'; c: number }
   | { t: 'leave' }
   /** development servers only (ARENA_DEV=1): become a special tank */
@@ -24,10 +24,10 @@ export type C2S =
 export type TankRec = [number, number, number, number, number, number, number]
 /** [id, x, z, vx, vz, smoke] */
 export type ShellRec = [number, number, number, number, number, number]
-/** [id, x, z, fuseLit 0/1] */
-export type MineRec = [number, number, number, number]
+/** [id, x, z, fuseLit 0/1, nuke 0/1] */
+export type MineRec = [number, number, number, number, number]
 /** [id, x, z, kind] */
-export type PickupRec = [number, number, number, PickupKind]
+export type PickupRec = [number, number, number, AnyPickup]
 
 export const TF_ALIVE = 1
 export const TF_PROTECT = 2
@@ -35,6 +35,12 @@ export const TF_PROTECT = 2
 export const TF_STEALTH = 4
 /** power index + 1 in bits 3-6 (rules PICKUP_KINDS order) */
 export const TF_POWER_SHIFT = 3
+/** a shield is up */
+export const TF_SHIELD = 128
+/** streak level (0-2) in bits 8-9 */
+export const TF_LEVEL_SHIFT = 8
+/** a flare is bursting */
+export const TF_FLARE = 1024
 
 /** the receiving client's own tank, full precision for prediction */
 export type YouRec = {
@@ -59,6 +65,15 @@ export type YouRec = {
   protect: number
   power: PickupKind | null
   powerLeft: number
+  /** items: nukes, flares (and the most you can carry), ticks until a flare comes back (0:
+   * none coming), shield ticks left; the kill-streak level and streak */
+  nukes: number
+  flares: number
+  flareMax: number
+  flareBack: number
+  shield: number
+  level: number
+  streak: number
   /** shells / mines ready, and the most the tank may have out */
   shells: number
   mines: number
@@ -74,10 +89,13 @@ export type NetEv =
   | ['ric', number, number]
   | ['die', number, number, number] // x, z, wall
   | ['clash', number, number]
-  | ['kill', number, number, number, number, number, string, number, number] // tank, x, z, victim, killer, cause, streak, mine layer
+  | ['kill', number, number, number, number, number, string, number, number, number] // tank, x, z, victim, killer, cause, streak, mine layer, teamkill
+  | ['shpop', number, number, number] // tank, x, z
+  | ['flare', number, number, number, number] // tank, x, z, radius
+  | ['defl', number, number]
   | ['mset', number, number]
   | ['fuse', number, number, number]
-  | ['boom', number, number]
+  | ['boom', number, number, number] // x, z, nuke
   | ['brk', number, number, number]
   | ['pick', number, string, number, number]
   | ['spawn', number, number, number]

@@ -20,6 +20,7 @@ const count: Record<string, number> = {}
 let worst = 0
 const near: number[] = []
 let seen = 0
+const kinds: Record<string, number> = {}
 const t0 = performance.now()
 for (let i = 0; i < secs * 60; i++) {
   const a = performance.now()
@@ -28,6 +29,10 @@ for (let i = 0; i < secs * 60; i++) {
   worst = Math.max(worst, performance.now() - a)
   for (const e of sim.events) {
     count[e.t] = (count[e.t] ?? 0) + 1
+    if (e.t === 'kill') {
+      const k = e.killer === e.victim ? `self-${e.cause}` : e.tk ? `team-${e.cause}` : `kill-${e.cause}`
+      kinds[k] = (kinds[k] ?? 0) + 1
+    }
     if (e.t !== 'spawn' || i < 120) continue
     const me = sim.tanks.find((t) => t.id === e.tank)!
     const foes = sim.tanks.filter((t) => t.alive && sim.enemies(me.player, t.player))
@@ -40,6 +45,7 @@ for (let i = 0; i < secs * 60; i++) {
 const ms = performance.now() - t0
 console.log(mode, `${n} bots, ${secs}s: ${(ms / (secs * 60)).toFixed(3)} ms/tick avg, worst ${worst.toFixed(1)} ms`)
 console.log(count)
+console.log('kills', kinds)
 near.sort((a, b) => a - b)
 const q = (f: number) => Math.round(near[Math.floor(near.length * f)] ?? 0)
 console.log(`map ${sim.map.cols}x${sim.map.rows}; respawns ${near.length}: nearest enemy p10 ${q(0.1)} median ${q(0.5)} p90 ${q(0.9)}; in sight ${seen}`)

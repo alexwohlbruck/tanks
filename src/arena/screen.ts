@@ -13,7 +13,7 @@ import { backButton, band, button, type WebApp } from '../ui/web/base'
 import { h } from '../ui/web/dom'
 import { Nav } from '../ui/web/nav'
 import type { Board } from './protocol'
-import { ARENA_SIZES, EMOTES, FFA_COLORS, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SIZES, TEAM_COLORS, TEAM_NAMES, THEME_INFO, sizeOf, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
+import { ARENA_SIZES, EMOTES, FFA_COLORS, FLARE, ITEM_INFO, ITEM_KINDS, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SHIELD, SIZES, STREAK_LEVELS, TEAM_COLORS, TEAM_NAMES, THEME_INFO, flareRadius, isItem, pickupInfo, sizeOf, type AnyPickup, type ArenaMode, type ArenaSize, type ItemKind, type MapTheme } from './rules'
 import { TANK } from '../sim/consts'
 import type { Tank } from '../sim/world'
 import { ArenaSession } from './session'
@@ -31,6 +31,10 @@ function shade(hex: string, k = 0.55) {
 const icoHtml = (body: string, dark = shade(body), cls = 'tank-icon') => tankIcon(body, dark, cls).outerHTML
 
 const SHELL_SVG = '<svg viewBox="0 0 10 24" class="ar-shell"><path d="M5 1C8 4 9 8 9 11v11H1V11c0-3 1-7 4-10z" fill="#f6f3ea" stroke="#5b3a19" stroke-width="1.4"/><path d="M1 17h8" stroke="#c99556" stroke-width="2"/></svg>'
+const NUKE_SVG = '<svg viewBox="0 0 24 24" class="ar-item ar-nuke"><circle cx="12" cy="12" r="10.5" fill="#f2c230" stroke="#5b3a19" stroke-width="1.6"/><path d="M12 12L7 3.5a10 10 0 0 1 10 0zM12 12l9.8 1.5a10 10 0 0 1-5 8.6zM12 12l-4.8 9.1a10 10 0 0 1-5-8.6z" fill="#2a1a0a"/><circle cx="12" cy="12" r="2" fill="#f2c230" stroke="#2a1a0a"/></svg>'
+const SHIELD_SVG = '<svg viewBox="0 0 24 24" class="ar-item ar-shieldi"><path d="M12 1.8l8.5 3.2v6.2c0 5.3-3.6 9.4-8.5 11-4.9-1.6-8.5-5.7-8.5-11V5z" fill="#7fe0c2" stroke="#1f5e4b" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 4.6l5.6 2.1v4.6c0 3.6-2.3 6.5-5.6 7.8z" fill="#fff" opacity="0.45"/></svg>'
+const FLARE_SVG = '<svg viewBox="0 0 24 24" class="ar-item ar-flare"><path d="M12 2l2.2 6.3L20.5 6l-3.6 5.4L22 14l-6 .9 1.2 6.6L12 17l-5.2 4.5L8 14.9 2 14l5.1-2.6L3.5 6l6.3 2.3z" fill="#ff8a2a" stroke="#5b3a19" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="3" fill="#fff3c4"/></svg>'
+const ITEM_SVG: Record<ItemKind, string> = { nuke: NUKE_SVG, shield: SHIELD_SVG, flares: FLARE_SVG }
 const MINE_SVG = '<svg viewBox="0 0 24 24" class="ar-mine"><circle cx="12" cy="13" r="9.5" fill="#e8c33a" stroke="#5b3a19" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="#cf2a31" stroke="#5b3a19" stroke-width="1.2"/></svg>'
 
 const SIZE_KEY = 'tanks-arena-size'
@@ -62,6 +66,10 @@ class ArenaScreen implements Screen {
   private pickupObjs = new Map<number, THREE.Object3D>()
   private rings = new Map<number, THREE.Object3D>()
   private lasers = new Map<Tank, THREE.Mesh>()
+  private bubbles = new Map<Tank, THREE.Object3D>()
+  private flareDiscs = new Map<Tank, THREE.Mesh>()
+  private nukeRings = new Map<number, THREE.Object3D>()
+  private burstObjs = new Map<object, THREE.Object3D>()
   private poll: ReturnType<typeof setInterval> | null = null
   private sheetHeld = false
   private onKey = (e: KeyboardEvent) => {
@@ -169,6 +177,15 @@ class ArenaScreen implements Screen {
       null,
       ...PICKUP_KINDS.map((k) => h('div.ar-power-row', null, tankIcon(PICKUP_INFO[k].color, PICKUP_INFO[k].dark), h('b', null, PICKUP_INFO[k].name), h('span', null, PICKUP_INFO[k].trick))),
     )
+    const items = h(
+      'div.ar-powers',
+      null,
+      ...ITEM_KINDS.map((k) => {
+        const row = h('div.ar-power-row', null, h('b', null, ITEM_INFO[k].name), h('span', null, ITEM_INFO[k].trick))
+        row.insertAdjacentHTML('afterbegin', ITEM_SVG[k])
+        return row
+      }),
+    )
     this.root.replaceChildren(
       h(
         'div.menu-screen.ar-join',
@@ -190,7 +207,7 @@ class ArenaScreen implements Screen {
                   'div.ar-modes',
                   null,
                   modeCard('ffa', 'Free-for-all', 'Every tank for itself. The top score wins.', ffaArt),
-                  modeCard('teams', 'Teams', 'Blue against Red. No friendly fire.', teamArt),
+                  modeCard('teams', 'Teams', 'Blue against Red. Watch your fire: shells hit teammates too.', teamArt),
                 ),
             this.invite ? null : h('div.ar-sizes', { role: 'group', 'aria-label': 'Map size' }, h('span.ar-sizes-head', null, 'Map size'), ...ARENA_SIZES.map(sizeButton)),
             button('Play', { icon: 'play', class: 'primary big ar-go', autofocus: true, onclick: () => this.play(name.value) }),
@@ -202,6 +219,8 @@ class ArenaScreen implements Screen {
               h('div.records-head', null, 'Special tanks'),
               h('div.card-text', null, 'Drive over a spinning tank to become it for a while.'),
               powers,
+              h('div.card-text', null, 'Or grab an item:'),
+              items,
               h('div.records-head', null, 'Rules'),
               h(
                 'ul',
@@ -209,11 +228,13 @@ class ArenaScreen implements Screen {
                 h('li', null, 'One hit destroys a tank. You’re back 3 seconds later, protected until you fire.'),
                 h('li', null, `Matches last 6 minutes, or until someone reaches the score limit (${ARENA_SIZES.map((z) => `${SIZES[z].name.toLowerCase()}: ${SIZES[z].ffaLimit}, teams ${SIZES[z].teamLimit}`).join('; ')}). Then a new map is built.`),
                 h('li', null, 'You come back near the fighting, out of sight of enemies.'),
-                h('li', null, 'Teams: no friendly fire. Destroying yourself costs a point.'),
+                h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
+                h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. More shells, mines and ricochets, and a stronger special tank, until you're hit.`),
+                h('li', null, `Flares turn incoming shells and rockets back at the shooter. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
                 h('li', null, 'The minimap shows teammates, and enemies right after they fire.'),
               ),
             ),
-            h('div.foot-hint', null, 'WASD drive · mouse aim · click fire · Space mine · wheel zoom · V first person · Tab scores'),
+            h('div.foot-hint', null, 'WASD drive · mouse aim · click fire · Space mine · F flare · wheel zoom · V first person · Tab scores'),
           ),
         ),
       ),
@@ -458,16 +479,24 @@ class ArenaScreen implements Screen {
         this.set('respawn', `<span>Back in ${Math.max(1, Math.ceil(you.respawn / 60))}${w ? ` · watching ${esc(w.name)}` : ''}</span>`)
       }
       const pips = (n: number, max: number, svg: string) => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">${svg}</i>`).join('')
-      this.set('ammo', `<div class="row">${pips(you.shells, you.maxShells, SHELL_SVG)}</div><div class="row">${pips(you.mines, you.maxMines, MINE_SVG)}</div>`)
+      const flareRow = `<div class="row items">${pips(you.flares, you.flareMax, FLARE_SVG)}${you.flareBack ? `<small>${Math.ceil(you.flareBack / 60)}s</small>` : ''}${you.nukes ? pips(you.nukes, you.nukes, NUKE_SVG) : ''}</div>`
+      this.set('ammo', `<div class="row">${pips(you.shells, you.maxShells, SHELL_SVG)}</div><div class="row">${pips(you.mines, you.maxMines, MINE_SVG)}</div>${flareRow}`)
+      const cards: string[] = []
       if (you.power) {
         const info = PICKUP_INFO[you.power]
-        const left = Math.max(0, you.powerLeft / PICKUP_TICKS[you.power])
-        const pw = `<div class="ar-pw" style="--c:${info.color};--d:${info.dark}">${icoHtml(info.color, info.dark)}<div><b>${info.name} tank</b><small>${info.trick}</small><u><i></i></u></div></div>`
-        this.set('power', pw)
-        // the time bar moves every frame: set its width without rebuilding the box
-        const bar = this.els.power.querySelector<HTMLElement>('u i')
-        if (bar) bar.style.width = `${(left * 100).toFixed(1)}%`
-      } else this.set('power', you.protect && you.alive ? `<div class="ar-pw dim"><div><b>Protected</b><small>until you fire</small></div></div>` : '')
+        cards.push(`<div class="ar-pw pw-power" style="--c:${info.color};--d:${info.dark}">${icoHtml(info.color, info.dark)}<div><b>${info.name} tank</b><small>${info.trick}</small><u><i></i></u></div></div>`)
+      }
+      if (you.shield > 0 && you.alive) cards.push(`<div class="ar-pw pw-shield" style="--c:${ITEM_INFO.shield.color};--d:${ITEM_INFO.shield.dark}">${SHIELD_SVG}<div><b>Shield</b><small>takes one hit</small><u><i></i></u></div></div>`)
+      if (you.level > 0 && you.alive) cards.push(`<div class="ar-pw pw-streak" style="--c:#e8901c;--d:#8a4a08"><span class="ar-mult">×${you.level + 1}</span><div><b>${you.streak} in a row</b><small>${you.level < STREAK_LEVELS.length ? `×${you.level + 2} at ${STREAK_LEVELS[you.level]}` : 'full power'}</small></div></div>`)
+      if (!cards.length && you.protect && you.alive) cards.push(`<div class="ar-pw dim"><div><b>Protected</b><small>until you fire</small></div></div>`)
+      this.set('power', cards.join(''))
+      // the time bars move every frame: set their widths without rebuilding the cards
+      const bar = (sel: string, f: number) => {
+        const el = this.els.power.querySelector<HTMLElement>(`${sel} u i`)
+        if (el) el.style.width = `${(Math.max(0, Math.min(1, f)) * 100).toFixed(1)}%`
+      }
+      if (you.power) bar('.pw-power', you.powerLeft / PICKUP_TICKS[you.power])
+      if (you.shield > 0) bar('.pw-shield', you.shield / SHIELD.ticks)
     }
     this.els.net.textContent = `${Math.round(s.rtt)} ms`
     this.drawMinimap(s)
@@ -569,8 +598,8 @@ class ArenaScreen implements Screen {
     }
     for (const k of s.pickupList) {
       const [x, y] = toMap(k.x, k.z)
-      g.fillStyle = PICKUP_INFO[k.kind].color
-      g.strokeStyle = PICKUP_INFO[k.kind].dark
+      g.fillStyle = pickupInfo(k.kind).color
+      g.strokeStyle = pickupInfo(k.kind).dark
       g.lineWidth = 1.5
       g.beginPath()
       g.moveTo(x, y - 4.5)
@@ -647,10 +676,11 @@ class ArenaScreen implements Screen {
         }
         const color = this.colorOf(s, p.team, p.color)
         const power = s.powerOf(t)
-        const key = p.name + color + (power ?? '') + saying
+        const lv = s.levelOf(t)
+        const key = p.name + color + (power ?? '') + saying + lv
         if (el.dataset.k !== key) {
           el.dataset.k = key
-          el.innerHTML = `${saying ? `<q>${esc(saying)}</q>` : ''}<i style="background:${color}"></i>${esc(p.name)}${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}`
+          el.innerHTML = `${saying ? `<q>${esc(saying)}</q>` : ''}<i style="background:${color}"></i>${esc(p.name)}${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}${lv ? `<b class="lv">×${lv + 1}</b>` : ''}`
         }
         v.set(t.pos.x, 52, t.pos.z).project(view.camera)
         el.style.transform = `translate(${((v.x + 1) / 2) * rect.width}px, ${((1 - v.y) / 2) * rect.height}px) translate(-50%, -100%)`
@@ -663,6 +693,38 @@ class ArenaScreen implements Screen {
       }
   }
 
+  /** the model floating over a pickup: the special tank, or the item */
+  private itemModel(k: AnyPickup): THREE.Object3D {
+    if (!isItem(k)) return this.app.view.tankModelOf(PICKUP_TYPE[k]).root
+    const g = new THREE.Group()
+    if (k === 'nuke') {
+      const m = this.app.view.mineModel()
+      m.scale.setScalar(1.9)
+      this.app.view.mineFrame(m, 6)
+      g.add(m)
+    } else if (k === 'shield') {
+      const b = new THREE.Mesh(new THREE.SphereGeometry(19, 24, 16), bubbleMat())
+      b.position.y = 16
+      const core = new THREE.Mesh(new THREE.OctahedronGeometry(8), new THREE.MeshBasicNodeMaterial({ color: 0x2fb38c }))
+      core.position.y = 16
+      g.add(b, core)
+    } else {
+      // three flare sticks with glowing tips
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2
+        const stick = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 22, 10), new THREE.MeshBasicNodeMaterial({ color: i === 1 ? 0xd8383a : 0xff7a2a }))
+        stick.position.set(Math.cos(a) * 5, 13, Math.sin(a) * 5)
+        stick.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35)
+        const tip = new THREE.Mesh(new THREE.SphereGeometry(4, 10, 8), new THREE.MeshBasicNodeMaterial({ color: 0xfff1b0 }))
+        tip.position.set(Math.cos(a) * 9, 24, Math.sin(a) * 9)
+        g.add(stick, tip)
+      }
+    }
+    // the pickup code scales its model like a tank's
+    g.scale.setScalar(1 / 0.62)
+    return g
+  }
+
   private syncFx(s: ArenaSession) {
     const t = performance.now() / 1000
     // pickups: a little model of the special tank, spinning over a glowing ring
@@ -671,7 +733,7 @@ class ArenaScreen implements Screen {
       seen.add(k.id)
       let o = this.pickupObjs.get(k.id)
       if (!o) {
-        o = pickupObject(k.kind, this.app.view.tankModelOf(PICKUP_TYPE[k.kind]).root)
+        o = pickupObject(k.kind, this.itemModel(k.kind))
         o.position.set(k.x, 0, k.z)
         this.fx.add(o)
         this.pickupObjs.set(k.id, o)
@@ -711,6 +773,85 @@ class ArenaScreen implements Screen {
         this.fx.remove(o)
         this.lasers.delete(k)
       }
+    // shields: a bubble around the tank; flares: a bright disc while they burst
+    const bubbled = new Set<Tank>()
+    const flaring = new Set<Tank>()
+    for (const tk of s.world?.tanks ?? []) {
+      if (!tk.alive || s.hidden(tk)) continue
+      if (s.shieldOf(tk)) {
+        bubbled.add(tk)
+        let o = this.bubbles.get(tk)
+        if (!o) {
+          o = new THREE.Mesh(new THREE.SphereGeometry(30, 28, 18), bubbleMat())
+          this.fx.add(o)
+          this.bubbles.set(tk, o)
+        }
+        o.position.set(tk.pos.x, 14, tk.pos.z)
+        o.scale.setScalar(1 + 0.03 * Math.sin(t * 6))
+      }
+      if (s.flaring(tk)) {
+        flaring.add(tk)
+        let o = this.flareDiscs.get(tk)
+        if (!o) {
+          o = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicNodeMaterial({ color: 0xff9a3a, transparent: true, opacity: 0.3, depthWrite: false }))
+          o.rotation.x = -Math.PI / 2
+          this.fx.add(o)
+          this.flareDiscs.set(tk, o)
+        }
+        o.scale.setScalar(flareRadius(s.levelOf(tk)))
+        o.position.set(tk.pos.x, 1, tk.pos.z)
+        ;(o.material as THREE.MeshBasicNodeMaterial).opacity = 0.22 + 0.12 * Math.sin(t * 40)
+      }
+    }
+    for (const [k, o] of this.bubbles) if (!bubbled.has(k)) (this.fx.remove(o), this.bubbles.delete(k))
+    for (const [k, o] of this.flareDiscs) if (!flaring.has(k)) (this.fx.remove(o), this.flareDiscs.delete(k))
+    // a nuke on the ground: its blast radius, blinking red
+    const nk = new Set<number>()
+    for (const n of s.nukes) {
+      nk.add(n.id)
+      let o = this.nukeRings.get(n.id)
+      if (!o) {
+        o = ringObject('#ff2a1a', NUKE.blast - 5, NUKE.blast, 0.7)
+        const fill = new THREE.Mesh(new THREE.CircleGeometry(NUKE.blast, 64), new THREE.MeshBasicNodeMaterial({ color: 0xff3a1a, transparent: true, opacity: 0.08, depthWrite: false }))
+        fill.rotation.x = -Math.PI / 2
+        fill.position.y = 0.6
+        o.add(fill)
+        o.userData.born = performance.now()
+        this.fx.add(o)
+        this.nukeRings.set(n.id, o)
+      }
+      o.position.set(n.x, 0, n.z)
+      // blinks faster as the fuse burns down
+      const age = (performance.now() - o.userData.born) / 1000
+      o.visible = Math.sin(age * (4 + age * 5)) > -0.3
+    }
+    for (const [k, o] of this.nukeRings) if (!nk.has(k)) (this.fx.remove(o), this.nukeRings.delete(k))
+    // bursts: a nuke's shockwave and flash, a flare's ring
+    const now = performance.now()
+    s.bursts = s.bursts.filter((b) => now - b.at < 900)
+    const live = new Set<object>(s.bursts)
+    for (const b of s.bursts) {
+      let o = this.burstObjs.get(b)
+      if (!o) {
+        o = new THREE.Group()
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 64), new THREE.MeshBasicNodeMaterial({ color: b.kind === 'nuke' ? 0xfff0c0 : 0xffb04a, transparent: true, opacity: 0.9, depthWrite: false }))
+        ring.rotation.x = -Math.PI / 2
+        const flash = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicNodeMaterial({ color: b.kind === 'nuke' ? 0xffe28a : 0xffd080, transparent: true, opacity: 0.5, depthWrite: false }))
+        flash.rotation.x = -Math.PI / 2
+        flash.position.y = -0.2
+        o.add(ring, flash)
+        o.position.set(b.x, 2, b.z)
+        this.fx.add(o)
+        this.burstObjs.set(b, o)
+      }
+      const f = (now - b.at) / (b.kind === 'nuke' ? 900 : 450)
+      const [ring, flash] = o.children as THREE.Mesh[]
+      ring.scale.setScalar(Math.max(1, b.r * (b.kind === 'nuke' ? 1.35 : 1) * Math.min(1, 0.25 + f * 1.1)))
+      ;(ring.material as THREE.MeshBasicNodeMaterial).opacity = 0.9 * Math.max(0, 1 - f)
+      flash.scale.setScalar(Math.max(1, b.r * Math.min(1, 0.4 + f * 1.5)))
+      ;(flash.material as THREE.MeshBasicNodeMaterial).opacity = 0.5 * Math.max(0, 1 - f * 1.6)
+    }
+    for (const [k, o] of this.burstObjs) if (!live.has(k)) (this.fx.remove(o), this.burstObjs.delete(k))
     // teams: a ring of the team colour under every visible tank
     const shown = new Set<number>()
     if (s.mode === 'teams')
@@ -743,6 +884,12 @@ function flip(el: SVGSVGElement) {
   return el
 }
 
+let bubble: THREE.MeshBasicNodeMaterial | null = null
+/** the shield's clear mint bubble (shared) */
+function bubbleMat() {
+  return (bubble ??= new THREE.MeshBasicNodeMaterial({ color: 0x9ff0d6, transparent: true, opacity: 0.3, depthWrite: false }))
+}
+
 function ringObject(color: string, r0: number, r1: number, opacity = 0.75) {
   const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 40), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(color), transparent: true, opacity, depthWrite: false }))
   m.rotation.x = -Math.PI / 2
@@ -752,12 +899,12 @@ function ringObject(color: string, r0: number, r1: number, opacity = 0.75) {
   return g
 }
 
-function pickupObject(kind: PickupKind, tank: THREE.Object3D) {
+function pickupObject(kind: AnyPickup, tank: THREE.Object3D) {
   const g = new THREE.Group()
   const holder = new THREE.Group()
   tank.scale.multiplyScalar(0.62)
   holder.add(tank)
-  const info = PICKUP_INFO[kind]
+  const info = pickupInfo(kind)
   const ring = ringObject(info.color, 17, 23, 0.9)
   const glow = new THREE.Mesh(new THREE.CircleGeometry(23, 40), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(info.color), transparent: true, opacity: 0.25, depthWrite: false }))
   glow.rotation.x = -Math.PI / 2

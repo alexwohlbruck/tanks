@@ -2,19 +2,44 @@
 // one hunts players 1-2 on a 22 x 17 field); a small brain for a big map with teams:
 //   - hunt the nearest enemy it can reach (grid BFS path), keep a fighting distance
 //   - fire on a clear line, or bank a shot off one wall when that line is blocked
-//   - dodge shells heading its way, back away from armed mines, now and then lay one when close
+//   - dodge shells heading its way (teammates' too: every shell hits), flare the ones it can't
+//     dodge, back away from armed mines and nukes
+//   - mines with a reason (see mineSense): behind it when chased, in a corridor an enemy is
+//     coming down, against cork in its way, in a close fight; never near a teammate or on top
+//     of another mine. Shoots mines that have an enemy next to them. Nukes go down where
+//     enemies crowd, then it runs.
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import type { ArenaSim, ATank, Player } from './sim'
+import { NUKE } from './rules'
+import type { AMine, ArenaSim, ATank, Player } from './sim'
 
-type Brain = { path: [number, number][]; goal: [number, number] | null; repathAt: number; thinkAt: number; target: ATank | null; bank: { x: number; z: number } | null; fleeUntil: number; jitter: number; strafe: number; seenSince: number }
+type Brain = {
+  path: [number, number][]
+  goal: [number, number] | null
+  repathAt: number
+  thinkAt: number
+  target: ATank | null
+  bank: { x: number; z: number } | null
+  /** run from `fleeFrom` (else the target) until this tick */
+  fleeUntil: number
+  fleeFrom: { x: number; z: number } | null
+  jitter: number
+  strafe: number
+  seenSince: number
+  /** next tick to weigh laying a mine; a mine worth shooting */
+  mineAt: number
+  shootMine: AMine | null
+  /** the way out of a blast, recomputed every 20 frames */
+  escape: [number, number][]
+  escapeAt: number
+}
 
 const brains = new WeakMap<Player, Brain>()
 
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1 }))
+  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0 }))
   return b
 }
 
@@ -49,6 +74,35 @@ function bankShot(sim: ArenaSim, x: number, z: number, dx: number, dz: number, t
   return false
 }
 
+/** the shortest way to a cell out of reach of every one of `mines` (at most ~600 cells) */
+function escapePath(sim: ArenaSim, from: [number, number], mines: AMine[]): [number, number][] {
+  const { cols } = sim.map
+  const safe = (c: number, r: number) => {
+    const p = cellPos(sim.map, c, r)
+    return mines.every((m) => Math.hypot(p.x - m.pos.x, p.z - m.pos.z) > m.blastMax + TANK.mineRadius + 30)
+  }
+  const start = from[1] * cols + from[0]
+  const prev = new Map<number, number>([[start, start]])
+  const q = [start]
+  for (let h = 0; h < q.length && h < 600; h++) {
+    const i = q[h]
+    const x = i % cols, y = (i / cols) | 0
+    if (i !== start && safe(x, y)) {
+      const out: [number, number][] = []
+      for (let k = i; k !== start; k = prev.get(k)!) out.push([k % cols, (k / cols) | 0])
+      return out.reverse()
+    }
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy
+      const j = ny * cols + nx
+      if (prev.has(j) || sim.field.at(nx, ny) !== 0) continue
+      prev.set(j, i)
+      q.push(j)
+    }
+  }
+  return []
+}
+
 function bfs(sim: ArenaSim, from: [number, number], to: [number, number]): [number, number][] {
   const { cols, rows } = sim.map
   const prev = new Int32Array(cols * rows).fill(-1)
@@ -59,8 +113,9 @@ function bfs(sim: ArenaSim, from: [number, number], to: [number, number]): [numb
   for (const m of sim.mines) {
     if (m.state === 2) continue
     const [mc, mr] = cellOf(sim.map, m.pos.x, m.pos.z)
-    for (let dy = -2; dy <= 2; dy++)
-      for (let dx = -2; dx <= 2; dx++) {
+    const R = m.nuke ? Math.ceil(m.blastMax / 35) : 2
+    for (let dy = -R; dy <= R; dy++)
+      for (let dx = -R; dx <= R; dx++) {
         const j = (mr + dy) * cols + mc + dx
         if (j !== start && j !== goal && j >= 0 && j < prev.length && prev[j] < 0) prev[j] = -2
       }
@@ -129,7 +184,15 @@ export function botThink(sim: ArenaSim, p: Player) {
   const e = b.target && b.target.alive ? b.target : null
   // ---- aim and fire
   let fire = false
-  if (e) {
+  const sm = b.shootMine && !b.shootMine.dead && b.shootMine.state !== 2 ? b.shootMine : null
+  if (sm) {
+    // a mine with an enemy next to it: set it off
+    inp.ax = sm.pos.x
+    inp.az = sm.pos.z
+    const a = Math.atan2(sm.pos.z - t.pos.z, sm.pos.x - t.pos.x)
+    const tz = t.turretRot.z
+    fire = Math.cos(a) * tz.x + Math.sin(a) * tz.z > 0.997 && Math.random() < 0.2
+  } else if (e) {
     const d = Math.hypot(e.pos.x - t.pos.x, e.pos.z - t.pos.z)
     const lead = d / sim.stats(t).shellSpeed
     const ax = e.pos.x + e.vel.x * lead
@@ -156,7 +219,14 @@ export function botThink(sim: ArenaSim, p: Player) {
       // only once the turret is on target
       const tz = t.turretRot.z
       const on = Math.cos(a) * tz.x + Math.sin(a) * tz.z > 0.995
-      fire = reacted && !blocked && on && d < 600 && Math.random() < 0.06
+      // no mine close by in the line of fire (our own shell would set it off on top of us)
+      const mined = sim.mines.some((m) => {
+        if (m.state === 2) return false
+        const mx = m.pos.x - t.pos.x, mz = m.pos.z - t.pos.z
+        const along = mx * Math.cos(a) + mz * Math.sin(a)
+        return along > 0 && along < m.blastMax + 60 && Math.abs(-mx * Math.sin(a) + mz * Math.cos(a)) < 26
+      })
+      fire = reacted && !blocked && !mined && on && d < 600 && Math.random() < 0.06
     }
     if (now < e.protectUntil) fire = false
   } else {
@@ -171,7 +241,6 @@ export function botThink(sim: ArenaSim, p: Player) {
   // threats first: shells heading this way, armed mines nearby
   for (const s of sim.shells) {
     if (s.owner === t && s.age < 30) continue
-    if (!sim.enemies(p, s.owner.player) && s.owner !== t) continue
     const dx = t.pos.x - s.pos.x, dz = t.pos.z - s.pos.z
     const d = Math.hypot(dx, dz)
     if (d > 180) continue
@@ -180,29 +249,51 @@ export function botThink(sim: ArenaSim, p: Player) {
     if (dx * vx + dz * vz <= 0) continue
     const side = -dx * vz + dz * vx
     if (Math.abs(side) > 40) continue
+    // too close to step aside: a flare turns it back (now and then a bot is too slow)
+    const along = dx * vx + dz * vz
+    if (Math.abs(side) < 28 && along / sp < 22 && t.flares > 0 && now >= t.flareReady && Math.random() < 0.5) p.wantFlare = true
     // step out of the line, away from the side it would pass
     const k = side >= 0 ? 1 : -1
     mx += -vz * k * 2
     mz += vx * k * 2
   }
-  for (const m of sim.mines) {
-    // fresh own mines are left behind on purpose; everything else gets a wide berth
-    if (m.state === 2 || (!m.armed && m.owner === t)) continue
-    const dx = t.pos.x - m.pos.x, dz = t.pos.z - m.pos.z
-    const d = Math.hypot(dx, dz)
-    if (d < MINE.blastMax + (m.owner === t ? 80 : 50)) {
-      mx += (dx / (d || 1)) * 2
-      mz += (dz / (d || 1)) * 2
+  // mines: drive to the nearest cell out of every blast that's coming (a short path search;
+  // pushing straight away used to pin bots against walls next to their own mine)
+  const danger = sim.mines.filter((m) => {
+    // a fresh own mine is left behind on purpose (it arms once we're clear); after a moment,
+    // or once its fuse is lit, it gets a wide berth like everything else
+    if (m.state === 2 || (!m.armed && m.owner === t && m.age < 45 && !m.fuseLit)) return false
+    // teammates' mines ignore us (nukes don't)
+    if (!m.nuke && m.owner !== t && !sim.enemies(p, m.owner.player)) return false
+    return Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) < m.blastMax + (m.nuke ? 70 : m.owner === t ? 80 : 50)
+  })
+  if (danger.length) {
+    if (now >= b.escapeAt || !b.escape.length) {
+      b.escape = escapePath(sim, cellOf(sim.map, t.pos.x, t.pos.z), danger)
+      b.escapeAt = now + 20
     }
-  }
+    const here = cellOf(sim.map, t.pos.x, t.pos.z)
+    while (b.escape.length && b.escape[0][0] === here[0] && b.escape[0][1] === here[1]) b.escape.shift()
+    const next = b.escape[0]
+    if (next) {
+      const c = cellPos(sim.map, next[0], next[1])
+      mx += (c.x - t.pos.x) * 4
+      mz += (c.z - t.pos.z) * 4
+    } else {
+      const m = danger[0]
+      mx += t.pos.x - m.pos.x || t.rot.z.x
+      mz += t.pos.z - m.pos.z || t.rot.z.z
+    }
+  } else b.escape = []
   if (!mx && !mz) {
     // fighting distance: close in along the path, hold and strafe near, back off when too close
     let goal: [number, number] | null = null
     const dist = e ? Math.hypot(e.pos.x - t.pos.x, e.pos.z - t.pos.z) : 0
     const seen = e && clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)
-    if (now < b.fleeUntil && e) {
-      mx = t.pos.x - e.pos.x
-      mz = t.pos.z - e.pos.z
+    const from = b.fleeFrom ?? e?.pos
+    if (now < b.fleeUntil && from) {
+      mx = t.pos.x - from.x
+      mz = t.pos.z - from.z
     } else if (e && seen && dist < 260) {
       // strafe around the target
       const ux = (e.pos.x - t.pos.x) / dist, uz = (e.pos.z - t.pos.z) / dist
@@ -231,14 +322,86 @@ export function botThink(sim: ArenaSim, p: Player) {
         mz = c.z - t.pos.z
       } else b.goal = null
     }
-    // lay a mine when an enemy is close, then get away
-    if (e && dist < 220 && Math.random() < 0.006) {
-      p.wantMine = true
-      b.fleeUntil = now + 70
-    }
+    if (now >= b.fleeUntil) b.fleeFrom = null
+  }
+  if (now >= b.mineAt) {
+    b.mineAt = now + 12
+    mineSense(sim, p, b, enemies, friends, e)
   }
   const l = Math.hypot(mx, mz)
   inp.mx = l > 0.01 ? mx / l : 0
   inp.mz = l > 0.01 ? mz / l : 0
   inp.analog = false
+}
+
+/** open (no block, no hole) */
+const open = (sim: ArenaSim, c: number, r: number) => sim.field.at(c, r) === 0
+const isCork = (code: number) => code >= 101 && code <= 107
+
+/**
+ * When to lay a mine or a nuke, and which mine to shoot (every 12 frames). A mine goes down
+ * only with a reason, never with a teammate in reach of the blast or another mine close by.
+ */
+function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: ATank[], e: ATank | null) {
+  const t = p.tank
+  const now = sim.tick
+  const dist = (o: { pos: { x: number; z: number } }) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z)
+  // ---- a mine worth shooting: an enemy right next to it, us (and teammates) well clear
+  b.shootMine = null
+  for (const m of sim.mines) {
+    if (m.state === 2 || (!m.armed && !m.nuke)) continue
+    const reach = m.blastMax + TANK.mineRadius
+    const d = dist(m)
+    if (d < reach + 40 || d > 520) continue
+    if (friends.some((f) => Math.hypot(f.pos.x - m.pos.x, f.pos.z - m.pos.z) < reach + 20)) continue
+    if (!enemies.some((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) < reach - 6)) continue
+    if (!clearLine(sim, t.pos.x, t.pos.z, m.pos.x, m.pos.z)) continue
+    b.shootMine = m
+    break
+  }
+  const st = sim.stats(t)
+  if (t.pc.mineTimer > 0) return
+  const safe = (r: number) => !friends.some((f) => dist(f) < r + 30)
+  // ---- a nuke: where two enemies are in reach (or one, now and then), then run
+  if (t.nukes > 0) {
+    const R = NUKE.blast * 0.8
+    const near = enemies.filter((o) => dist(o) < R).length
+    if ((near >= 2 || (near === 1 && Math.random() < 0.15)) && safe(NUKE.blast)) {
+      p.wantMine = true
+      b.fleeUntil = now + NUKE.fuse - 10
+      b.fleeFrom = { x: t.pos.x, z: t.pos.z }
+      return
+    }
+  }
+  const mine = sim.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines
+  if (!mine || !safe(MINE.blastMax) || sim.mines.some((m) => m.state !== 2 && dist(m) < 90)) return
+  const lay = (flee: number) => {
+    p.wantMine = true
+    b.fleeUntil = now + flee
+    b.fleeFrom = { x: t.pos.x, z: t.pos.z }
+  }
+  const [c, r] = cellOf(sim.map, t.pos.x, t.pos.z)
+  if (e) {
+    const d = dist(e)
+    const ux = (t.pos.x - e.pos.x) / (d || 1), uz = (t.pos.z - e.pos.z) / (d || 1)
+    // chased: the enemy closes in while we drive away; it runs into the mine
+    const closing = -(e.vel.x * ux + e.vel.z * uz)
+    const leaving = t.vel.x * ux + t.vel.z * uz
+    if (d < 240 && closing > 0.3 && leaving > 0.3 && Math.random() < 0.5) return lay(40)
+    // a corridor the enemy is coming down, out of its sight: an ambush
+    const ns = open(sim, c, r - 1) && open(sim, c, r + 1) && !open(sim, c - 1, r) && !open(sim, c + 1, r)
+    const ew = open(sim, c - 1, r) && open(sim, c + 1, r) && !open(sim, c, r - 1) && !open(sim, c, r + 1)
+    if ((ns || ew) && d < 380 && d > 140 && closing > 0.3 && !clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z) && Math.random() < 0.3) return lay(70)
+    // a close fight: between us and it, then back off
+    if (d < 200 && Math.random() < 0.12) return lay(70)
+  }
+  // cork in the way of where we're going: blow it open
+  const goal = e ? cellOf(sim.map, e.pos.x, e.pos.z) : b.goal
+  if (goal && (!b.path.length || (e && !clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)))) {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!isCork(sim.field.at(c + dx, r + dy))) continue
+      const closer = Math.hypot(goal[0] - (c + dx), goal[1] - (r + dy)) < Math.hypot(goal[0] - c, goal[1] - r)
+      if (closer && Math.random() < (b.path.length ? 0.1 : 0.5)) return lay(90)
+    }
+  }
 }

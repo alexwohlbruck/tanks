@@ -14,6 +14,7 @@ const ACTIONS: { id: KeyAction; label: string }[] = [
   { id: 'right', label: 'Drive right' },
   { id: 'fire', label: 'Fire' },
   { id: 'mine', label: 'Lay a mine' },
+  { id: 'flare', label: 'Flare (Arena)' },
   { id: 'pause', label: 'Pause' },
 ]
 
@@ -116,8 +117,8 @@ class SettingsScreen extends WebScreen {
               document.body.classList.contains('touch-ui')
                 ? h('div', null, h('b', null, 'Touch'), ' left thumb drive · right thumb drag to aim, let go to fire, tap to fire again · Mine button')
                 : null,
-              h('div', null, h('b', null, 'Mouse'), ' aim · left click fire · right click mine'),
-              h('div', null, h('b', null, 'Gamepad'), ' left stick drive · right stick aim · RT / A fire · LT / X mine · Start pause'),
+              h('div', null, h('b', null, 'Mouse'), ' aim · left click fire · right click mine · middle click flare'),
+              h('div', null, h('b', null, 'Gamepad'), ' left stick drive · right stick aim · RT / A fire · LT / X mine · Y flare · Start pause'),
             ),
             this.keysEl,
           ),

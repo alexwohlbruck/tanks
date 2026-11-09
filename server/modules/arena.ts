@@ -10,14 +10,14 @@
 import type { ServerWebSocket } from 'bun'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
-import { ARENA_TPS, EMOTES, PICKUP_KINDS, SIZES, SNAPSHOT_EVERY, WHITE_REVEAL, sizeOf, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
+import { ARENA_TPS, EMOTES, FLARE, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, WHITE_REVEAL, sizeOf, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
 import { cleanName } from '../../src/net/protocol'
 import { register } from '../index'
 import { json, type WsData } from '../module'
 import { ipOf, loadGameData } from './rooms'
 import { addStats, emptyDelta, isStatId, leaders, playerStats, type StatDelta } from '../arena/stats'
-import { TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_STEALTH } from '../../src/arena/protocol'
+import { TF_ALIVE, TF_FLARE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH } from '../../src/arena/protocol'
 
 const MAX_ARENAS = Number(process.env.ARENAS_MAX ?? 16)
 const MAX_QUEUE = 6
@@ -202,11 +202,18 @@ class Arena {
         const pw = t.power ? PICKUP_KINDS.indexOf(t.power) + 1 : 0
         // White: enemies only see its tracks, except right after it fires
         const hidden = t.power === 'white' && s.enemies(p, t.player) && s.tick - t.firedAt > WHITE_REVEAL
-        const flags = (t.alive ? TF_ALIVE : 0) | (s.tick < t.protectUntil ? TF_PROTECT : 0) | (hidden ? TF_STEALTH : 0) | (pw << TF_POWER_SHIFT)
+        const flags =
+          (t.alive ? TF_ALIVE : 0) |
+          (s.tick < t.protectUntil ? TF_PROTECT : 0) |
+          (hidden ? TF_STEALTH : 0) |
+          (pw << TF_POWER_SHIFT) |
+          (s.tick < t.shieldUntil && !hidden ? TF_SHIELD : 0) |
+          (s.tick < t.flareUntil ? TF_FLARE : 0) |
+          (s.level(t) << TF_LEVEL_SHIFT)
         return [t.id, r1(t.pos.x), r1(t.pos.z), Math.round(b * 1000) / 1000, Math.round(tu * 1000) / 1000, flags, t.player.pid] as [number, number, number, number, number, number, number]
       })
     const S = s.shells.filter((x) => near(x.pos.x, x.pos.z)).map((x) => [x.id, r1(x.pos.x), r1(x.pos.z), r1(x.vel.x * 10) / 10, r1(x.vel.z * 10) / 10, x.smoke] as [number, number, number, number, number, number])
-    const M = s.mines.filter((m) => m.state !== 2 && near(m.pos.x, m.pos.z)).map((m) => [m.id, r1(m.pos.x), r1(m.pos.z), m.fuseLit ? 1 : 0] as [number, number, number, number])
+    const M = s.mines.filter((m) => m.state !== 2 && near(m.pos.x, m.pos.z)).map((m) => [m.id, r1(m.pos.x), r1(m.pos.z), m.fuseLit ? 1 : 0, m.nuke ? 1 : 0] as [number, number, number, number, number])
     const K = s.pickups.map((k) => [k.id, k.x, k.z, k.kind] as [number, number, number, (typeof k)['kind']])
     const t = p.tank
     const pc = t.pc
@@ -233,6 +240,13 @@ class Arena {
       mines: st.maxMines - s.mines.filter((m) => m.owner === t && m.state !== 2).length,
       maxShells: st.maxShells,
       maxMines: st.maxMines,
+      nukes: t.nukes,
+      flares: t.flares,
+      flareMax: Math.max(FLARE.base, t.flares),
+      flareBack: t.flareBack ? Math.max(0, t.flareBack - s.tick) : 0,
+      shield: Math.max(0, t.shieldUntil - s.tick),
+      level: s.level(t),
+      streak: p.streak,
       spec: !t.alive && p.killedBy?.tank.alive && s.players.includes(p.killedBy) ? p.killedBy.tank.id : 0,
     }
     send(c, { t: 's', k: s.tick, T, S, M, K, E: c.pending, you })
@@ -271,7 +285,7 @@ class Arena {
           const p = c.player
           if (!p) continue
           if (p.pid === e.victim) c.stats.deaths++
-          if (p.pid === e.killer && e.killer !== e.victim) {
+          if (p.pid === e.killer && e.killer !== e.victim && !e.tk) {
             c.stats.kills++
             c.stats.best = Math.max(c.stats.best, e.streak)
           }
@@ -323,7 +337,7 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
   const near = (x: number, z: number) => Math.abs(x - c.focus.x) < VIEW.x + 200 && Math.abs(z - c.focus.z) < VIEW.z + 200
   switch (e.t) {
     case 'kill':
-      return ['kill', e.tank, r1(e.x), r1(e.z), e.victim, e.killer, e.cause, e.streak, e.layer]
+      return ['kill', e.tank, r1(e.x), r1(e.z), e.victim, e.killer, e.cause, e.streak, e.layer, e.tk ? 1 : 0]
     case 'break':
       return ['brk', e.c, e.r, e.h]
     case 'match':
@@ -346,7 +360,13 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
     case 'mineFuse':
       return ['fuse', e.id, r1(e.x), r1(e.z)]
     case 'boom':
-      return ['boom', r1(e.x), r1(e.z)]
+      return ['boom', r1(e.x), r1(e.z), e.nuke ? 1 : 0]
+    case 'shieldPop':
+      return ['shpop', e.tank, r1(e.x), r1(e.z)]
+    case 'flare':
+      return ['flare', e.tank, r1(e.x), r1(e.z), Math.round(e.r)]
+    case 'deflect':
+      return ['defl', r1(e.x), r1(e.z)]
     case 'spawn':
       return ['spawn', e.tank, r1(e.x), r1(e.z)]
   }
@@ -370,6 +390,7 @@ function nextInput(c: Client) {
     p.input = i
     p.wantFire ||= i.fire
     p.wantMine ||= i.mine
+    p.wantFlare ||= !!i.flare
     return
   }
   const stale = ++c.empty > STALE_TICKS
@@ -381,6 +402,7 @@ function mergeOldest(c: Client) {
   if (!b) return
   b.fire ||= a.fire
   b.mine ||= a.mine
+  b.flare ||= a.flare
   c.queue.shift()
 }
 
@@ -461,6 +483,11 @@ function onMessage(c: Client, raw: string | Buffer) {
       if (!process.env.ARENA_DEV || !t) return
       // 'end': finish the match now (results + map vote)
       if (m.power === 'end') return void (c.arena!.sim.phaseEnd = c.arena!.sim.tick)
+      // items, and a kill streak (+3)
+      if (m.power === 'nuke') return void (t.nukes = NUKE.max)
+      if (m.power === 'shield') return void (t.shieldUntil = c.arena!.sim.tick + SHIELD.ticks)
+      if (m.power === 'flares') return void (t.flares = FLARE.max)
+      if (m.power === 'streak') return void (c.player!.streak += 3)
       if (!(PICKUP_KINDS as string[]).includes(m.power)) return
       t.power = m.power as (typeof PICKUP_KINDS)[number]
       t.powerUntil = c.arena!.sim.tick + 60 * 60
@@ -472,7 +499,7 @@ function onMessage(c: Client, raw: string | Buffer) {
       if (seq <= c.lastRecv) return
       c.lastRecv = seq
       const W = 5000
-      c.queue.push({ seq, mx: num(m.mx, -1, 1), mz: num(m.mz, -1, 1), analog: !!m.an, ax: num(m.ax, -W, W), az: num(m.az, -W, W), fire: !!m.f, mine: !!m.m })
+      c.queue.push({ seq, mx: num(m.mx, -1, 1), mz: num(m.mz, -1, 1), analog: !!m.an, ax: num(m.ax, -W, W), az: num(m.az, -W, W), fire: !!m.f, mine: !!m.m, flare: !!m.fl })
       while (c.queue.length > MAX_QUEUE) mergeOldest(c)
       return
     }

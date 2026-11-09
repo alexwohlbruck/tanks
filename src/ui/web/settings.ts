@@ -5,7 +5,7 @@
 export type Quality = 'classic' | 'high' | 'ultra'
 
 /** keyboard actions that can be rebound (mouse buttons stay fixed) */
-export type KeyAction = 'up' | 'down' | 'left' | 'right' | 'fire' | 'mine' | 'pause'
+export type KeyAction = 'up' | 'down' | 'left' | 'right' | 'fire' | 'mine' | 'flare' | 'pause'
 
 export type Settings = {
   /** 0..1 */
@@ -26,6 +26,7 @@ export const DEFAULT_KEYS: Record<KeyAction, string[]> = {
   right: ['KeyD', 'ArrowRight'],
   fire: ['KeyJ'],
   mine: ['Space', 'KeyE', 'ShiftLeft', 'ShiftRight', 'KeyK'],
+  flare: ['KeyF', 'KeyQ', 'KeyL'],
   pause: ['Escape', 'KeyP'],
 }
 

@@ -14,6 +14,7 @@ const IDLE: PadState = {
   aimStick: null,
   fire: false,
   mine: false,
+  flare: false,
   pause: false,
   confirm: false,
   back: false,

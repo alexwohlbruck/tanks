@@ -16,8 +16,8 @@ import { axesFromForward, v3 } from '../sim/vec'
 import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank } from '../sim/world'
 import * as THREE from 'three/webgpu'
 import { generateMap, type ArenaMap } from './map'
-import { ARENA_PROTO, TF_ALIVE, TF_POWER_SHIFT, TF_PROTECT, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
-import { EMOTE_TICKS, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
+import { ARENA_PROTO, TF_ALIVE, TF_FLARE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
+import { EMOTE_TICKS, ITEM_INFO, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, isItem, type AnyPickup, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
 import { paramsFor } from '../sim/stats'
 import type { BaseModel } from '../render/registry'
 import { tankIcon } from '../ui/web/art'
@@ -86,10 +86,17 @@ export class ArenaSession implements Session {
   private treadOdo = new Map<Tank, { x: number; z: number; d: number }>()
   private marks: { id: number; x: number; z: number; color: number }[] = []
   private markId = 1
-  private pickups: { id: number; x: number; z: number; kind: PickupKind }[] = []
+  private pickups: { id: number; x: number; z: number; kind: AnyPickup }[] = []
+  /** live nukes (their danger rings) and recent big moments for the screen to draw:
+   * nuke blasts and flare bursts, by start time (ms) */
+  nukes: { id: number; x: number; z: number; lit: boolean }[] = []
+  bursts: { kind: 'nuke' | 'flare'; x: number; z: number; r: number; at: number }[] = []
+  /** a short camera shake (a nuke nearby), in world units, decaying */
+  shake = 0
   private pingTimer: ReturnType<typeof setInterval>
   private lastFire = false
   private lastMine = false
+  private lastFlare = false
 
   /** `invite`: join that arena, on that player's team (an invite link) */
   constructor(
@@ -276,6 +283,10 @@ export class ArenaSession implements Session {
     } else if (this.a?.you && !this.view.follow) this.view.follow = { x: this.a.you.x, z: this.a.you.z }
     this.view.followZoom = this.viewZoom()
     this.clampFollow()
+    if (this.shake > 0.3 && this.view.follow) {
+      this.view.follow = { x: this.view.follow.x + (Math.random() - 0.5) * this.shake, z: this.view.follow.z + (Math.random() - 0.5) * this.shake }
+      this.shake *= 0.9
+    } else this.shake = 0
     if (this.banner && performance.now() > this.banner.until) this.banner = null
   }
 
@@ -340,8 +351,10 @@ export class ArenaSession implements Session {
     const mine = !blocked && pad.mine && !this.lastMine
     this.lastFire = pad.fire
     this.lastMine = pad.mine
-    const inp: ArenaInput = { seq: ++this.seq, mx: mv.moveX, mz: mv.moveY, analog: mv.analog, ax: this.aim.x, az: this.aim.z, fire, mine }
-    this.send({ t: 'i', s: inp.seq, mx: r3(inp.mx), mz: r3(inp.mz), an: inp.analog ? 1 : 0, ax: Math.round(inp.ax), az: Math.round(inp.az), f: fire ? 1 : 0, m: mine ? 1 : 0 })
+    const flare = !blocked && pad.flare && !this.lastFlare
+    this.lastFlare = pad.flare
+    const inp: ArenaInput = { seq: ++this.seq, mx: mv.moveX, mz: mv.moveY, analog: mv.analog, ax: this.aim.x, az: this.aim.z, fire, mine, flare }
+    this.send({ t: 'i', s: inp.seq, mx: r3(inp.mx), mz: r3(inp.mz), an: inp.analog ? 1 : 0, ax: Math.round(inp.ax), az: Math.round(inp.az), f: fire ? 1 : 0, m: mine ? 1 : 0, fl: flare ? 1 : 0 })
     if (!alive || !this.field) {
       this.predicting = false
       this.inputs = []
@@ -442,6 +455,17 @@ export class ArenaSession implements Session {
   /** an enemy White this client cannot see */
   hidden(t: Tank) {
     return !!(((t.ai?.flags as number) ?? 0) & TF_STEALTH)
+  }
+
+  /** a tank's shield is up / a flare is bursting / its kill-streak level */
+  shieldOf(t: Tank) {
+    return !!(((t.ai?.flags as number) ?? 0) & TF_SHIELD)
+  }
+  flaring(t: Tank) {
+    return !!(((t.ai?.flags as number) ?? 0) & TF_FLARE)
+  }
+  levelOf(t: Tank) {
+    return (((t.ai?.flags as number) ?? 0) >> TF_LEVEL_SHIFT) & 3
   }
 
   /** the special tank a tank has turned into (from its snapshot flags) */
@@ -550,12 +574,14 @@ export class ArenaSession implements Session {
       const vz = near ? n![4] : s[4]
       return { id: s[0], pos: v3(x, TANK.bodyHeight, z), vel: v3(vx, 0, vz), smokeType: s[5] } as unknown as Shell
     })
-    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3] }) as unknown as Mine)
+    // a nuke is drawn as a big mine
+    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : 1 }) as unknown as Mine)
+    this.nukes = A.M.filter((m) => m[4]).map((m) => ({ id: m[0], x: m[1], z: m[2], lit: !!m[3] }))
     w.explosions = []
     w.checkMarks = this.marks.map((m) => ({ id: m.id, pos: v3(m.x, 0.2, m.z), color: m.color }) as unknown as World['checkMarks'][number])
     this.pickups = A.K.map((k) => ({ id: k[0], x: k[1], z: k[2], kind: k[3] }))
     // mine fuse beeps
-    for (const m of A.M) if (m[3] && Math.floor(this.localTick / 8) % 4 === 0) this.sound('RP_TNK_SE_JIRAI_TIMER', m[1], m[2], 0.6)
+    for (const m of A.M) if (m[3] && Math.floor(this.localTick / (m[4] ? 5 : 8)) % 4 === 0) this.sound('RP_TNK_SE_JIRAI_TIMER', m[1], m[2], m[4] ? 0.9 : 0.6)
     this.rocketLoops(w.bullets)
   }
 
@@ -641,13 +667,13 @@ export class ArenaSession implements Session {
           this.sound('RP_TNK_SE_BROKEN', e[1], e[2], 0.8)
           break
         case 'kill': {
-          const [, id, x, z, victim, killer, cause, streak, layer] = e
+          const [, id, x, z, victim, killer, cause, streak, layer, tk] = e
           // achievements (src/ui/shared/achievements.ts arena hooks), for this player only
-          if (killer === this.pid && victim !== this.pid) {
+          if (killer === this.pid && victim !== this.pid && !tk) {
             unlock('arena-first-kill')
             progress('arena-kills-100')
             reach('arena-streak-5', streak)
-            if (cause === 'mine' && layer && layer !== this.pid) unlock('arena-mine-steal')
+            if ((cause === 'mine' || cause === 'nuke') && layer && layer !== this.pid) unlock('arena-mine-steal')
           }
           const t = this.tankFor(id)
           if (t) {
@@ -662,7 +688,7 @@ export class ArenaSession implements Session {
           this.marks.push({ id: this.markId++, x, z, color })
           if (this.marks.length > 60) this.marks.shift()
           this.sound('RP_TNK_SE_HIT', x, z, 1)
-          this.killFeed(victim, killer, cause, streak)
+          this.killFeed(victim, killer, cause, streak, !!tk)
           break
         }
         case 'mset':
@@ -671,8 +697,33 @@ export class ArenaSession implements Session {
         case 'fuse':
           break
         case 'boom':
-          sim.push({ t: 'mineExplode', mine: { pos: v3(e[1], 0, e[2]) } as Mine })
+          sim.push({ t: 'mineExplode', mine: { pos: v3(e[1], 0, e[2]), arenaScale: e[3] ? NUKE_SCALE : 1 } as unknown as Mine })
           this.sound('RP_TNK_SE_JIRAI_EXP', e[1], e[2])
+          if (e[3]) {
+            // a nuke: a ring of blasts and a shockwave, the view shakes
+            for (let i = 0; i < 8; i++) {
+              const a = (i / 8) * Math.PI * 2
+              sim.push({ t: 'mineExplode', mine: { pos: v3(e[1] + Math.cos(a) * NUKE.blast * 0.55, 0, e[2] + Math.sin(a) * NUKE.blast * 0.55), arenaScale: 1.2 } as unknown as Mine })
+            }
+            this.bursts.push({ kind: 'nuke', x: e[1], z: e[2], r: NUKE.blast, at: performance.now() })
+            this.sound('RP_TNK_SE_HIT', e[1], e[2], 1)
+            const f = this.view.follow ?? { x: 0, z: 0 }
+            this.shake = Math.max(this.shake, 14 * Math.max(0, 1 - Math.hypot(e[1] - f.x, e[2] - f.z) / 1400))
+          }
+          break
+        case 'shpop':
+          sim.push({ t: 'ricochet', bullet: {} as Shell, pos: v3(e[2], TANK.bodyHeight, e[3]), super: false })
+          this.sound('RP_TNK_SE_REFLECT', e[2], e[3], 1)
+          this.sound('RP_TNK_SE_BROKEN', e[2], e[3], 0.8)
+          if (e[1] === this.tankId) this.banner = { text: 'Shield down!', until: performance.now() + 1400 }
+          break
+        case 'flare':
+          this.bursts.push({ kind: 'flare', x: e[2], z: e[3], r: e[4], at: performance.now() })
+          this.sound('RP_TNK_SE_SHOOT_ENEMY8', e[2], e[3], 1)
+          break
+        case 'defl':
+          sim.push({ t: 'ricochet', bullet: {} as Shell, pos: v3(e[1], TANK.bodyHeight, e[2]), super: false })
+          this.sound('RP_TNK_SE_REFLECT', e[1], e[2], 1)
           break
         case 'brk': {
           const [, c, r, h] = e
@@ -692,9 +743,14 @@ export class ArenaSession implements Session {
           const [, id, kind, x, z] = e
           if (id === this.tankId) {
             this.audio.play('RP_TNK_SE_TNK1UP')
-            const info = PICKUP_INFO[kind as PickupKind]
-            if (info) collect('arena-all-specials', info.name)
-            if (info) this.banner = { text: `${info.name} tank: ${info.trick}!`, until: performance.now() + 1800 }
+            if (isItem(kind)) {
+              const it = ITEM_INFO[kind]
+              this.banner = { text: `${it.name}: ${it.trick}!`, until: performance.now() + 1800 }
+            } else {
+              const info = PICKUP_INFO[kind as PickupKind]
+              if (info) collect('arena-all-specials', info.name)
+              if (info) this.banner = { text: `${info.name} tank: ${info.trick}!`, until: performance.now() + 1800 }
+            }
           } else this.sound('RP_TNK_SE_GET_TNKNUM', x, z, 0.6)
           break
         }
@@ -719,7 +775,7 @@ export class ArenaSession implements Session {
     if (sim.length) this.view.onEvents(sim)
   }
 
-  private killFeed(victim: number, killer: number, cause: string, streak: number) {
+  private killFeed(victim: number, killer: number, cause: string, streak: number, tk: boolean) {
     const v = this.names.get(victim)
     const k = this.names.get(killer)
     const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -729,24 +785,31 @@ export class ArenaSession implements Session {
       const dark = `#${new THREE.Color(c).multiplyScalar(0.55).getHexString()}`
       return `<span class="who ${pid === this.pid ? 'me' : ''}">${tankIcon(c, dark).outerHTML}<b>${esc(p.name)}</b></span>`
     }
-    const how = cause === 'mine' ? MINE_ICON : SHELL_ICON
+    const how = cause === 'nuke' ? NUKE_ICON : cause === 'mine' ? MINE_ICON : SHELL_ICON
     let html: string
     let text: string
     if (killer === victim) {
-      html = `${tag(v, victim)} <i>${cause === 'mine' ? 'stepped on their own mine' : 'hit by their own shell'}</i>`
+      html = `${tag(v, victim)} <i>${cause === 'nuke' ? 'caught in their own nuke' : cause === 'mine' ? 'stepped on their own mine' : 'hit by their own shell'}</i>`
       text = `${v?.name} self-destructed`
     } else if (!killer) {
       html = `${tag(v, victim)} <i>was destroyed</i>`
       text = `${v?.name} was destroyed`
+    } else if (tk) {
+      html = `${tag(k, killer)} <span class="how">${how}</span> ${tag(v, victim)} <i>teammate!</i>`
+      text = `${k?.name} destroyed a teammate`
     } else {
       html = `${tag(k, killer)} <span class="how">${how}</span> ${tag(v, victim)}`
       text = `${k?.name} destroyed ${v?.name}`
     }
     this.feed.push({ at: performance.now(), text, html })
     if (this.feed.length > 6) this.feed.shift()
-    if (killer === this.pid && victim !== this.pid) {
+    if (killer === this.pid && victim !== this.pid && tk) {
+      this.banner = { text: 'That was a teammate! −1', until: performance.now() + 1800 }
+      this.audio.play('RP_TNK_SE_GET_HIT')
+    } else if (killer === this.pid && victim !== this.pid) {
       const word = STREAKS[streak]
-      this.banner = { text: word ? `${word}` : `Destroyed ${v?.name ?? ''}`, until: performance.now() + 1600 }
+      const up = LEVEL_UP[streak]
+      this.banner = { text: up ? `${word ?? 'Streak!'} ${up}` : word ? `${word}` : `Destroyed ${v?.name ?? ''}`, until: performance.now() + (up ? 2400 : 1600) }
       this.audio.play(streak >= 3 ? 'RP_TNK_SE_MISSION_BONUS' : 'RP_TNK_SE_GET_HIT')
     } else if (victim === this.pid) {
       this.banner = { text: killer === victim ? 'Oops!' : `Destroyed by ${k?.name ?? '?'}`, until: performance.now() + 2600 }
@@ -757,6 +820,11 @@ export class ArenaSession implements Session {
 const r3 = (v: number) => Math.round(v * 1000) / 1000
 const SHELL_ICON = '<svg class="how" viewBox="0 0 24 10"><path d="M1 5c3-3 7-4 10-4h12v8H11C8 9 4 8 1 5z" fill="#f6f3ea" stroke="#5b3a19" stroke-width="1.4"/></svg>'
 const MINE_ICON = '<svg class="how" viewBox="0 0 24 24"><circle cx="12" cy="13" r="9.5" fill="#e8c33a" stroke="#5b3a19" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="#cf2a31"/></svg>'
-const STREAKS: Record<number, string> = { 3: 'Triple!', 5: 'Rampage!', 8: 'Unstoppable!', 12: 'Tank legend!' }
+const STREAKS: Record<number, string> = { 3: 'Triple!', 5: 'Rampage!', 6: 'On fire!', 8: 'Unstoppable!', 12: 'Tank legend!' }
+/** the streak levels (rules STREAK_LEVELS) */
+const LEVEL_UP: Record<number, string> = { 3: 'Power ×2', 6: 'Power ×3' }
+/** a nuke is drawn as a mine this much bigger */
+const NUKE_SCALE = 2.4
+const NUKE_ICON = '<svg class="how" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" fill="#f2c230" stroke="#5b3a19" stroke-width="1.6"/><path d="M12 12L7 3.5a10 10 0 0 1 10 0zM12 12l9.8 1.5a10 10 0 0 1-5 8.6zM12 12l-4.8 9.1a10 10 0 0 1-5-8.6z" fill="#2a1a0a"/><circle cx="12" cy="12" r="2" fill="#f2c230" stroke="#2a1a0a"/></svg>'
 /** RPTnkTank::PlayFireSe per enemy type (3 / 7 / 9 fire rockets: their flight loop plays) */
 const SHOT_SE: Record<number, string> = { 4: 'RP_TNK_SE_SHOOT_ENEMY4', 5: 'RP_TNK_SE_SHOOT_ENEMY5', 6: 'RP_TNK_SE_SHOOT_ENEMY6', 8: 'RP_TNK_SE_SHOOT_ENEMY8' }

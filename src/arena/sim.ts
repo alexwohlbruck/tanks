@@ -30,6 +30,15 @@ import {
   TEAM_COLORS,
   powerStats,
   HOMING,
+  FLARE,
+  NUKE,
+  PICKUP_WEIGHT,
+  ITEM_KINDS,
+  SHIELD,
+  flareRadius,
+  nukeBlast,
+  streakLevel,
+  type AnyPickup,
   MAP_THEMES,
   SIZES,
   type ArenaSize,
@@ -38,8 +47,8 @@ import {
   type PickupKind,
 } from './rules'
 
-export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean }
-export const IDLE_INPUT: ArenaInput = { seq: 0, mx: 0, mz: 0, analog: false, ax: 0, az: 0, fire: false, mine: false }
+export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean; flare?: boolean }
+export const IDLE_INPUT: ArenaInput = { seq: 0, mx: 0, mz: 0, analog: false, ax: 0, az: 0, fire: false, mine: false, flare: false }
 
 type Accum = { p: [V3, V3]; v: [V3, V3] }
 const accum = (): Accum => ({ p: [v3(), v3()], v: [v3(), v3()] })
@@ -224,6 +233,7 @@ export type Player = {
   /** button edges not yet consumed */
   wantFire: boolean
   wantMine: boolean
+  wantFlare: boolean
   joinedAt: number
   /** who destroyed this player last (spectated while waiting to respawn) */
   killedBy: Player | null
@@ -245,9 +255,17 @@ export type ATank = TankBody & {
   /** last tick this tank fired (the minimap shows recent shooters) */
   firedAt: number
   speed: number
+  /** items: nukes to lay, shield until (tick), flares and the tick the next one comes back,
+   * the current flare burst until (tick) and the next tick one may be fired */
+  nukes: number
+  shieldUntil: number
+  flares: number
+  flareBack: number
+  flareUntil: number
+  flareReady: number
 }
 
-export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean; homing: boolean }
+export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean; homing: boolean; turn: number }
 export type AMine = {
   id: number
   owner: ATank
@@ -261,23 +279,30 @@ export type AMine = {
   timer: number
   blast: number
   dead: boolean
+  /** a nuke: no tank sets it off, a long fuse, a huge blast (`blastMax`) */
+  nuke: boolean
+  blastMax: number
   /** who set it off: the shooter of the shell that hit it (or of the blast that chained it);
    * null when its own fuse or a tank driving close did. Its kills are credited to them. */
   by: Player | null
 }
-export type APickup = { id: number; kind: PickupKind; c: number; r: number; x: number; z: number }
+export type APickup = { id: number; kind: AnyPickup; c: number; r: number; x: number; z: number }
 
 export type ArenaEvent =
   | { t: 'shot'; tank: number; x: number; z: number; smoke: number; type: number }
   | { t: 'ricochet'; x: number; z: number }
   | { t: 'shellDie'; x: number; z: number; wall: boolean }
   | { t: 'clash'; x: number; z: number }
-  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine'; streak: number; layer: number }
+  /** `tk`: a teammate did it (scores nothing, costs the killer a point) */
+  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine' | 'nuke'; streak: number; layer: number; tk: boolean }
+  | { t: 'shieldPop'; tank: number; x: number; z: number }
+  | { t: 'flare'; tank: number; x: number; z: number; r: number }
+  | { t: 'deflect'; x: number; z: number }
   | { t: 'mineSet'; x: number; z: number }
   | { t: 'mineFuse'; id: number; x: number; z: number }
-  | { t: 'boom'; x: number; z: number }
+  | { t: 'boom'; x: number; z: number; nuke: boolean }
   | { t: 'break'; c: number; r: number; h: number }
-  | { t: 'pickup'; tank: number; kind: PickupKind; x: number; z: number }
+  | { t: 'pickup'; tank: number; kind: AnyPickup; x: number; z: number }
   | { t: 'spawn'; tank: number; x: number; z: number }
   | { t: 'match'; state: 'play' | 'over' }
 
@@ -364,8 +389,14 @@ export class ArenaSim {
       burst: 0,
       firedAt: -999,
       speed: 0,
+      nukes: 0,
+      shieldUntil: 0,
+      flares: FLARE.base,
+      flareBack: 0,
+      flareUntil: 0,
+      flareReady: 0,
     }) as ATank
-    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, joinedAt: this.tick, killedBy: null, wins: 0 }
+    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, joinedAt: this.tick, killedBy: null, wins: 0 }
     tank.player = p
     this.players.push(p)
     this.tanks.push(tank)
@@ -469,6 +500,10 @@ export class ArenaSim {
     t.power = null
     t.burst = 0
     t.speed = 0
+    t.nukes = 0
+    t.shieldUntil = 0
+    t.flares = Math.max(t.flares, FLARE.base)
+    t.flareUntil = 0
     t.player.input = { ...IDLE_INPUT, seq: t.player.input.seq, ax: pos.x + f.x * 100, az: pos.z + f.z * 100 }
     this.events.push({ t: 'spawn', tank: t.id, x: pos.x, z: pos.z })
   }
@@ -489,6 +524,7 @@ export class ArenaSim {
       s.pos.x += s.vel.x
       s.pos.z += s.vel.z
     }
+    this.flares(live)
     // ClearHitInfo
     for (const t of live) clearAccum(t.acc)
     for (const s of this.shells) clearAccum(s.acc), (s.hitWall = false)
@@ -520,7 +556,15 @@ export class ArenaSim {
       const sh = shellHits.get(t)
       if (mh || sh) {
         if (this.tick < t.protectUntil) continue
-        if (mh) this.kill(t, this.detonator(mh), 'mine', mh.owner.player.pid)
+        // a shield takes the hit (then a moment of protection, for the rest of a blast)
+        if (this.tick < t.shieldUntil) {
+          t.shieldUntil = 0
+          t.protectUntil = this.tick + SHIELD.afterHit
+          this.events.push({ t: 'shieldPop', tank: t.id, x: t.pos.x, z: t.pos.z })
+          this.control(t)
+          continue
+        }
+        if (mh) this.kill(t, this.detonator(mh), mh.nuke ? 'nuke' : 'mine', mh.owner.player.pid)
         else this.kill(t, sh!.s.owner.player, 'shell')
         continue
       }
@@ -534,6 +578,11 @@ export class ArenaSim {
     for (const t of this.tanks) {
       if (!t.alive && this.state === 'play' && this.tick >= t.respawnAt) this.spawn(t)
       if (t.power && this.tick >= t.powerUntil) t.power = null
+      // flares come back one at a time, up to the base count
+      if (t.flares < FLARE.base) {
+        if (!t.flareBack) t.flareBack = this.tick + FLARE.recharge
+        else if (this.tick >= t.flareBack) (t.flares++, (t.flareBack = 0))
+      } else t.flareBack = 0
     }
     this.stepPickups(live)
     if (this.state === 'play') this.checkEnd()
@@ -541,7 +590,40 @@ export class ArenaSim {
 
   /** the tank's numbers: the player record, changed by its special-tank power */
   stats(t: ATank) {
-    return powerStats(t.power, P())
+    return powerStats(t.power, P(), this.level(t))
+  }
+
+  /** the tank's kill-streak level (0-2) */
+  level(t: ATank) {
+    return streakLevel(t.player.streak)
+  }
+
+  /** flare bursts: shells coming into one turn back, and become the flaring tank's */
+  private flares(live: ATank[]) {
+    for (const t of live) {
+      if (this.tick >= t.flareUntil) continue
+      const R = flareRadius(this.level(t))
+      for (const s of this.shells) {
+        if (s.dead || s.owner === t) continue
+        const dx = s.pos.x - t.pos.x, dz = s.pos.z - t.pos.z
+        const d = Math.hypot(dx, dz)
+        if (d > R || d < 1) continue
+        const nx = dx / d, nz = dz / d
+        const vn = s.vel.x * nx + s.vel.z * nz
+        if (vn >= 0) continue
+        // mirror off the burst, pushed out to its edge
+        s.vel.x -= 2 * vn * nx
+        s.vel.z -= 2 * vn * nz
+        s.pos.x = t.pos.x + nx * R
+        s.pos.z = t.pos.z + nz * R
+        s.owner = t
+        s.pid = t.player.pid
+        s.team = t.player.team
+        s.age = 0
+        s.bounces = Math.max(s.bounces, 1)
+        this.events.push({ t: 'deflect', x: s.pos.x, z: s.pos.z })
+      }
+    }
   }
 
   private control(t: ATank) {
@@ -554,11 +636,27 @@ export class ArenaSim {
     // RPTnkPlayerController::HandleFireInput, with the arena's counters
     const fire = p.wantFire
     const mine = p.wantMine
-    p.wantFire = p.wantMine = false
+    const flare = p.wantFlare
+    p.wantFire = p.wantMine = p.wantFlare = false
     if (this.state !== 'play') return
-    if (mine) {
+    if (flare && t.flares > 0 && this.tick >= t.flareReady) {
+      t.flares--
+      t.flareUntil = this.tick + FLARE.frames
+      t.flareReady = this.tick + FLARE.cooldown
+      t.protectUntil = 0
+      this.events.push({ t: 'flare', tank: t.id, x: t.pos.x, z: t.pos.z, r: flareRadius(this.level(t)) })
+    }
+    if (mine && t.nukes > 0 && pc.mineTimer === 0) {
+      // a nuke instead of a mine
+      t.nukes--
+      this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: true, fuseLit: true, timer: NUKE.fuse, blast: MINE.blastIdle, dead: false, by: null, nuke: true, blastMax: nukeBlast(this.level(t)) })
+      this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
+      pc.mineTimer = pc.mineCooldown
+      pc.freeze = pc.mineFreeze
+      t.protectUntil = 0
+    } else if (mine) {
       if (pc.mineTimer === 0 && this.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines) {
-        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null })
+        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null, nuke: false, blastMax: MINE.blastMax })
         this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
         pc.mineTimer = pc.mineCooldown
         pc.freeze = pc.mineFreeze
@@ -595,6 +693,7 @@ export class ArenaSim {
       bounces: st.ricochets,
       smoke: st.smoke,
       homing: st.homing,
+      turn: st.homingTurn,
       acc: accum(),
       hitWall: false,
       dead: false,
@@ -628,7 +727,7 @@ export class ArenaSim {
     let diff = Math.atan2(best.pos.z + TANK.shellOffsetZ - s.pos.z, best.pos.x - s.pos.x) - cur
     while (diff > Math.PI) diff -= 2 * Math.PI
     while (diff < -Math.PI) diff += 2 * Math.PI
-    const max = (HOMING.turn * Math.PI) / 180
+    const max = (s.turn * Math.PI) / 180
     const a = cur + Math.max(-max, Math.min(max, diff))
     s.vel.x = Math.cos(a) * sp
     s.vel.z = Math.sin(a) * sp
@@ -656,7 +755,8 @@ export class ArenaSim {
     let best: ATank | null = null
     let bestD = 1e9
     for (const t of live) {
-      if (t === s.owner ? s.age < SHELL.selfHitAge : !this.enemies(s.owner.player, t.player) && s.owner.player !== t.player) continue
+      // every shell hits every tank (its own only once it has flown a while)
+      if (t === s.owner && s.age < SHELL.selfHitAge) continue
       const dx = s.pos.x - t.pos.x, dz = s.pos.z - (t.pos.z + TANK.shellOffsetZ)
       const r = TANK.shellRadius + SHELL.radius
       const d2 = dx * dx + dz * dz
@@ -676,7 +776,7 @@ export class ArenaSim {
     for (const m of this.mines) {
       if (m.state === 2) continue
       const dx = s.pos.x - m.pos.x, dz = s.pos.z - (m.pos.z + MINE.shellOffsetZ)
-      const r = MINE.bodyRadius + SHELL.radius
+      const r = (m.nuke ? NUKE.bodyRadius : MINE.bodyRadius) + SHELL.radius
       if (dx * dx + dz * dz <= r * r && (s.age >= SHELL.ownMineAge || m.owner !== s.owner)) {
         s.dead = true
         this.explodeMine(m, s.owner.player)
@@ -729,13 +829,23 @@ export class ArenaSim {
     m.state = 2
     m.fuseLit = true
     m.timer = 0
-    this.events.push({ t: 'boom', x: m.pos.x, z: m.pos.z })
+    this.events.push({ t: 'boom', x: m.pos.x, z: m.pos.z, nuke: m.nuke })
   }
 
   /** RPTnkMine: arm once the owner is clear, fuse, blast (kills, breaks cork, chains) */
   private stepMines(live: ATank[], hits: Map<ATank, AMine>) {
     for (const m of this.mines) {
       m.age++
+      if (m.state === 1 && m.nuke) {
+        // a nuke: only its fuse, a shell or another blast
+        for (const o of this.mines)
+          if (o !== m && o.state === 2 && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) <= o.blast + NUKE.bodyRadius) {
+            this.explodeMine(m, this.detonator(o))
+            break
+          }
+        if ((m.state as number) !== 2 && --m.timer <= 0) this.explodeMine(m)
+        continue
+      }
       if (m.state === 1) {
         if (!m.armed) {
           const o = m.owner
@@ -768,16 +878,18 @@ export class ArenaSim {
         } else if (--m.timer <= 0) this.explodeMine(m)
       } else if (m.state === 2) {
         // StateExplode: radius 8 -> 80 over 6 frames, kills while timer < 20, gone at 40
-        m.blast = m.timer >= MINE.blastGrowFrames ? MINE.blastMax : (m.timer / MINE.blastGrowFrames) * (MINE.blastMax - MINE.blastStart) + MINE.blastStart
-        if (m.timer < MINE.blastKillFrames) {
+        const grow = m.nuke ? NUKE.growFrames : MINE.blastGrowFrames
+        m.blast = m.timer >= grow ? m.blastMax : (m.timer / grow) * (m.blastMax - MINE.blastStart) + MINE.blastStart
+        if (m.timer < (m.nuke ? NUKE.killFrames : MINE.blastKillFrames)) {
           for (const t of live) {
             if (!this.blastHits(m, t)) continue
             if (Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) <= m.blast + TANK.mineRadius && !hits.has(t)) hits.set(t, m)
           }
           // cork blocks inside the blast break (RPTnkBlock::CollideWithField)
           const [c0, r0] = cellOf(this.map, m.pos.x, m.pos.z)
-          for (let r = r0 - 3; r <= r0 + 3; r++)
-            for (let c = c0 - 3; c <= c0 + 3; c++) {
+          const reach = Math.ceil(m.blast / 35) + 1
+          for (let r = r0 - reach; r <= r0 + reach; r++)
+            for (let c = c0 - reach; c <= c0 + reach; c++) {
               const code = this.field.at(c, r)
               if (code < 100 || code > 107 || c <= 0 || r <= 0 || c >= this.map.cols - 1 || r >= this.map.rows - 1) continue
               const p = cellPos(this.map, c, r)
@@ -790,28 +902,36 @@ export class ArenaSim {
           // shells caught in the blast
           for (const s of this.shells) if (!s.dead && Math.hypot(s.pos.x - m.pos.x, s.pos.z - m.pos.z) <= m.blast) s.dead = true
         }
-        if (++m.timer >= MINE.blastFrames) m.dead = true
+        if (++m.timer >= (m.nuke ? NUKE.frames : MINE.blastFrames)) m.dead = true
       }
     }
   }
 
   /** `layer`: whoever laid the mine (a mine kill) */
-  private kill(t: ATank, by: Player, cause: 'shell' | 'mine', layer = 0) {
+  private kill(t: ATank, by: Player, cause: 'shell' | 'mine' | 'nuke', layer = 0) {
     const v = t.player
     t.alive = false
     t.vel = v3()
     t.power = null
     t.burst = 0
+    t.nukes = 0
+    t.shieldUntil = 0
+    t.flareUntil = 0
     t.respawnAt = this.tick + RESPAWN_TICKS
     v.deaths++
     v.streak = 0
     v.killedBy = by === v ? null : by
     let killer = by.pid
+    // a teammate's shell (or blast): scores nothing, costs the shooter a point
+    const tk = by !== v && this.players.includes(by) && !this.enemies(by, v)
     if (this.state === 'play') {
       if (by === v || !this.players.includes(by)) {
         // self-destruction (or a player who left)
         if (by === v) v.score--
         killer = by === v ? v.pid : 0
+      } else if (tk) {
+        by.score--
+        by.streak = 0
       } else {
         by.kills++
         by.score++
@@ -820,16 +940,21 @@ export class ArenaSim {
         if (this.mode === 'teams') this.teamScore[by.team]++
       }
     }
-    this.events.push({ t: 'kill', tank: t.id, x: t.pos.x, z: t.pos.z, victim: v.pid, killer, cause, streak: by !== v ? by.streak : 0, layer })
+    this.events.push({ t: 'kill', tank: t.id, x: t.pos.x, z: t.pos.z, victim: v.pid, killer, cause, streak: by !== v && !tk ? by.streak : 0, layer, tk })
   }
 
   private stepPickups(live: ATank[]) {
     for (const k of this.pickups) {
       for (const t of live) {
         if (Math.hypot(t.pos.x - k.x, t.pos.z - k.z) > PICKUP_RADIUS + TANK.fieldRadius) continue
-        t.power = k.kind
-        t.powerUntil = this.tick + PICKUP_TICKS[k.kind]
-        t.burst = 0
+        if (k.kind === 'nuke') t.nukes = Math.min(NUKE.max, t.nukes + 1)
+        else if (k.kind === 'shield') t.shieldUntil = this.tick + SHIELD.ticks
+        else if (k.kind === 'flares') t.flares = Math.min(FLARE.max + this.level(t), t.flares + FLARE.pickup)
+        else {
+          t.power = k.kind
+          t.powerUntil = this.tick + PICKUP_TICKS[k.kind]
+          t.burst = 0
+        }
         this.events.push({ t: 'pickup', tank: t.id, kind: k.kind, x: k.x, z: k.z })
         k.id = -1
         break
@@ -844,10 +969,19 @@ export class ArenaSim {
         const p = cellPos(this.map, c, r)
         if (this.pickups.some((k) => Math.hypot(k.x - p.x, k.z - p.z) < 400)) continue
         if (live.some((t) => Math.hypot(t.pos.x - p.x, t.pos.z - p.z) < 120)) continue
-        this.pickups.push({ id: this.id(), kind: PICKUP_KINDS[Math.floor(this.rnd() * PICKUP_KINDS.length)], c, r, x: p.x, z: p.z })
+        this.pickups.push({ id: this.id(), kind: this.randomPickup(), c, r, x: p.x, z: p.z })
         break
       }
     }
+  }
+
+  /** a special tank or an item, by PICKUP_WEIGHT */
+  private randomPickup(): AnyPickup {
+    const all: AnyPickup[] = [...PICKUP_KINDS, ...ITEM_KINDS]
+    const w = all.map((k) => PICKUP_WEIGHT[k] ?? 1)
+    let r = this.rnd() * w.reduce((a, b) => a + b, 0)
+    for (let i = 0; i < all.length; i++) if ((r -= w[i]) < 0) return all[i]
+    return all[0]
   }
 
   /** the theme with most votes (ties: random among them); the first match is mixed */
