@@ -257,14 +257,17 @@ export function paintMud(c: Ctx, W: number, H: number) {
       c.fillStyle = 'rgba(30, 16, 6, 0.45)'
       c.fill()
       blob(dx, dy)
-      c.fillStyle = '#3f2614'
+      c.fillStyle = '#41281a'
       c.fill()
-      blob(dx, dy, 0.55, -rad * 0.22, -rad * 0.2)
-      c.fillStyle = 'rgba(170, 120, 80, 0.35)'
-      c.fill()
-      blob(dx, dy, 0.25, -rad * 0.3, -rad * 0.3)
-      c.fillStyle = 'rgba(255, 230, 190, 0.45)'
-      c.fill()
+      // a wet sheen: a thin pale crescent along the upper-left rim
+      c.save()
+      blob(dx, dy, 0.92)
+      c.clip()
+      blob(dx, dy, 0.9, rad * 0.12, rad * 0.12)
+      c.lineWidth = rad * 0.12
+      c.strokeStyle = 'rgba(230, 200, 160, 0.3)'
+      c.stroke()
+      c.restore()
     })
   }
   // felt fibres

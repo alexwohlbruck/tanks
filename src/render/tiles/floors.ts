@@ -81,20 +81,20 @@ export function iceMaterial(kit: Kit, grid: FloorGrid) {
   const fx = texture(frostTex, p.mul(0.45))
   const cloud = fx.r
   const scratch = fx.g
-  let col: N = mix(vec3(0.88, 0.95, 0.97), vec3(0.72, 0.87, 0.93), cloud.mul(0.55))
+  let col: N = mix(vec3(0.74, 0.88, 0.95), vec3(0.6, 0.8, 0.92), cloud.mul(0.6))
   // lacquer gloss: two still streaks and a slow glint along the diagonal
   const t = p.x.add(p.y.mul(0.7))
   const streak = band(fract(t.mul(0.3)), 0.5, 0.06).mul(0.5).add(band(fract(t.mul(0.3)), 0.62, 0.015).mul(0.5))
   const glint = band(fract(t.mul(0.12).sub(time.mul(0.05))), 0.5, 0.03)
-  col = col.add(vec3(1, 1, 1).mul(streak.mul(0.22).add(glint.mul(0.25))))
+  col = col.add(vec3(1, 1, 1).mul(streak.mul(0.14).add(glint.mul(0.2))))
   col = mix(col, vec3(0.97, 0.99, 1), scratch.mul(0.55))
   // frost creeping in from the edges, matte white
-  const frost = smoothstep(8, 1.5, d.add(cloud.mul(3)).sub(scratch.mul(2)))
-  col = mix(col, vec3(0.97, 0.98, 1), frost.mul(0.9))
+  const frost = smoothstep(10, 2.5, d.add(cloud.mul(6)).sub(scratch.mul(3)))
+  col = mix(col, vec3(0.97, 0.99, 1), frost.mul(0.92))
   // inset: a shadowed lip under the north edge, a dark seam all round
   col = col.mul(mix(float(0.72), float(1), smoothstep(0.5, 4, north)))
   col = mix(vec3(0.36, 0.42, 0.48), col, smoothstep(0.4, 1.3, d))
-  return floorMat(kit.mat(col, { spec: 0.4 }))
+  return floorMat(kit.mat(col, { spec: 0.12 }))
 }
 
 export function mudMaterial(kit: Kit, grid: FloorGrid) {

@@ -319,8 +319,8 @@ export class TilesView {
         hub.rotation.z = Math.PI / 2
         const lever = new THREE.Group()
         lever.position.y = 5
-        lever.add(mesh(P.cyl(1.4, 13, 8), P.woodPlain(true), 0, 6.5, 0), mesh(P.sphere(4, 14), P.paint(PAINT.red, 0.32, 0), 0, 13.5, 0))
-        obj.add(mesh(P.box(26, 3, 26, 1.2), P.switchPlate(), 0, 1.5, 0), hub, lever)
+        lever.add(mesh(P.cyl(1.6, 15, 8), P.woodPlain(true), 0, 7.5, 0), mesh(P.sphere(5, 16), P.paint(PAINT.red, 0.32, 0), 0, 15.5, 0))
+        obj.add(mesh(P.box(29, 3, 29, 1.2), P.switchPlate(), 0, 1.5, 0), hub, lever)
         const a = t.open ? 0.6 : -0.6
         lever.rotation.x = a
         this.switches.set(t.index, { lever, a })
