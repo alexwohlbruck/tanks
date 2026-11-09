@@ -4,7 +4,10 @@ import { padToIntent } from '../../src/game'
 import type { PadState } from '../../src/input'
 import type { World } from '../../src/sim/world'
 
-export const idlePad = (): PadState => ({
+/** a released pad; `analog` stays unset so padToIntent infers it from the stick values (as
+ * tools/dev/simtest.ts does; the classic trace depends on it) */
+export const idlePad = (): PadState =>
+  ({
   moveX: 0,
   moveY: 0,
   pointer: null,
@@ -18,7 +21,7 @@ export const idlePad = (): PadState => ({
   down: false,
   left: false,
   right: false,
-})
+  }) as Omit<PadState, 'analog'> as PadState
 
 function lcg(seed: number) {
   let s = seed >>> 0 || 1

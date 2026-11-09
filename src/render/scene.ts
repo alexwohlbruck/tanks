@@ -5,6 +5,8 @@ import * as THREE from 'three/webgpu'
 import { Cell, type SimEvent, type Tank, type World } from '../sim/world'
 import { Effects, TANK_PIECE_COLORS, type EffectHandle } from './effects'
 import { Models, type TankObj } from './models'
+import { applyTankVisual, tankVisual } from './registry'
+import { TilesView, pieceColour } from './tiles'
 
 // RPTnkScene::CreateCamerasAndScreens: orthographic view of the 832x456 (16:9) or 608x456 (4:3)
 // screen at scale 1.125, in world units. The Wii output is anamorphic, so the 16:9 view is
@@ -105,6 +107,8 @@ export class SceneView {
   private tread = new TreadCanvas()
   private world: World | null = null
   fx: Effects
+  /** [tanks+] special tiles, power-ups and tank extras */
+  private tiles: TilesView
   /** 2D effect view (draw group 4): cursors, in screen units 832 x 456 */
   overlay = new THREE.Scene()
   overlayCam = new THREE.OrthographicCamera(-416, 416, 228, -228, -1000, 1000)
@@ -125,6 +129,7 @@ export class SceneView {
     this.root.add(this.stage)
     this.stage.add(this.blockGroup)
     this.fx = new Effects(this.root)
+    this.tiles = new TilesView(this.stage, this.fx)
     this.cursorFx = new Effects(this.overlay)
     this.overlayCam.position.z = 100
   }
@@ -163,6 +168,7 @@ export class SceneView {
     this.stealthFx.clear()
     for (const o of this.markObjs.values()) this.stage.remove(o)
     this.markObjs.clear()
+    this.tiles.setWorld(world)
     this.rebuildBlocks()
   }
 
@@ -178,7 +184,7 @@ export class SceneView {
     for (let r = 0; r < w.height; r++)
       for (let c = 0; c < w.width; c++) {
         const g = w.grid[r][c]
-        if (g.kind === Cell.Empty) continue
+        if (g.kind === Cell.Empty || this.tiles.ownsCell(g.code)) continue
         const p = w.cellCenter(c, r)
         const objs: THREE.Object3D[] = []
         const blk = this.models.block(g.kind === Cell.Cork ? 0 : 1, g.kind === Cell.Hole ? 1 : g.height)
@@ -223,7 +229,7 @@ export class SceneView {
         case 'tankDie': {
           const t = e.tank
           const pos = { x: t.pos.x, y: t.pos.y, z: t.pos.z }
-          fx.spawn('Tnk_bomb01_piece', { pos, scale: 1.6, color: TANK_PIECE_COLORS[modelIndex(t)] as [number, number, number] })
+          fx.spawn('Tnk_bomb01_piece', { pos, scale: 1.6, color: (pieceColour(t.type) ?? TANK_PIECE_COLORS[modelIndex(t)]) as [number, number, number] })
           fx.spawn('Tnk_bomb01', { pos, scale: 1.6 })
           break
         }
@@ -235,6 +241,7 @@ export class SceneView {
           break
       }
     }
+    this.tiles.onEvents(ev)
   }
 
   /** one 60 Hz step of the effects: shell smoke follows the shells, then particles update */
@@ -269,10 +276,14 @@ export class SceneView {
     for (const t of w.tanks) {
       seen.add(t)
       let o = this.tankObjs.get(t)
-      if (!o || o.root.userData.model !== modelIndex(t)) {
+      // [tanks+] added types share a base model, so the key includes the type
+      const key = modelIndex(t) + 100 * t.type
+      if (!o || o.root.userData.model !== key) {
         if (o) this.stage.remove(o.root)
         o = this.models.tank(modelIndex(t))
-        o.root.userData.model = modelIndex(t)
+        o.root.userData.model = key
+        const vis = t.isEnemy ? tankVisual(t.type) : undefined
+        if (vis) applyTankVisual(o.root, vis)
         this.tankObjs.set(t, o)
         this.stage.add(o.root)
       }
@@ -292,7 +303,8 @@ export class SceneView {
       o.position.set(m.pos.x, 0, m.pos.z)
       this.models.setMineFrame(o, m.fuseLit ? (o.userData.blink = (o.userData.blink ?? 0) + 1) : 0)
     })
-    syncSet(this.markObjs, w.checkMarks, this.stage, (m) => this.models.checkMark(m.color), (o, m) => o.position.set(m.pos.x, 0.2, m.pos.z))
+    syncSet(this.markObjs, w.checkMarks, this.stage, (m) => this.models.checkMark(m.color >= 9 ? 2 : m.color % 2), (o, m) => o.position.set(m.pos.x, 0.2, m.pos.z))
+    this.tiles.sync(this.tankObjs)
   }
 
   render() {
@@ -362,8 +374,9 @@ function shellMatrix(b: { pos: { x: number; y: number; z: number }; vel: { x: nu
   return m
 }
 
-/** model index: 0 = 1p, 1 = 2p, 2-10 = enemy type 1-9 */
+/** model index: 0 = 1p, 1 = 2p, 2-10 = enemy type 1-9 ([tanks+] added types: their base model) */
 function modelIndex(t: Tank) {
+  if (t.isEnemy && t.type >= 10) return 1 + (tankVisual(t.type)?.baseModel ?? 8)
   return t.isEnemy ? 1 + t.type : t.team > 1 ? 0 : t.team
 }
 
