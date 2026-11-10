@@ -547,6 +547,8 @@ register({
 setInterval(() => {
   const now = performance.now()
   for (const a of arenas.values()) {
+    // nobody in it: everything stands still (the bots too) until someone joins or it closes
+    if (!a.clients.size) continue
     try {
       a.advance(now)
     } catch (e) {
@@ -560,7 +562,7 @@ setInterval(() => {
   }
 }, 4)
 
-// arenas without players close after a minute
+// arenas without players (paused, above) close after a minute
 setInterval(() => {
   const now = Date.now()
   for (const a of [...arenas.values()]) if (!a.clients.size && now - a.emptySince > 60_000) arenas.delete(a.id)
