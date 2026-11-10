@@ -55,7 +55,8 @@ export class App implements AppContext {
   /** Wii Play's pre-game / pause screens (classic UI only) */
   hud: Hud | null = null
   router: Router
-  debug!: DebugPanel
+  /** development builds only: the ` debug panel (unlimited lives, mission select) */
+  debug?: DebugPanel
   session: Session
   params = new URLSearchParams(location.search)
   /** the original Wii Play front end (see the header) */
@@ -112,7 +113,7 @@ export class App implements AppContext {
       menu: () => this.hud?.mi ?? { up: false, down: false, left: false, right: false, a: false, b: false, plus: false, ab: false, pointer: null },
       screenFade: (t) => (gl.style.filter = t > 0 ? screenFilter(t, gl.clientHeight) : ''),
       // RPPartyPlayerData medal >= 3 (gold) lifts the 20-mission cap of later runs
-      medalSaved: (medal) => (game.options.goldMedal = medal >= 3 || this.params.has('gold')),
+      medalSaved: (medal) => (game.options.goldMedal = medal >= 3 || (import.meta.env.DEV && this.params.has('gold'))),
     })
     if (!this.classic) this.presenter.web = { results: (players) => this.show('results', { players }) }
     if (this.classic)
@@ -151,7 +152,7 @@ export class App implements AppContext {
       onSettings((s) => applyModernMessages(s, this.touch.enabled))
       this.touch.onEnabled = (on) => applyModernMessages(settings, on)
     }
-    game.options.goldMedal = loadPlayerData().medal >= 3 || this.params.has('gold')
+    game.options.goldMedal = loadPlayerData().medal >= 3 || (import.meta.env.DEV && this.params.has('gold'))
     this.wireGameAudio()
     let fieldW = 0
     game.listener = {
@@ -173,7 +174,7 @@ export class App implements AppContext {
     // phones report the new size a little after an orientation change
     screen.orientation?.addEventListener('change', () => setTimeout(() => this.resize(), 250))
     this.resize()
-    this.debug = new DebugPanel(game, { debugStart: (players, mission) => this.debugStart(players, mission) }, document.body)
+    if (import.meta.env.DEV) this.debug = new DebugPanel(game, { debugStart: (players, mission) => this.debugStart(players, mission) }, document.body)
     let acc = 0
     let last = performance.now()
     const dt = 1000 / FPS
@@ -195,13 +196,12 @@ export class App implements AppContext {
       }
     }
     requestAnimationFrame(loop)
-    if (this.params.has('mission')) this.playClassic(this.params.get('p2') ? 2 : 1, Number(this.params.get('mission')) - 1)
+    if (import.meta.env.DEV && this.params.has('mission')) this.playClassic(this.params.get('p2') ? 2 : 1, Number(this.params.get('mission')) - 1)
     else if (!this.classic) this.toTitle()
     // [net] ?join=CODE (shared room link) / ?online opens the lobby
     handleJoinParam(this)
-    ;(window as unknown as { game: Game; audio: Audio; app: App }).game = game
-    ;(window as unknown as { audio: Audio }).audio = audio
-    ;(window as unknown as { app: App }).app = this
+    // the headless test scripts (tools/dev) drive the game through these
+    if (import.meta.env.DEV) Object.assign(window, { game, audio, app: this })
   }
 
   private applySettings(s: Settings) {
@@ -379,7 +379,7 @@ export class App implements AppContext {
       this.hud?.draw(ctx)
     }
     this.router.update()
-    this.debug.update()
+    this.debug?.update()
     const playing = !this.router.id && PAUSABLE(this.game.state) && !demo
     const local = this.session.kind === 'local'
     this.gl.style.cursor = this.hud?.wantsPointer || this.router.modal || !playing ? 'default' : 'none'
