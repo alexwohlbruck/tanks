@@ -294,6 +294,11 @@
 .web .row-label small { font-size: 0.66em; font-weight: 500; opacity: 0.7; max-width: 22em; }
 .slider { display: flex; align-items: center; gap: 0.6em; flex: 0 1 15em; }
 .slider output { width: 2em; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+/* the volume sliders under an in-game menu's buttons (volume.ts) */
+.panel .volume { margin-top: 0.7em; padding-top: 0.4em; border-top: 0.08em dashed rgba(138, 90, 43, 0.35); font-size: 0.9em; }
+.panel .volume .row { min-height: 2em; padding: 0.15em 0; }
+.panel .volume .row-label { flex: none; width: 7em; white-space: nowrap; }
+.panel .volume .slider { flex: 1 1 auto; }
 .web input[type='range'] {
   -webkit-appearance: none; appearance: none; flex: 1; height: 0.7em; border-radius: 99em; outline: none; margin: 0;
   background: linear-gradient(90deg, var(--red) 0 var(--p, 50%), rgba(110, 70, 25, 0.35) 0);
@@ -340,9 +345,12 @@
 .pause-player span { font-weight: 800; font-size: 1.1em; }
 .pause-player small { grid-column: 2; font-size: 0.65em; opacity: 0.75; margin-top: -0.3em; }
 .pause-actions { display: grid; gap: 0.6em; }
-@media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+/* landscape screens short of room (the volume sliders sit under the buttons): two columns,
+   the main action across both */
+@media (max-height: 820px) and (min-aspect-ratio: 4/3) {
   .panel.pause { width: min(30em, 70vw); }
   .pause-actions { grid-template-columns: 1fr 1fr; }
+  .pause-actions .btn.primary { grid-column: 1 / -1; }
 }
 
 /* ---- results ----------------------------------------------------------------------- */

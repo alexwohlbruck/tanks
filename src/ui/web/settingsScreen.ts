@@ -5,6 +5,7 @@
 import { registerScreen } from '../../app/router'
 import { backButton, band, WebScreen } from './base'
 import { h } from './dom'
+import { slider } from './volume'
 import { fsSupported, isFullscreen, setFullscreen } from '../fullscreen'
 import { DEFAULT_KEYS, keyName, settings, updateSettings, type KeyAction, type Quality } from './settings'
 
@@ -42,26 +43,6 @@ class SettingsScreen extends WebScreen {
   protected build(root: HTMLElement) {
     addEventListener('keydown', this.onKey, true)
     const s = settings
-    const slider = (label: string, value: number, set: (v: number) => void) => {
-      const out = h('output', null, `${Math.round(value * 100)}`)
-      const input = h('input', {
-        type: 'range',
-        min: '0',
-        max: '100',
-        step: '5',
-        value: String(Math.round(value * 100)),
-        'aria-label': label,
-        style: `--p:${Math.round(value * 100)}%`,
-        oninput: (e: Event) => {
-          const el = e.target as HTMLInputElement
-          const v = +el.value / 100
-          out.textContent = `${Math.round(v * 100)}`
-          el.style.setProperty('--p', `${Math.round(v * 100)}%`)
-          set(v)
-        },
-      })
-      return h('label.row', null, h('span.row-label', null, label), h('span.slider', null, input, out))
-    }
     const seg = <T extends string>(label: string, options: [T, string][], value: T, set: (v: T) => void) => {
       const wrap = h('span.seg', { role: 'radiogroup', 'aria-label': label })
       const draw = (cur: T) => {

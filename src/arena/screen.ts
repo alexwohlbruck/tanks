@@ -11,6 +11,7 @@ import type { AppContext, Screen } from '../app/types'
 import { logo, tankIcon } from '../ui/web/art'
 import { backButton, band, button, fullscreenButton, type WebApp } from '../ui/web/base'
 import { h } from '../ui/web/dom'
+import { volumeControls } from '../ui/web/volume'
 import { Nav } from '../ui/web/nav'
 import { keyName, settings } from '../ui/web/settings'
 import type { Board } from './protocol'
@@ -422,6 +423,7 @@ class ArenaScreen implements Screen {
             fullscreenButton(),
             button('Leave arena', { icon: 'home', onclick: () => this.leave() }),
           ),
+          volumeControls(() => this.sound('move')),
         ),
       )
       this.setNav(true, () => this.toggleMenu(false))

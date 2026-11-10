@@ -10,6 +10,7 @@ import { currentSession } from './index'
 import './net.css'
 import { PLAYER_COLORS as TANK_COLORS, tankIcon } from '../ui/web/art'
 import '../ui/web/web.css'
+import { volumeControls } from '../ui/web/volume'
 import { PLAYER_COLOR_NAMES, PLAYER_COLORS, type RoomInfo } from './protocol'
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -39,6 +40,7 @@ class NetHud implements Screen {
         </div>
       </div>`
     for (const k of ['ping', 'room', 'dot', 'players', 'vs', 'banner', 'end', 'menu']) this.el[k] = root.querySelector(`.nh-${k}`)!
+    this.el.menu.append(volumeControls())
     root.addEventListener('click', (e) => {
       const act = (e.target as HTMLElement).closest('[data-act]')?.getAttribute('data-act')
       if (!act) return
