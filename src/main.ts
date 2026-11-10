@@ -3,6 +3,9 @@ import { App } from './app/app'
 import './editor'
 import './store'
 import './arena/screen'
+import { installFullscreenKey } from './ui/fullscreen'
+
+installFullscreenKey()
 
 const app = new App(
   document.getElementById('stage')!,

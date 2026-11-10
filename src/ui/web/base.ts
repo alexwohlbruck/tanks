@@ -6,6 +6,7 @@ import type { UiPresenter } from '../presenter'
 import { icon } from './art'
 import { h } from './dom'
 import { Nav } from './nav'
+import { fsSupported, isFullscreen, toggleFullscreen } from '../fullscreen'
 import './web.css'
 
 /** what the web screens call on the App (src/app/app.ts) besides AppContext */
@@ -76,6 +77,20 @@ export function button(label: string, opts: { icon?: string; hint?: string; clas
     h('span.label', null, h('span.t', null, label), opts.hint ? h('span.hint', null, opts.hint) : null),
     opts.badge ? h('span.badge', null, opts.badge) : null,
   )
+}
+
+/** a menu button that toggles fullscreen and keeps its label in step (null where unsupported) */
+export function fullscreenButton() {
+  if (!fsSupported) return null
+  const b = button('', { icon: 'fullscreen', hint: 'Alt+Enter', onclick: () => void toggleFullscreen() })
+  const t = b.querySelector('.t')!
+  const sync = () => {
+    if (!b.isConnected && t.textContent) return document.removeEventListener('fullscreenchange', sync)
+    t.textContent = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'
+  }
+  sync()
+  document.addEventListener('fullscreenchange', sync)
+  return b
 }
 
 /** the red mission band used as a header */

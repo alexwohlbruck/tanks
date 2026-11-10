@@ -5,6 +5,7 @@
 import { registerScreen } from '../../app/router'
 import { backButton, band, WebScreen } from './base'
 import { h } from './dom'
+import { fsSupported, isFullscreen, setFullscreen } from '../fullscreen'
 import { DEFAULT_KEYS, keyName, settings, updateSettings, type KeyAction, type Quality } from './settings'
 
 const ACTIONS: { id: KeyAction; label: string }[] = [
@@ -85,7 +86,6 @@ class SettingsScreen extends WebScreen {
     }
     this.keysEl = h('div.keys')
     this.renderKeys()
-    const fsSupported = !!document.documentElement.requestFullscreen
     root.append(
       h(
         'div.settings-screen',
@@ -105,7 +105,7 @@ class SettingsScreen extends WebScreen {
             }),
             h('h3', null, 'Display'),
             seg<Quality>('Graphics quality', [['classic', 'Classic'], ['high', 'High'], ['ultra', 'Ultra']], s.quality, (v) => updateSettings({ quality: v })),
-            fsSupported ? toggle('Fullscreen', 'Fill the whole screen', !!document.fullscreenElement, (v) => this.fullscreen(v)) : null,
+            fsSupported ? toggle('Fullscreen', 'Fill the whole screen (Alt+Enter)', isFullscreen(), (v) => void setFullscreen(v)) : null,
             toggle('Classic Wii UI', "Wii Play's own menus and fonts in a 16:9 picture. Reloads the game.", s.classicUi, (v) => {
               updateSettings({ classicUi: v })
               setTimeout(() => location.reload(), 300)
@@ -165,18 +165,6 @@ class SettingsScreen extends WebScreen {
       ),
     )
     if (this.listening) this.keysEl.querySelector<HTMLElement>('.listening')?.focus()
-  }
-
-  private async fullscreen(on: boolean) {
-    try {
-      if (on && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen()
-        // phones: prefer landscape while fullscreen
-        await (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape').catch(() => {})
-      } else if (!on && document.fullscreenElement) await document.exitFullscreen()
-    } catch {
-      /* not allowed */
-    }
   }
 
   unmount() {

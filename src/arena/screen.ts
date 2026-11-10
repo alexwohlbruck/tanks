@@ -9,7 +9,7 @@ import * as THREE from 'three/webgpu'
 import { registerScreen } from '../app/router'
 import type { AppContext, Screen } from '../app/types'
 import { logo, tankIcon } from '../ui/web/art'
-import { backButton, band, button, type WebApp } from '../ui/web/base'
+import { backButton, band, button, fullscreenButton, type WebApp } from '../ui/web/base'
 import { h } from '../ui/web/dom'
 import { Nav } from '../ui/web/nav'
 import { keyName, settings } from '../ui/web/settings'
@@ -70,6 +70,9 @@ class ArenaScreen implements Screen {
   private bubbles = new Map<Tank, THREE.Object3D>()
   private missiles = new Map<number, { o: THREE.Object3D; trail: { x: number; z: number }[] }>()
   private nukeRings = new Map<number, THREE.Object3D>()
+  /** where you just spawned: rings closing in on the tank, and a bouncing tag over it */
+  private youRings: THREE.Object3D | null = null
+  private youTag: HTMLElement | null = null
   private burstObjs = new Map<object, THREE.Object3D>()
   private poll: ReturnType<typeof setInterval> | null = null
   private sheetHeld = false
@@ -405,6 +408,7 @@ class ArenaScreen implements Screen {
               },
             }),
             button('Invite friends', { icon: 'online', hint: 'Copy a link to this arena', onclick: () => void this.shareInvite() }),
+            fullscreenButton(),
             button('Leave arena', { icon: 'home', onclick: () => this.leave() }),
           ),
         ),
@@ -700,6 +704,29 @@ class ArenaScreen implements Screen {
         el.remove()
         this.labels.delete(pid)
       }
+    this.drawYou(s)
+  }
+
+  /** a "You" tag bouncing over the own tank for a few seconds after it spawns */
+  private drawYou(s: ArenaSession) {
+    const me = s.world?.playerTanks[0]
+    const age = performance.now() - s.spawnedAt
+    const p = s.nameOf(s.pid)
+    if (!me || !me.alive || !p || this.app.view.fpv || age > SPAWN_MARK_MS) {
+      if (this.youTag) this.youTag.hidden = true
+      return
+    }
+    if (!this.youTag) {
+      this.youTag = h('div.ar-you', null, h('span', null, 'You'))
+      this.els.labels.appendChild(this.youTag)
+    }
+    const el = this.youTag
+    el.hidden = false
+    el.style.setProperty('--c', this.colorOf(s, p.team, p.color))
+    el.style.opacity = String(Math.min(1, (SPAWN_MARK_MS - age) / 500))
+    const rect = this.root.getBoundingClientRect()
+    const v = new THREE.Vector3(me.pos.x, 52, me.pos.z).project(this.app.view.camera)
+    el.style.transform = `translate(${((v.x + 1) / 2) * rect.width}px, ${((1 - v.y) / 2) * rect.height}px) translate(-50%, -100%)`
   }
 
   /** the model floating over a pickup: the special tank, or the item */
@@ -867,6 +894,29 @@ class ArenaScreen implements Screen {
       ;(flash.material as THREE.MeshBasicNodeMaterial).opacity = 0.5 * Math.max(0, 1 - f * 1.6)
     }
     for (const [k, o] of this.burstObjs) if (!live.has(k)) (this.fx.remove(o), this.burstObjs.delete(k))
+    // where you spawned: three rings of your colour closing in on the tank, again and again
+    const me = s.world?.playerTanks[0]
+    const you = s.nameOf(s.pid)
+    const age = now - s.spawnedAt
+    if (me?.alive && you && age < SPAWN_MARK_MS) {
+      if (!this.youRings) {
+        this.youRings = new THREE.Group()
+        for (let i = 0; i < 3; i++) this.youRings.add(ringObject('#ffffff', 0.9, 1, 0.9))
+        this.fx.add(this.youRings)
+      }
+      const g = this.youRings
+      g.visible = true
+      g.position.set(me.pos.x, 0, me.pos.z)
+      const fade = Math.min(1, (SPAWN_MARK_MS - age) / 500)
+      g.children.forEach((r, i) => {
+        const f = ((age / 900 + i / 3) % 1) ** 0.8
+        const ring = r.children[0] as THREE.Mesh
+        ring.scale.setScalar(26 + (1 - f) * 150)
+        const m = ring.material as THREE.MeshBasicNodeMaterial
+        m.color.set(this.colorOf(s, you.team, you.color))
+        m.opacity = 0.85 * fade * Math.min(1, f * 4)
+      })
+    } else if (this.youRings) this.youRings.visible = false
     // teams: a ring of the team colour under every visible tank
     const shown = new Set<number>()
     if (s.mode === 'teams')
@@ -928,6 +978,9 @@ let bubble: THREE.MeshBasicNodeMaterial | null = null
 function bubbleMat() {
   return (bubble ??= new THREE.MeshBasicNodeMaterial({ color: 0x9ff0d6, transparent: true, opacity: 0.3, depthWrite: false }))
 }
+
+/** how long the "you are here" marker shows after spawning (ms) */
+const SPAWN_MARK_MS = 3000
 
 function ringObject(color: string, r0: number, r1: number, opacity = 0.75) {
   const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 40), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(color), transparent: true, opacity, depthWrite: false }))
