@@ -507,6 +507,8 @@ export class ArenaSim {
     t.speed = 0
     t.shieldUntil = 0
     t.flares = Math.max(t.flares, FLARE.base)
+    // presses made while waiting to respawn don't carry over
+    t.player.wantFire = t.player.wantMine = t.player.wantFlare = t.player.wantNuke = false
     t.player.input = { ...IDLE_INPUT, seq: t.player.input.seq, ax: pos.x + f.x * 100, az: pos.z + f.z * 100 }
     this.events.push({ t: 'spawn', tank: t.id, x: pos.x, z: pos.z })
   }
@@ -601,7 +603,7 @@ export class ArenaSim {
     return streakLevel(t.player.streak)
   }
 
-  /** flare missiles: lock on to a shell in flight, chase it, destroy both on contact */
+  /** flare missiles: lock on to an enemy shell in flight, chase it, destroy both on contact */
   private stepFlares() {
     const locked = new Set<AShell>(this.flareShots.map((f) => f.target).filter((x): x is AShell => !!x && !x.dead))
     for (const f of this.flareShots) {
@@ -614,7 +616,7 @@ export class ArenaSim {
         let bd = f.range
         let bdFree = f.range
         for (const s of this.shells) {
-          if (s.dead || s.owner === f.owner) continue
+          if (s.dead || !this.enemies(f.owner.player, s.owner.player)) continue
           const d = Math.hypot(s.pos.x - f.pos.x, s.pos.z - f.pos.z)
           if (d < bd) (bd = d), (best = s)
           if (d < bdFree && !locked.has(s)) (bdFree = d), (bestFree = s)
