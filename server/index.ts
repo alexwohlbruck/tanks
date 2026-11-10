@@ -14,6 +14,9 @@ export function register(m: ServerModule) {
 
 // module imports (each calls register)
 await import('./modules/index')
+// a daily snapshot of the database (server/db.ts)
+const { scheduleSnapshots } = await import('./db')
+scheduleSnapshots()
 
 const port = Number(process.env.PORT ?? 3001)
 /** the release (tools/version.ts; the deploy sets it), so clients can tell a new one is out */
