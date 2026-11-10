@@ -7,8 +7,9 @@ import type { AnyPickup, ArenaMode, ArenaSize, MapTheme, PickupKind } from './ru
 export const ARENA_PROTO = 10
 
 export type C2S =
-  /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team) */
-  | { t: 'join'; v: number; name: string; mode: ArenaMode; size?: ArenaSize; id?: string; arena?: string; with?: number }
+  /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team);
+   * `not`: a new game, anywhere but this arena (one where you get a tank right away) */
+  | { t: 'join'; v: number; name: string; mode: ArenaMode; size?: ArenaSize; id?: string; arena?: string; with?: number; not?: string }
   /** quick chat (rules EMOTES index) */
   | { t: 'emote'; i: number }
   /** the next map's theme, during the intermission */

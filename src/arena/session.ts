@@ -112,6 +112,8 @@ export class ArenaSession implements Session {
     mode: ArenaMode,
     invite: { arena: string; with?: number } | null = null,
     size: ArenaSize = 'medium',
+    /** a new game: anywhere but this arena */
+    not?: string,
   ) {
     this.mode = mode
     this.size = size
@@ -121,7 +123,7 @@ export class ArenaSession implements Session {
     this.ws = new WebSocket(arenaUrl())
     this.ws.onopen = () => {
       this.status = 'online'
-      this.send({ t: 'join', v: ARENA_PROTO, name, mode, size, id: ArenaSession.statId(), arena: invite?.arena, with: invite?.with })
+      this.send({ t: 'join', v: ARENA_PROTO, name, mode, size, id: ArenaSession.statId(), arena: invite?.arena, with: invite?.with, not })
     }
     this.ws.onclose = () => {
       this.status = 'closed'

@@ -150,7 +150,8 @@ class Arena {
     c.arena = null
     c.player = null
     this.balanceBots()
-    if (!this.clients.size) this.emptySince = Date.now()
+    // nobody left but bots: the arena closes
+    if (!this.clients.size) arenas.delete(this.id)
   }
 
   advance(now: number) {
@@ -438,8 +439,12 @@ const totalHumans = () => [...arenas.values()].reduce((a, r) => a + r.humans, 0)
 
 const fromIp = (a: Arena, ip: string) => [...a.clients].filter((c) => c.ip === ip).length
 
-function pickArena(mode: ArenaMode, size: ArenaSize, ip: string): Arena | null {
-  const open = [...arenas.values()].filter((a) => a.mode === mode && a.size === size && !a.full && fromIp(a, ip) < MAX_PER_IP).sort((a, b) => b.humans - a.humans)
+/** the fullest open arena of that mode and size; `not`: a new game, so skip that arena and any
+ * where a newcomer would have to wait for the next round */
+function pickArena(mode: ArenaMode, size: ArenaSize, ip: string, not?: string): Arena | null {
+  const open = [...arenas.values()]
+    .filter((a) => a.mode === mode && a.size === size && !a.full && fromIp(a, ip) < MAX_PER_IP && (!not || (a.id !== not && a.sim.canEnter())))
+    .sort((a, b) => b.humans - a.humans)
   if (open[0]) return open[0]
   if (arenas.size >= MAX_ARENAS) return null
   const a = new Arena(mode, size)
@@ -485,7 +490,7 @@ function onMessage(c: Client, raw: string | Buffer) {
         const host = a.sim.players.find((p) => p.pid === Number(m.with) && !p.bot)
         if (host && isTeamMode(mode)) team = host.team
       }
-      a ??= pickArena(mode, size, c.ip)
+      a ??= pickArena(mode, size, c.ip, typeof m.not === 'string' ? m.not : undefined)
       if (!a) return send(c, { t: 'error', message: 'Every arena is full. Try again in a minute.' })
       c.playSince = Date.now()
       c.statsAt = Date.now()

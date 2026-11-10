@@ -437,7 +437,7 @@ export class ArenaSim {
   }
 
   /** a newcomer gets a tank now, or (one-life modes, once the round is under way) waits for the next */
-  private canEnter() {
+  canEnter() {
     if (this.state !== 'play') return false
     if (this.mode === 'royale') return this.tick - this.roundStart < ROYALE.late
     if (this.mode === 'elim') return !this.roundOverAt && this.tick - this.roundStart < ELIM.late
