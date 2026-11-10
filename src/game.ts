@@ -158,7 +158,7 @@ export function screenToField(sx: number, sy: number): { x: number; y: number; z
 }
 
 /**
- * RPTnkCursor::UpdatePointerPos + UpdateScreenPosAndMode: Wii pointer (x right, y down, both
+ * RPTnkCursor::UpdatePointerPos + UpdateScreenPosAndMode: remote pointer (x right, y down, both
  * in units of the half screen width, clamped to the TV-safe box) -> layout screen position,
  * limited to 480 units from the tank while it lives.
  */

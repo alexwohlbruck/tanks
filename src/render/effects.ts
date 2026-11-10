@@ -1,6 +1,6 @@
 /**
- * Particle effects: a port of the NintendoWare nw4r::ef runtime (as linked into
- * Wii Play, decomp in build/decomp/src/nw4r/ef) driving basic_tank.breff
+ * Particle effects: a port of the nw4r::ef effects runtime (as linked into
+ * the original game, decomp in build/decomp/src/nw4r/ef) driving basic_tank.breff
  * (public/assets/effects/basic_tank.json + textures, see docs/models.md "Effects").
  *
  * Usage

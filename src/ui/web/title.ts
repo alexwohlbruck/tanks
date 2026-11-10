@@ -31,14 +31,14 @@ class TitleScreen extends WebScreen {
         'div.title-screen',
         { onclick: () => this.go() },
         h('div.title-logo', null, logo()),
-        h('div.title-sub', null, 'Wii Play · web edition'),
+        h('div.title-sub', null, 'Web edition'),
         h('button.press', { type: 'button', autofocus: true }, touch() ? 'Tap to start' : 'Press start'),
         this.count,
         this.newer,
         fsSupported
           ? h('button.title-fs', { type: 'button', 'aria-label': 'Fullscreen', title: 'Fullscreen (Alt+Enter)', hidden: isFullscreen(), onclick: (e: Event) => (e.stopPropagation(), void toggleFullscreen()) }, icon('fullscreen'))
           : null,
-        h('div.title-foot', null, 'Fan-made port. Wii Play and Tanks! are trademarks of Nintendo.', h('span.title-version', null, VERSION)),
+        h('div.title-foot', null, 'A fan project.', h('span.title-version', null, VERSION)),
       ),
     )
     this.refresh()

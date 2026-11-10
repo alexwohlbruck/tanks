@@ -1,4 +1,4 @@
-// Helpers shared by the ports of Wii Play's common screens (RPPartyCommon / RPKernel):
+// Helpers shared by the ports of the original game's common screens (RPPartyCommon / RPKernel):
 // the RPStateMachine pattern, pane matrices for hit tests and cursor targets, menu input.
 
 import type { Lyt } from '../lyt'

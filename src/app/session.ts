@@ -6,7 +6,7 @@ import { Input, type PadState } from '../input'
 import type { Tank } from '../sim/world'
 import type { Pads, Session } from './types'
 
-/** layout space the Wii pointer maps into (832 x 456, 16:9) */
+/** layout space the remote pointer maps into (832 x 456, 16:9) */
 const LAYOUT_W = 832
 const LAYOUT_H = 456
 
@@ -14,11 +14,11 @@ export type Cursor = { x: number; y: number; clamped: boolean; far: boolean; vis
 
 /**
  * Pointer [0,1]^2 over the stage -> cursor (layout units) and aim point on the turret plane.
- * Without one, the Wii pointer rules for the 16:9 picture apply (pointerToScreen/screenToField).
+ * Without one, the remote pointer rules for the 16:9 picture apply (pointerToScreen/screenToField).
  */
 export type AimFn = (pointer: { x: number; y: number }, tank: Tank | null) => { cursor: Omit<Cursor, 'visible'>; world: { x: number; z: number } }
 
-/** world point -> layout units (the app's camera; the Wii camera's projectToScreen without one) */
+/** world point -> layout units (the app's camera; the original camera's projectToScreen without one) */
 export type ProjectFn = (x: number, y: number, z: number) => { x: number; y: number }
 
 /** RPTnkCursor: the cursor line to the tank appears this far (layout units) from it */
@@ -26,8 +26,8 @@ const CURSOR_FAR = 480
 /** turret height: the aim plane */
 const AIM_Y = 17.6
 
-/** stage pointer [0,1]^2 -> Wii pointer units (x right, y down, both in half screen widths) */
-export function wiiPointer(p: { x: number; y: number }) {
+/** stage pointer [0,1]^2 -> remote pointer units (x right, y down, both in half screen widths) */
+export function pointerUnits(p: { x: number; y: number }) {
   return { x: p.x * 2 - 1, y: (p.y * 2 - 1) * (LAYOUT_H / LAYOUT_W) }
 }
 
@@ -85,7 +85,7 @@ export class LocalSession implements Session {
           continue
         }
         const pd = per[i]
-        const ptr = pd.pointer ? wiiPointer(pd.pointer) : null
+        const ptr = pd.pointer ? pointerUnits(pd.pointer) : null
         let aim: { x: number; z: number } | null = null
         if (pd.pointer && this.aim) {
           const a = this.aim(pd.pointer, t.lives ? t : null)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build every Tanks! audio asset from the extracted Wii Play ROM.
+"""Build every Tanks! audio asset from the extracted ROM.
 
 usage: python3 tools/audio/build_audio.py [--only NAME_SUBSTRING] [--jobs N]
 

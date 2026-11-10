@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Extract the Wii Play disc and unpack every archive the Tanks! port uses.
+# Extract the game disc and unpack every archive the Tanks! port uses.
 # usage: tools/extract_rom.sh [rom.rvz] [workdir]
 # Requires nodtool (https://github.com/encounter/nod) on PATH.
 set -euo pipefail
-ROM="${1:-rom/Wii Play (USA).rvz}"
+# (default: the one disc image in rom/)
+ROM="${1:-$(ls rom/*.rvz 2>/dev/null | head -1)}"
 WORK="${2:-build/rom}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [ ! -d "$WORK/ext/files" ]; then

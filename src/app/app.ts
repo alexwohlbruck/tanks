@@ -5,7 +5,7 @@
 // - modern (default): the window is filled at any aspect, the 2D layouts render as vectors
 //   at device resolution, and the menus are DOM screens (src/ui/web: title, menu, settings,
 //   pause, results, credits) over an attract-mode match;
-// - classic (Settings > "Classic Wii UI", or ?classic): the 16:9 TV picture with Wii Play's
+// - classic (Settings > "Classic UI", or ?classic): the 16:9 TV picture with the original game's
 //   own pre-game, pause and result screens and bitmap fonts.
 
 import { Vector3 } from 'three/webgpu'
@@ -52,14 +52,14 @@ export class App implements AppContext {
   input: Input
   view: SceneView
   presenter: UiPresenter
-  /** Wii Play's pre-game / pause screens (classic UI only) */
+  /** the original game's pre-game / pause screens (classic UI only) */
   hud: Hud | null = null
   router: Router
   /** development builds only: the ` debug panel (unlimited lives, mission select) */
   debug?: DebugPanel
   session: Session
   params = new URLSearchParams(location.search)
-  /** the original Wii Play front end (see the header) */
+  /** the original front end (see the header) */
   readonly classic = classicUi()
   private pad: PadState
   private frame = 0
@@ -219,7 +219,7 @@ export class App implements AppContext {
     // the attract-mode match behind the title and menus plays silently
     const live = () => this.session.kind !== 'demo'
     this.game.audio = {
-      // *_CSPK sounds come out of the Wii Remote speaker on the console; play them quieter
+      // *_CSPK sounds come out of the remote's speaker on the console; play them quieter
       se: (name, pos) => live() && audio.play(name, { pan: pan(pos), volume: name.endsWith('_CSPK') ? 0.5 : 1 }),
       seHold: (name, key) => {
         if (!live()) return
@@ -268,7 +268,7 @@ export class App implements AppContext {
   /**
    * Pointer [0,1]^2 over the stage -> the cursor (layout units) and the aim point: modern play
    * casts the pointer through the actual camera onto the turret plane, so it is exact at any
-   * window shape; classic play keeps the Wii pointer box and the 480-unit cursor leash.
+   * window shape; classic play keeps the remote pointer box and the 480-unit cursor leash.
    */
   private aim: AimFn | undefined = this.classic
     ? undefined

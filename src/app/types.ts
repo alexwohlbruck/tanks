@@ -53,7 +53,7 @@ export interface AppContext {
   show(id: string | null, params?: Record<string, unknown>): void
   /** current screen id */
   readonly screen: string | null
-  /** the original Wii Play campaign (1-4 local players) */
+  /** the original campaign (1-4 local players) */
   playClassic(players: number, mission?: number): void
   /** a custom level pack (editor test, store levels, Tanks+ campaign) */
   playPack(pack: LevelPack, players: number, level?: number): void

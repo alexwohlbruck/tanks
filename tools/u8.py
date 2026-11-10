@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Yaz0 decompression and U8 archive extraction for Wii .carc/.arc/.szs files.
+"""Yaz0 decompression and U8 archive extraction for .carc/.arc/.szs files.
 
 usage: u8.py <archive> <outdir>
 """

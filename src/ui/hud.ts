@@ -1,4 +1,4 @@
-// Wii Play's shared screens around the Tanks scene that are not driven by the game manager:
+// the original game's shared screens around the Tanks scene that are not driven by the game manager:
 // the pre-game flow (player count, how-to-play card), the pause menu (RPSysPauseMgr) and the
 // scene-change fader. The result screens (medal, VS winner, result menu) live in the presenter,
 // which the game manager drives. Drawn in layout space (832 x 456, origin centre, y up).
@@ -51,7 +51,7 @@ export class Hud {
     return Promise.all([this.pause.load(), this.preGame.load()])
   }
 
-  /** Wii pointer semantics: the pointer selects while it moves; D-pad presses hand over to the pad. */
+  /** remote pointer semantics: the pointer selects while it moves; D-pad presses hand over to the pad. */
   private makeInput(pad: PadState): MenuInput {
     const p = pad.pointer ? { x: (pad.pointer.x - 0.5) * LAYOUT_W, y: (0.5 - pad.pointer.y) * LAYOUT_H } : null
     const last = this.lastPointer

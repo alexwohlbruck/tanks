@@ -1,6 +1,6 @@
-# Wii Play "Tanks!" — gameplay specification for a 1:1 recreation
+# "Tanks!" — gameplay specification for a 1:1 recreation
 
-Research compiled 2026-11-09. Target: Wii Play (USA), game ID RHAE01.
+Research compiled 2026-11-09. Target: the USA release, game ID RHAE01.
 
 This document is the reference spec. Every fact carries a source tag and a confidence level. Where sources disagree, all versions are listed and the reason for preferring one is given.
 
@@ -12,13 +12,13 @@ This document is the reference spec. Every fact carries a source tag and a confi
 
 | Tag | Source | Notes |
 |---|---|---|
-| **[DISC]** | The game's own data files, extracted from the disc image in this repo (`rom/Wii Play (USA).rvz`, RHAE01 **Rev 0**). Files: `files/Common/RPTnkScene/common.carc` → `param/TnkGameParam.bin` (all tank stats + the 100-mission table), `MapData/TnkMapData_P{1,2}_{00..29}_{0,1}.bin` (all 30 arena layouts, 1P/2P, 4:3/16:9), `G3D/*.brres` (models), `tnk_footmark/*.bti` (tread textures); `files/US/PartyStatic/local.carc` → `party_message.bmg` (every on-screen string); `files/US/RPTnkScene/local.carc` → `tank.arc` (HUD layouts). | The data was read with throwaway scripts in `/tmp`. Nothing was added to the repo. This is the authoritative source: these are the exact numbers the game runs on. |
-| **[DECOMP]** | Matching decompilation of Wii Play (USA **Rev 1**): https://github.com/Nikman800/wiiplay. Code under `src/Pack/RPParty/RPTnkScene/` and `src/Pack/RPParty/RPPartyCommon/` (RPTnkMapData, RPMedalResult_2). Field names and comments come from the decomp authors, who mark their confidence as [H]/[M]/[L]. | Explains how [DISC] values are used, and holds constants compiled into the code (mine fuse, blast radius, cell size, timers, music masks). Rev 1 code vs Rev 0 data: no differences in Tanks! are known. |
+| **[DISC]** | The game's own data files, extracted from the disc image in this repo (`rom/*.rvz`, RHAE01 **Rev 0**). Files: `files/Common/RPTnkScene/common.carc` → `param/TnkGameParam.bin` (all tank stats + the 100-mission table), `MapData/TnkMapData_P{1,2}_{00..29}_{0,1}.bin` (all 30 arena layouts, 1P/2P, 4:3/16:9), `G3D/*.brres` (models), `tnk_footmark/*.bti` (tread textures); `files/US/PartyStatic/local.carc` → `party_message.bmg` (every on-screen string); `files/US/RPTnkScene/local.carc` → `tank.arc` (HUD layouts). | The data was read with throwaway scripts in `/tmp`. Nothing was added to the repo. This is the authoritative source: these are the exact numbers the game runs on. |
+| **[DECOMP]** | Matching decompilation of the game (USA **Rev 1**), cloned to `build/decomp` (its git remote has the source). Code under `src/Pack/RPParty/RPTnkScene/` and `src/Pack/RPParty/RPPartyCommon/` (RPTnkMapData, RPMedalResult_2). Field names and comments come from the decomp authors, who mark their confidence as [H]/[M]/[L]. | Explains how [DISC] values are used, and holds constants compiled into the code (mine fuse, blast radius, cell size, timers, music masks). Rev 1 code vs Rev 0 data: no differences in Tanks! are known. |
 | **[TR]** | TanksRebirth (RighteousRyan1), a faithful PC remake: https://github.com/RighteousRyan1/TanksRebirth. Files `GameContent/Tanks/AI/AIManager.cs`, `GameContent/Tanks/PlayerTank.cs`, `GameContent/Tanks/TankProperties.cs`, `GameContent/Tanks/AI/AIParameters.cs`, `GameContent/Systems/Coordinates/MapGrid.cs`, `GameContent/Block.cs`, `GameContent/Mine.cs`. Its campaign file: https://github.com/RighteousRyan1/tanks_rebirth_motds/blob/master/Vanilla.campaign | Its tank parameters are labelled "Word 1..42" of the original struct ("values from the source. thanks 8fv"). They match [DISC] almost exactly; the exceptions are listed in §4.4. Its missions 1–20 match [DISC]. **Its missions 21–100 are fan-made** (the original randomises them), so do not use them. |
-| **[NF]** | Nintendo Wiki (Fandom): https://nintendo.fandom.com/wiki/Tanks! (wikitext fetched through the MediaWiki API) | The most complete fan page. Its stats table, music table and post-20 mission rules are mostly confirmed by [DISC]/[DECOMP]. |
-| **[WS]** | Wii Sports Wiki (Fandom): https://wiisports.fandom.com/wiki/Tanks! | Has several errors; see §11. |
+| **[NF]** | A fan wiki's Tanks! page (wikitext fetched through the MediaWiki API) | The most complete fan page. Its stats table, music table and post-20 mission rules are mostly confirmed by [DISC]/[DECOMP]. |
+| **[WS]** | A second fan wiki's Tanks! page | Has several errors; see §11. |
 | **[BS]** | brightsoo Tanks mission list: https://brightsoo.com/tanks/missions/ | Screenshots of missions 1–20 and the milestone missions; text on the randomisation rules. |
-| — | StrategyWiki (https://strategywiki.org/wiki/Wii_Play/Tanks!), TCRF (https://tcrf.net/Wii_Play) | Behind Cloudflare challenges, so they could not be read. Not used. GameFAQs was not needed because [DISC] holds the full mission table. |
+| — | StrategyWiki and TCRF | Behind Cloudflare challenges, so they could not be read. Not used. GameFAQs was not needed because [DISC] holds the full mission table. |
 
 ### 0.2 Confidence levels
 
@@ -37,9 +37,9 @@ This document is the reference spec. Every fact carries a source tag and a confi
 
 ## 1. Overview, modes and rules
 
-### 1.1 Where it sits in Wii Play
-- Tanks! is the ninth and last game in Wii Play. It is unlocked by playing Charge! [WS M].
-- Title string: "Tanks!". Instruction card text: "Wii Remote: Aim / [Nunchuk stick] or [+Control Pad]: Steer tank / [B]: Fire / [A]: Drop a mine" [DISC bmg #312 H].
+### 1.1 Where it sits in the original collection
+- Tanks! is the ninth and last game in its collection. It is unlocked by playing Charge! [WS M].
+- Title string: "Tanks!". Instruction card text: "Remote: Aim / [Nunchuk stick] or [+Control Pad]: Steer tank / [B]: Fire / [A]: Drop a mine" [DISC bmg #312 H].
 - There is no "Training" mode for Tanks!. The modes are 1 player (campaign) and 2 players (semi-co-op) [DECOMP `RPTnkGameManager` modes 0/1 H].
 
 ### 1.2 One-player campaign
@@ -87,7 +87,7 @@ Kill totals are fixed, since every enemy must die to advance. Cumulative totals 
 
 | Input | Action | Source |
 |---|---|---|
-| Wii Remote pointer (held vertically, aimed at the screen) | Moves the on-screen reticle. The turret always points at the reticle's projected floor position (instant, no turn rate) | [DECOMP `AimAtCursor` H] |
+| Remote pointer (held vertically, aimed at the screen) | Moves the on-screen reticle. The turret always points at the reticle's projected floor position (instant, no turn rate) | [DECOMP `AimAtCursor` H] |
 | Nunchuk Control Stick | Drive (analog) | [DECOMP `GetMoveInput` H] |
 | +Control Pad (D-pad), when no Nunchuk is attached | Drive (8-way, normalised) | [DECOMP H]; [NF] "Nunchuk optional" |
 | **B** (trigger) | Fire a shell (on press; holding does not auto-fire) | [DECOMP `HandleFireInput` uses `getTrigger` H] |
@@ -98,7 +98,7 @@ Details [DECOMP `RPTnkPlayerController` H]:
 - **Stick dead zone 0.12, full speed at 0.85.** Between those, target speed scales linearly (0.12 → 0, 0.85 → max) [DISC words 0x5C/0x60].
 - The tank has **tank steering**. It turns its hull toward the input direction at the turn rate. It only **accelerates** when its facing is within **10°** (Nunchuk) or **46°** (D-pad) of the input direction. Outside that angle it brakes (speed × 0.6 per frame) while it pivots. If the input direction is closer to the tank's rear, the tank **reverses** instead of turning around.
 - **Rumble:** fire = rumble for 6 frames; mine = 16 frames [DECOMP M (`startSimpleRumble(…, 6/16, 32)`)].
-- Some hit and mine sounds also play from the **Wii Remote speaker** (`*_CSPK` sound IDs) [DECOMP/DISC H].
+- Some hit and mine sounds also play from the **remote speaker** (`*_CSPK` sound IDs) [DECOMP/DISC H].
 - Mission 1 shows control hints in sequence: "Move the tank with [stick] or [D-pad]." → "Aim at the enemy tank." → "Fire with [B]." → "Drop mines with [A]." [DISC bmg #285–288 H]. They advance once the player drives right of centre (x ≥ 10 units) and the cursor nears the enemy [DECOMP `RPTnkExGuide` M]. This is why Mission 1's map has a sealed-off strip at the bottom (row 12 wall): the hint panel covers that area (inference, M).
 
 ---

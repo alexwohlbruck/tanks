@@ -13,7 +13,7 @@ import type { Lyt } from './lyt'
 import { TnkLayouts, type TnkInfo } from './tnk'
 
 /**
- * The modern web UI's end-of-run hook: instead of Wii Play's medal / VS winner / result menu
+ * The modern web UI's end-of-run hook: instead of the original game's medal / VS winner / result menu
  * screens, the game manager's result flow opens the DOM 'results' screen, which answers through
  * `UiPresenter.choose` (0 play again, 1 back to the menu).
  */
@@ -73,7 +73,7 @@ export class UiPresenter implements Presenter {
   private screenFadeIn = false
   private menuChoiceReady: -1 | 0 | 1 = -1
   private offscreen: HTMLCanvasElement | null = null
-  /** modern web UI: end-of-run screens are DOM; null keeps Wii Play's own screens */
+  /** modern web UI: end-of-run screens are DOM; null keeps the original game's own screens */
   web: WebResultsHost | null = null
   private webChoice: -1 | 0 | 1 = -1
 
@@ -240,7 +240,7 @@ export class UiPresenter implements Presenter {
     else if (w === 1) l.play('tnkResult_00_win2P_00', { key: 'win', bind: 'N_total_02', loop: true })
     r.state = 6
   }
-  // Medal / VS winner / result menu: Wii Play's shared screens (RPCommon)
+  // Medal / VS winner / result menu: the original game's shared screens (RPCommon)
   medalStart(kills: number) {
     if (this.web) return this.web.results(1)
     this.medal.start(kills)
@@ -348,7 +348,7 @@ export class UiPresenter implements Presenter {
 
 /**
  * CSS filter for RPScreenFade at strength k: colour multiply 200/255 and a blur of about one
- * Wii pixel (SetBlurOffset(1)), scaled to a canvas `height` pixels tall.
+ * console pixel (SetBlurOffset(1)), scaled to a canvas `height` pixels tall.
  */
 export function screenFilter(k: number, height: number) {
   if (k <= 0) return 'none'

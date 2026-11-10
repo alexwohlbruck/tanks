@@ -18,8 +18,8 @@ Generated assets live in `public/assets/audio/` (gitignored). Rebuild everything
 | `build_audio.py` | the entry point: renders every sound, writes `manifest.json` + `build_details.json` |
 | `crosscheck_vgmstream.py` | compares our decoders against vgmstream sample-by-sample |
 
-Reference used for formats and playback semantics: the nw4r snd library in the Wii Play decompilation
-(`build/decomp/src/nw4r/snd/`); it is line-for-line identical to the Wii Sports (ogws) version for
+Reference used for formats and playback semantics: the nw4r snd library in the decompilation
+(`build/decomp/src/nw4r/snd/`); it is line-for-line identical to the ogws version for
 `MmlParser`, `SeqTrack`, `EnvGenerator`, `Channel`, `Lfo`, `Bank*`, `Wsd*`, `WaveFile`, `Util`.
 
 ## Source formats
@@ -180,7 +180,7 @@ Tracks of LOOP2 (tempo 120, timebase 48, all tracks wait 384 ticks = 4 s, then l
 | 10 | intro_snare | 1 snare | intro only | mission-intro snare roll, silent in the loop (bit 10 is set in every mask) |
 
 Instrument *names* are inferred (the bank has no names): from the samples' key splits, the
-note material, and the in-game layer behaviour documented on nintendo.fandom.com/wiki/Tanks!,
+note material, and the in-game layer behaviour documented on the game's fan wiki,
 whose observed table matches `sTrackMasks` bit-for-bit under this mapping.
 
 Track masks (`sTrackMasks`, columns = enemies left 1, 2, 3, 4+):
@@ -207,7 +207,7 @@ PANPAKAAN).
 ## SE notes for the game port
 
 * SEs are mostly sequences triggering bank samples, rendered as one stereo file each.
-* `*_CSPK` = Wii Remote speaker variant, `*_TVSP` / `*_CTSP` = TV / controller variants of
+* `*_CSPK` = remote speaker variant, `*_TVSP` / `*_CTSP` = TV / controller variants of
   party UI sounds. user_param often encodes remote-speaker settings.
 * Sounds with INFO volume 0 (`runtimeVolume`): ENGINE, IDLING, GAMESTART, INTRO_CATERPILLAR_00-05,
   RP_COM_GAME_SE_PAUSE_01, RP_COMMON_SE_KEY_A_04, RP_COMMON_SE_KEY_BACK_01 (and several common

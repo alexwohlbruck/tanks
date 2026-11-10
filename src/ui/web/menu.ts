@@ -1,4 +1,4 @@
-// 'menu': the main menu over the attract-mode match. Campaign (classic Wii campaign for 1-2
+// 'menu': the main menu over the attract-mode match. Campaign (the classic campaign for 1-2
 // local players, the Tanks+ campaign when its screen exists), Online, Level Editor, Community
 // Levels, Settings, Achievements, Credits. Entries for screens other modules register ('lobby',
 // 'editor', 'store', 'tanksplus') show a "coming soon" state until those screens exist. The
@@ -42,7 +42,7 @@ class MenuScreen extends WebScreen {
         h(
           'div.menu-grid',
           null,
-          button('Campaign', { icon: 'campaign', hint: 'Classic Wii missions', class: 'primary big', autofocus: true, onclick: () => this.setPage('campaign') }),
+          button('Campaign', { icon: 'campaign', hint: 'The classic missions', class: 'primary big', autofocus: true, onclick: () => this.setPage('campaign') }),
           button('Arena', { icon: 'arena', hint: 'Massive online battles', class: 'primary', disabled: !this.app.hasScreen('arena'), onclick: () => this.open('arena') }),
           button('Online', { icon: 'online', hint: 'Play with friends', disabled: !this.app.hasScreen('lobby'), badge: this.soon('lobby'), onclick: () => this.open('lobby') }),
           button('Level Editor', { icon: 'editor', hint: 'Build your own', disabled: !this.app.hasScreen('editor'), badge: this.soon('editor'), onclick: () => this.open('editor') }),
@@ -76,7 +76,7 @@ class MenuScreen extends WebScreen {
               'div.card',
               null,
               h('div.card-title', null, 'Classic'),
-              h('div.card-text', null, 'The original 20 missions of Wii Play — 100 once the gold medal is won.'),
+              h('div.card-text', null, 'The original 20 missions — 100 once the gold medal is won.'),
               h(
                 'div.card-stats',
                 null,

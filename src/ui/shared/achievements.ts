@@ -56,7 +56,7 @@ export const GROUPS: { id: AchievementGroup; name: string }[] = [
 export const ACHIEVEMENTS: Achievement[] = [
   // classic campaign (local play)
   { id: 'classic-first', group: 'classic', name: 'Rolling out', desc: 'Clear mission 1.', tank: 1 },
-  { id: 'classic-20', group: 'classic', name: 'Wii Play champion', desc: 'Clear mission 20.', tank: 6 },
+  { id: 'classic-20', group: 'classic', name: 'Campaign champion', desc: 'Clear mission 20.', tank: 6 },
   { id: 'classic-100', group: 'classic', name: 'Centurion', desc: 'Clear mission 100.', tank: 9 },
   { id: 'classic-flawless', group: 'classic', name: 'Not a scratch', desc: 'Clear the 20 missions in one run without losing a life.', tank: 8 },
   { id: 'classic-gold', group: 'classic', name: 'Gold standard', desc: 'Win the gold medal (missions 21-100 open up).', tank: 5 },
