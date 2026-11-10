@@ -688,13 +688,15 @@ export class ArenaSession implements Session {
           this.sound('RP_TNK_SE_BROKEN', e[1], e[2], 0.8)
           break
         case 'kill': {
-          const [, id, x, z, victim, killer, cause, streak, layer, tk] = e
+          const [, id, x, z, victim, killer, cause, streak, layer, tk, chain] = e
           // achievements (src/ui/shared/achievements.ts arena hooks), for this player only
           if (killer === this.pid && victim !== this.pid && !tk) {
             unlock('arena-first-kill')
             progress('arena-kills-100')
             reach('arena-streak-5', streak)
             if ((cause === 'mine' || cause === 'nuke') && layer && layer !== this.pid) unlock('arena-mine-steal')
+            // a mine (or nuke) set off by another mine's blast
+            if (chain) unlock('arena-chain')
           }
           const t = this.tankFor(id)
           if (t) {

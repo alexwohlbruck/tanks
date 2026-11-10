@@ -93,7 +93,7 @@ export type NetEv =
   | ['ric', number, number]
   | ['die', number, number, number] // x, z, wall
   | ['clash', number, number]
-  | ['kill', number, number, number, number, number, string, number, number, number] // tank, x, z, victim, killer, cause, streak, mine layer, teamkill
+  | ['kill', number, number, number, number, number, string, number, number, number, number] // tank, x, z, victim, killer, cause, streak, mine layer, teamkill, chain (a mine set off by another's blast: how far down)
   | ['shpop', number, number, number] // tank, x, z
   | ['flare', number, number, number, number] // tank, x, z, missiles
   | ['fhit', number, number]
