@@ -19,6 +19,7 @@
 // events, never per frame.
 
 import './touch.css'
+import { setFullscreen } from './fullscreen'
 
 /** pixels a thumb must travel before a touch on the aim side counts as aiming */
 const AIM_DEAD = 14
@@ -44,16 +45,6 @@ const ROTATE_SVG =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 15a9 9 0 0 0 9 7l-2-2.4M21 9a9 9 0 0 0-5-6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
 const FS_SVG =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-
-/** fullscreen, then landscape where the browser allows locking it (Android Chrome) */
-export async function fullscreenLandscape() {
-  try {
-    if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
-    await (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape').catch(() => {})
-  } catch {
-    /* not allowed */
-  }
-}
 
 export class TouchControls {
   /** a touch screen is in use (the controls show during play) */
@@ -97,7 +88,7 @@ export class TouchControls {
     // the portrait hint and the fullscreen buttons are plain buttons, not stick touches
     const hint = root.querySelector<HTMLElement>('.tc-rotate')!
     for (const b of root.querySelectorAll<HTMLElement>('.tc-rotate, .tc-fs-corner')) b.addEventListener('pointerdown', (e) => e.stopPropagation())
-    for (const b of root.querySelectorAll<HTMLElement>('.tc-fs')) b.addEventListener('click', () => void fullscreenLandscape())
+    for (const b of root.querySelectorAll<HTMLElement>('.tc-fs')) b.addEventListener('click', () => void setFullscreen(true))
     root.querySelector('.tc-x')!.addEventListener('click', () => hint.remove())
     // shown once: it fades out by itself
     hint.addEventListener('animationend', () => hint.remove())

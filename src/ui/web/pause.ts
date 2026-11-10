@@ -3,7 +3,7 @@
 
 import { registerScreen } from '../../app/router'
 import { tankIcon, PLAYER_COLORS } from './art'
-import { band, button, WebScreen } from './base'
+import { band, button, fullscreenButton, WebScreen } from './base'
 import { h } from './dom'
 
 class PauseScreen extends WebScreen {
@@ -60,6 +60,7 @@ class PauseScreen extends WebScreen {
                 this.app.toggleFpv(on)
               },
             }),
+            fullscreenButton(),
             button('Settings', { icon: 'settings', onclick: () => this.app.show('settings', { from: 'pause' }) }),
             button('Quit to menu', { icon: 'home', onclick: () => this.app.toMenu() }),
           ),

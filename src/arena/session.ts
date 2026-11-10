@@ -50,6 +50,8 @@ export class ArenaSession implements Session {
   size: ArenaSize
   pid = 0
   tankId = 0
+  /** when the own tank last spawned (performance.now), for the "you are here" marker */
+  spawnedAt = 0
   map: ArenaMap | null = null
   field: ArenaField | null = null
   world: World | null = null
@@ -772,6 +774,7 @@ export class ArenaSession implements Session {
         case 'spawn':
           if (e[1] === this.tankId) {
             this.view.follow = { x: e[2], z: e[3] }
+            this.spawnedAt = performance.now()
             this.audio.play('RP_TNK_SE_GAMESTART')
           }
           break

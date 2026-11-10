@@ -6,6 +6,8 @@ import { logo } from './art'
 import { WebScreen } from './base'
 import { h, touch } from './dom'
 import { isRelease, VERSION } from '../../version'
+import { fsSupported, isFullscreen, toggleFullscreen } from '../fullscreen'
+import { icon } from './art'
 
 class TitleScreen extends WebScreen {
   private armed = false
@@ -14,6 +16,10 @@ class TitleScreen extends WebScreen {
   /** a newer release is live than this page: offer a reload */
   private newer = h('button.title-update', { type: 'button', hidden: true, onclick: (e: Event) => (e.stopPropagation(), location.reload()) }, 'A new version is out · Reload')
   private arm = 0
+  private onFs = () => {
+    const b = this.root?.querySelector<HTMLElement>('.title-fs')
+    if (b) b.hidden = isFullscreen()
+  }
   private onKey = (e: KeyboardEvent) => {
     if (e.repeat || ['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight', 'Backquote'].includes(e.code)) return
     this.go()
@@ -29,10 +35,14 @@ class TitleScreen extends WebScreen {
         h('button.press', { type: 'button', autofocus: true }, touch() ? 'Tap to start' : 'Press start'),
         this.count,
         this.newer,
+        fsSupported
+          ? h('button.title-fs', { type: 'button', 'aria-label': 'Fullscreen', title: 'Fullscreen (Alt+Enter)', hidden: isFullscreen(), onclick: (e: Event) => (e.stopPropagation(), void toggleFullscreen()) }, icon('fullscreen'))
+          : null,
         h('div.title-foot', null, 'Fan-made port. Wii Play and Tanks! are trademarks of Nintendo.', h('span.title-version', null, VERSION)),
       ),
     )
     this.refresh()
+    document.addEventListener('fullscreenchange', this.onFs)
     this.poll = window.setInterval(() => document.hidden || this.refresh(), 10_000)
     // the key or click that came from the previous screen does not count
     // (a screen that replaces this one at once, like an invite link's lobby, must not leave the
@@ -61,6 +71,7 @@ class TitleScreen extends WebScreen {
     clearInterval(this.poll)
     clearTimeout(this.arm)
     removeEventListener('keydown', this.onKey)
+    document.removeEventListener('fullscreenchange', this.onFs)
     super.unmount()
   }
 

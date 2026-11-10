@@ -124,6 +124,14 @@
   background: var(--focus); color: var(--ink); box-shadow: 0 0.15em 0 #a07a10, 0 0.3em 0.6em rgba(0, 0, 0, 0.3);
 }
 .web .title-update[hidden] { display: none; }
+.web .title-fs {
+  position: absolute; top: 1em; right: 1em; width: 2.4em; height: 2.4em; display: grid; place-items: center;
+  border: 0; border-radius: 0.7em; cursor: pointer; color: #fff7e6;
+  background: rgba(40, 20, 4, 0.45); box-shadow: 0 0.15em 0 rgba(0, 0, 0, 0.3);
+}
+.web .title-fs:hover, .web .title-fs:focus-visible { background: rgba(40, 20, 4, 0.7); }
+.web .title-fs[hidden] { display: none; }
+.web .title-fs .ico { width: 1.3em; height: 1.3em; }
 .title-version { margin-left: 0.8em; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .title-foot { position: absolute; bottom: 1.2em; color: rgba(255, 247, 230, 0.8); font-size: 0.6em; font-weight: 500; text-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.7); }
 
