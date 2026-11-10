@@ -200,7 +200,7 @@ class Arena {
       .map((t) => {
         const [b, tu] = ArenaSim.headings(t)
         const pw = t.power ? PICKUP_KINDS.indexOf(t.power) + 1 : 0
-        // White: enemies only see its tracks, except right after it fires
+        // White: enemies only see its tracks
         const hidden = s.hiddenFrom(p, t)
         const flags =
           (t.alive ? TF_ALIVE : 0) |
@@ -260,7 +260,8 @@ class Arena {
     for (const t of s.tanks) {
       if (!t.alive || !me) continue
       const friend = t.player === me || (s.mode === 'teams' && t.player.team === me.team)
-      if (friend || s.tick - t.firedAt < 120) mm.push([t.player.pid, Math.round(t.pos.x), Math.round(t.pos.z)])
+      // (a White enemy stays off the minimap even when it fires)
+      if (friend || (s.tick - t.firedAt < 120 && !s.hiddenFrom(me, t))) mm.push([t.player.pid, Math.round(t.pos.x), Math.round(t.pos.z)])
     }
     return {
       t: 'board',
