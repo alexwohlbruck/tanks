@@ -46,7 +46,6 @@ import {
   type MapTheme,
   type ArenaMode,
   type PickupKind,
-  WHITE_REVEAL,
 } from './rules'
 
 export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean; flare?: boolean; nuke?: boolean }
@@ -434,9 +433,10 @@ export class ArenaSim {
     return a !== b && (this.mode === 'ffa' || a.team !== b.team)
   }
 
-  /** White: invisible to its enemies (players and bots alike), except right after it fires */
+  /** White: invisible to its enemies (players and bots alike) for as long as the power lasts,
+   * firing included, like the disc's White tank: only its tracks and its shells show */
   hiddenFrom(viewer: Player, t: ATank) {
-    return t.power === 'white' && this.enemies(viewer, t.player) && this.tick - t.firedAt > WHITE_REVEAL
+    return t.power === 'white' && this.enemies(viewer, t.player)
   }
 
   // ---- spawning ---------------------------------------------------------------------------

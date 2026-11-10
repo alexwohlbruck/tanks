@@ -149,7 +149,7 @@ export function botThink(sim: ArenaSim, p: Player) {
   }
   const b = brain(p)
   const now = sim.tick
-  // a White enemy is as invisible to a bot as to a player: only seen right after it fires
+  // a White enemy is as invisible to a bot as to a player
   const enemies = sim.tanks.filter((o) => o.alive && sim.enemies(p, o.player) && !sim.hiddenFrom(p, o))
   const friends = sim.tanks.filter((o) => o.alive && o !== t && !sim.enemies(p, o.player))
   // ---- pick a target (every 10 frames) and bank shots (every 20)
