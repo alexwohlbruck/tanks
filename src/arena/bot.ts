@@ -149,8 +149,8 @@ export function botThink(sim: ArenaSim, p: Player) {
   }
   const b = brain(p)
   const now = sim.tick
-  // a White enemy is only seen up close or right after it fires
-  const enemies = sim.tanks.filter((o) => o.alive && sim.enemies(p, o.player) && (o.power !== 'white' || now - o.firedAt < 40 || Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z) < 110))
+  // a White enemy is as invisible to a bot as to a player: only seen right after it fires
+  const enemies = sim.tanks.filter((o) => o.alive && sim.enemies(p, o.player) && !sim.hiddenFrom(p, o))
   const friends = sim.tanks.filter((o) => o.alive && o !== t && !sim.enemies(p, o.player))
   // ---- pick a target (every 10 frames) and bank shots (every 20)
   if (now >= b.thinkAt) {
@@ -181,7 +181,8 @@ export function botThink(sim: ArenaSim, p: Player) {
       }
     }
   }
-  const e = b.target && b.target.alive ? b.target : null
+  // (a target that has just gone White is lost at once, not at the next think)
+  const e = b.target && b.target.alive && !sim.hiddenFrom(p, b.target) ? b.target : null
   // ---- aim and fire
   let fire = false
   const sm = b.shootMine && !b.shootMine.dead && b.shootMine.state !== 2 ? b.shootMine : null

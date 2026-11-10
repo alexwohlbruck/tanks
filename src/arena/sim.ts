@@ -46,6 +46,7 @@ import {
   type MapTheme,
   type ArenaMode,
   type PickupKind,
+  WHITE_REVEAL,
 } from './rules'
 
 export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean; flare?: boolean; nuke?: boolean }
@@ -433,6 +434,11 @@ export class ArenaSim {
     return a !== b && (this.mode === 'ffa' || a.team !== b.team)
   }
 
+  /** White: invisible to its enemies (players and bots alike), except right after it fires */
+  hiddenFrom(viewer: Player, t: ATank) {
+    return t.power === 'white' && this.enemies(viewer, t.player) && this.tick - t.firedAt > WHITE_REVEAL
+  }
+
   // ---- spawning ---------------------------------------------------------------------------
 
   /**
@@ -744,7 +750,7 @@ export class ArenaSim {
     let best: ATank | null = null
     let bd = HOMING.range
     for (const t of this.tanks) {
-      if (!t.alive || t === s.owner || !this.enemies(s.owner.player, t.player)) continue
+      if (!t.alive || t === s.owner || !this.enemies(s.owner.player, t.player) || this.hiddenFrom(s.owner.player, t)) continue
       const d = Math.hypot(t.pos.x - s.pos.x, t.pos.z - s.pos.z)
       if (d >= bd) continue
       let off = Math.atan2(t.pos.z - s.pos.z, t.pos.x - s.pos.x) - cur
