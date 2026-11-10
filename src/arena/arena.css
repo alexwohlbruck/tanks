@@ -209,6 +209,8 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 .ar-slot .pips i.on { opacity: 1; filter: none; }
 .ar-slot .ar-shell { width: 0.5em; height: 1.2em; display: block; }
 .ar-slot .ar-mine { width: 1em; height: 1em; display: block; }
+.ar-slot .pips.many { gap: 0.04em; }
+.ar-slot .pips.many .ar-mine { width: 0.62em; height: 0.62em; }
 .ar-slot .ar-item { width: 1.05em; height: 1.05em; display: block; }
 .ar-slot.nuke .ar-item { width: 1.3em; height: 1.3em; }
 .ar-slot.nuke.used { opacity: 0.3; filter: grayscale(1); }
