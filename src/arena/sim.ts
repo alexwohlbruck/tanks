@@ -46,6 +46,11 @@ import {
   type MapTheme,
   type ArenaMode,
   type PickupKind,
+  ELIM,
+  ROYALE,
+  isOneLife,
+  isTeamMode,
+  zoneRadius,
 } from './rules'
 
 export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean; flare?: boolean; nuke?: boolean }
@@ -264,6 +269,8 @@ export type ATank = TankBody & {
   flares: number
   flareBack: number
   flareReady: number
+  /** Battle royale: ticks spent outside the zone in a row */
+  outside: number
 }
 
 export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean; homing: boolean; turn: number }
@@ -297,7 +304,7 @@ export type ArenaEvent =
   | { t: 'shellDie'; x: number; z: number; wall: boolean }
   | { t: 'clash'; x: number; z: number }
   /** `tk`: a teammate did it (scores nothing, costs the killer a point) */
-  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine' | 'nuke'; streak: number; layer: number; tk: boolean }
+  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine' | 'nuke' | 'zone'; streak: number; layer: number; tk: boolean }
   | { t: 'shieldPop'; tank: number; x: number; z: number }
   | { t: 'flare'; tank: number; x: number; z: number; n: number }
   | { t: 'flareHit'; x: number; z: number }
@@ -308,6 +315,8 @@ export type ArenaEvent =
   | { t: 'pickup'; tank: number; kind: AnyPickup; x: number; z: number }
   | { t: 'spawn'; tank: number; x: number; z: number }
   | { t: 'match'; state: 'play' | 'over' }
+  /** Elimination: round `n` starts (team -1), or was won by `team` (-1: nobody) */
+  | { t: 'round'; n: number; team: number; start: boolean }
 
 const P = () => paramsFor(0)
 
@@ -335,7 +344,13 @@ export class ArenaSim {
   private nextId = 1
   private nextPid = 1
   private pickupAt = 0
-  private matchStart = 0
+  /** the current round's first tick (the match's, outside Elimination) */
+  roundStart = 0
+  /** Elimination: the round number, and the tick the pause after a decided round ends (0: playing) */
+  round = 0
+  roundOverAt = 0
+  /** Battle royale: the zone's centre and its starting radius */
+  zone: { x: number; z: number; r0: number } | null = null
   private rnd: () => number
   /** cells broken this match (sent to joining clients) */
   broken: [number, number][] = []
@@ -355,7 +370,6 @@ export class ArenaSim {
 
   newMatch(seed = (this.rnd() * 2 ** 31) | 0, theme = this.votedTheme()) {
     this.map = generateMap(seed, this.mode, theme, this.size)
-    this.matchStart = this.tick
     this.voteOptions = []
     this.votes.clear()
     this.field = new ArenaField(this.map)
@@ -369,22 +383,73 @@ export class ArenaSim {
     this.state = 'play'
     this.phaseEnd = this.tick + MATCH_TICKS
     this.pickupAt = this.tick + 60
-    for (const p of this.players) p.tank.alive = false
+    this.round = 0
+    this.roundOverAt = 0
+    this.zone = this.mode === 'royale' ? this.newZone() : null
     for (const p of this.players) {
       p.kills = p.deaths = p.score = p.streak = p.best = 0
-      p.killedBy = null
       p.tank.nukes = NUKE.perMatch
-      this.spawn(p.tank)
     }
     this.events.push({ t: 'match', state: 'play' })
+    this.startRound()
+  }
+
+  /** everyone back at their base (Elimination: a new round; otherwise the match start) */
+  private startRound() {
+    this.roundStart = this.tick
+    this.roundOverAt = 0
+    if (this.mode === 'elim') {
+      this.round++
+      this.phaseEnd = this.tick + ELIM.roundTicks
+      this.shells = []
+      this.flareShots = []
+      this.mines = []
+      this.events.push({ t: 'round', n: this.round, team: -1, start: true })
+    }
+    for (const p of this.players) p.tank.alive = false
+    for (const p of this.players) {
+      p.killedBy = null
+      this.spawn(p.tank)
+    }
+  }
+
+  /** Battle royale: a centre near the middle of the map, and a radius that covers all of it */
+  private newZone() {
+    const W = (this.map.cols * 35) / 2
+    const H = (this.map.rows * 35) / 2
+    let x = 0
+    let z = 0
+    for (let i = 0; i < 40; i++) {
+      const [c, r] = this.map.open[Math.floor(this.rnd() * this.map.open.length)]
+      const p = cellPos(this.map, c, r)
+      if (Math.abs(p.x) < W * 0.35 && Math.abs(p.z) < H * 0.35) {
+        x = p.x
+        z = p.z
+        break
+      }
+    }
+    return { x, z, r0: Math.hypot(W + Math.abs(x), H + Math.abs(z)) }
+  }
+
+  /** the zone's radius now */
+  zoneR() {
+    return this.zone ? zoneRadius(this.tick - this.roundStart, this.zone.r0) : Infinity
+  }
+
+  /** a newcomer gets a tank now, or (one-life modes, once the round is under way) waits for the next */
+  private canEnter() {
+    if (this.state !== 'play') return false
+    if (this.mode === 'royale') return this.tick - this.roundStart < ROYALE.late
+    if (this.mode === 'elim') return !this.roundOverAt && this.tick - this.roundStart < ELIM.late
+    return true
   }
 
   // ---- players --------------------------------------------------------------------------
 
   /** `team`: join that team (an invite from a teammate) instead of the smaller one */
-  addPlayer(name: string, bot: boolean, team = this.mode === 'teams' ? this.smallerTeam() : 0): Player {
+  addPlayer(name: string, bot: boolean, team = isTeamMode(this.mode) ? this.smallerTeam() : 0): Player {
     const used = new Set(this.players.map((p) => p.color))
-    const color = this.mode === 'teams' ? TEAM_COLORS[team] : (FFA_COLORS.find((c) => !used.has(c)) ?? FFA_COLORS[this.players.length % FFA_COLORS.length])
+    const color = isTeamMode(this.mode) ? TEAM_COLORS[team] : (FFA_COLORS.find((c) => !used.has(c)) ?? FFA_COLORS[this.players.length % FFA_COLORS.length])
     const tank = Object.assign(newBody(), {
       id: this.id(),
       alive: false,
@@ -400,12 +465,14 @@ export class ArenaSim {
       flares: FLARE.base,
       flareBack: 0,
       flareReady: 0,
+      outside: 0,
     }) as ATank
     const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, wantNuke: false, joinedAt: this.tick, killedBy: null, wins: 0 }
     tank.player = p
     this.players.push(p)
     this.tanks.push(tank)
-    if (this.state === 'play') this.spawn(tank)
+    if (this.canEnter()) this.spawn(tank)
+    else tank.respawnAt = Infinity
     return p
   }
 
@@ -430,7 +497,7 @@ export class ArenaSim {
   }
 
   enemies(a: Player, b: Player) {
-    return a !== b && (this.mode === 'ffa' || a.team !== b.team)
+    return a !== b && (!isTeamMode(this.mode) || a.team !== b.team)
   }
 
   /** White: invisible to its enemies (players and bots alike) for as long as the power lasts,
@@ -448,11 +515,11 @@ export class ArenaSim {
    * and clear of mines. Without enemies on the field, near the middle.
    */
   private spawnPoint(p: Player): V3 {
-    const side = this.mode === 'teams' ? p.team : 0
+    const side = isTeamMode(this.mode) ? p.team : 0
     const foes = this.tanks.filter((t) => t.alive && this.enemies(p, t.player))
-    const start = this.tick - this.matchStart < 60
+    const start = this.tick - this.roundStart < 60
     const list = start || !foes.length ? this.map.spawns[side] : this.map.halves[side]
-    const friends = this.mode === 'teams' ? this.tanks.filter((t) => t.alive && t.player !== p && t.player.team === p.team) : []
+    const friends = isTeamMode(this.mode) ? this.tanks.filter((t) => t.alive && t.player !== p && t.player.team === p.team) : []
     let best: V3 | null = null
     let bestScore = -Infinity
     for (let i = 0; i < 24; i++) {
@@ -596,6 +663,7 @@ export class ArenaSim {
       } else t.flareBack = 0
     }
     this.stepPickups(live)
+    if (this.zone && this.state === 'play') this.stepZone()
     if (this.state === 'play') this.checkEnd()
   }
 
@@ -947,21 +1015,23 @@ export class ArenaSim {
   }
 
   /** `layer`: whoever laid the mine (a mine kill) */
-  private kill(t: ATank, by: Player, cause: 'shell' | 'mine' | 'nuke', layer = 0) {
+  private kill(t: ATank, by: Player, cause: 'shell' | 'mine' | 'nuke' | 'zone', layer = 0) {
     const v = t.player
     t.alive = false
     t.vel = v3()
     t.power = null
     t.burst = 0
     t.shieldUntil = 0
-    t.respawnAt = this.tick + RESPAWN_TICKS
+    t.respawnAt = isOneLife(this.mode) ? Infinity : this.tick + RESPAWN_TICKS
+    t.outside = 0
     v.deaths++
     v.streak = 0
     v.killedBy = by === v ? null : by
     let killer = by.pid
     // a teammate's shell (or blast): scores nothing, costs the shooter a point
     const tk = by !== v && this.players.includes(by) && !this.enemies(by, v)
-    if (this.state === 'play') {
+    if (cause === 'zone') killer = 0
+    else if (this.state === 'play') {
       if (by === v || !this.players.includes(by)) {
         // self-destruction (or a player who left)
         if (by === v) v.score--
@@ -974,6 +1044,7 @@ export class ArenaSim {
         by.score++
         by.streak++
         by.best = Math.max(by.best, by.streak)
+        // (Elimination counts rounds, not kills)
         if (this.mode === 'teams') this.teamScore[by.team]++
       }
     }
@@ -1034,24 +1105,74 @@ export class ArenaSim {
     if (this.state === 'over' && (this.voteOptions as string[]).includes(theme)) this.votes.set(p.pid, theme as MapTheme)
   }
 
+  /** Battle royale: a tank left outside the zone too long is destroyed */
+  private stepZone() {
+    const z = this.zone!
+    const r = this.zoneR()
+    for (const t of this.tanks) {
+      if (!t.alive) continue
+      if (Math.hypot(t.pos.x - z.x, t.pos.z - z.z) <= r) t.outside = 0
+      else if (++t.outside >= ROYALE.outside) this.kill(t, t.player, 'zone')
+    }
+  }
+
   private checkEnd() {
+    if (this.mode === 'royale') return this.checkRoyale()
+    if (this.mode === 'elim') return this.checkElim()
     let done = this.tick >= this.phaseEnd
     if (this.mode === 'teams') done ||= this.teamScore.some((s) => s >= SIZES[this.size].teamLimit)
     else done ||= this.players.some((p) => p.score >= SIZES[this.size].ffaLimit)
     if (!done) return
-    if (this.mode === 'teams') {
-      const [a, b] = this.teamScore
-      this.winner = a === b ? null : { name: a > b ? 'Blue' : 'Red', color: TEAM_COLORS[a > b ? 0 : 1] }
-    } else {
-      const top = [...this.players].sort((a, b) => b.score - a.score || a.deaths - b.deaths)[0]
-      this.winner = top ? { name: top.name, color: top.color } : null
+    if (this.mode === 'teams') this.finishTeams()
+    else this.finishPlayer([...this.players].sort((a, b) => b.score - a.score || a.deaths - b.deaths)[0])
+  }
+
+  /** the last tank standing wins (or, at the time limit, the best score among those left) */
+  private checkRoyale() {
+    const alive = this.players.filter((p) => p.tank.alive)
+    const out = this.tick >= this.phaseEnd
+    if (!out && (alive.length > 1 || this.players.length < 2)) return
+    const best = (l: Player[]) => [...l].sort((a, b) => b.score - a.score || a.deaths - b.deaths)[0]
+    // nobody left (the last two went at once): nobody wins
+    this.finishPlayer(alive.length ? best(alive) : undefined)
+  }
+
+  /** a round ends when a team is wiped out, or at its time limit (more tanks left wins it) */
+  private checkElim() {
+    if (this.roundOverAt) {
+      if (this.tick < this.roundOverAt) return
+      if (this.teamScore.some((s) => s >= ELIM.rounds)) return this.finishTeams()
+      return this.startRound()
     }
-    this.winners = this.mode === 'teams' ? (this.winner ? this.players.filter((p) => p.team === (this.teamScore[0] > this.teamScore[1] ? 0 : 1)) : []) : this.players.filter((p) => this.winner && p.name === this.winner.name && p.color === this.winner.color).slice(0, 1)
+    const left = [0, 1].map((k) => this.players.filter((p) => p.team === k && p.tank.alive).length)
+    if (left[0] && left[1] && this.tick < this.phaseEnd) return
+    const team = left[0] === left[1] ? -1 : left[0] > left[1] ? 0 : 1
+    if (team >= 0) this.teamScore[team]++
+    this.events.push({ t: 'round', n: this.round, team, start: false })
+    this.roundOverAt = this.phaseEnd = this.tick + ELIM.between
+  }
+
+  private finishTeams() {
+    const [a, b] = this.teamScore
+    this.winner = a === b ? null : { name: a > b ? 'Blue' : 'Red', color: TEAM_COLORS[a > b ? 0 : 1] }
+    this.winners = this.winner ? this.players.filter((p) => p.team === (a > b ? 0 : 1)) : []
+    this.finish()
+  }
+
+  private finishPlayer(top: Player | undefined) {
+    this.winner = top ? { name: top.name, color: top.color } : null
+    this.winners = top ? [top] : []
+    this.finish()
+  }
+
+  /** results, then the ballot for the next map */
+  private finish() {
     for (const p of this.winners) p.wins++
     // three themes on the ballot, the current one last
     const others = MAP_THEMES.filter((t) => t !== this.map.theme).sort(() => this.rnd() - 0.5)
     this.voteOptions = [...others.slice(0, 2), this.map.theme]
     this.state = 'over'
+    this.roundOverAt = 0
     this.phaseEnd = this.tick + INTERMISSION_TICKS
     this.events.push({ t: 'match', state: 'over' })
   }

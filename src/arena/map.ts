@@ -4,7 +4,7 @@
 // off is filled with cork. Teams maps are mirrored left/right with an open base on each side.
 // Deterministic for a seed: the server sends the seed and every client rebuilds the same map.
 
-import { SIZES, type ArenaMode, type ArenaSize, type MapTheme } from './rules'
+import { isTeamMode, SIZES, type ArenaMode, type ArenaSize, type MapTheme } from './rules'
 
 export type ArenaMap = {
   seed: number
@@ -129,6 +129,8 @@ const THEMES: Record<MapTheme, { weights: number[]; corkWalls: number; gutterCor
 }
 
 export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mixed', size: ArenaSize = 'medium'): ArenaMap {
+  // Teams and Elimination: two mirrored halves with a base each
+  const teams = isTeamMode(mode)
   const rnd = mulberry(seed)
   const th = THEMES[theme] ?? THEMES.mixed
   const pieces = PIECES.map(([w, p], i) => [w * (th.weights[i] ?? 1), p] as [number, Piece])
@@ -145,11 +147,11 @@ export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mi
   const sy = Math.floor((rows - 2) / SECTOR)
   const ox = 1 + Math.floor((cols - 2 - sx * SECTOR) / 2)
   const oy = 1 + Math.floor((rows - 2 - sy * SECTOR) / 2)
-  const half = mode === 'teams' ? Math.ceil(sx / 2) : sx
+  const half = teams ? Math.ceil(sx / 2) : sx
   for (let j = 0; j < sy; j++)
     for (let i = 0; i < half; i++) {
       // teams: the outermost sector column is the base (light cover only)
-      const base = mode === 'teams' && i === 0
+      const base = teams && i === 0
       let r = rnd() * TOTAL
       let piece = PIECES[0][1]
       for (const [w, p] of pieces) {
@@ -170,7 +172,7 @@ export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mi
   // corridor extras: single cork blocks / holes, never two in a row across a gutter
   if (th.gutterCork || th.gutterHoles)
     for (let y = 1; y < rows - 1; y++)
-      for (let x = 1; x < (mode === 'teams' ? cols / 2 : cols - 1); x++) {
+      for (let x = 1; x < (teams ? cols / 2 : cols - 1); x++) {
         if (cells[y][x] !== 0) continue
         const inGutter = (x - ox) % SECTOR === 0 || (x - ox) % SECTOR === SECTOR - 1 || (y - oy) % SECTOR === 0 || (y - oy) % SECTOR === SECTOR - 1
         if (!inGutter || cells[y - 1][x] || cells[y][x - 1]) continue
@@ -183,15 +185,15 @@ export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mi
     const h = wood()
     if (rnd() < 0.5) {
       const y = oy + Math.floor(rnd() * (sy + 1)) * SECTOR
-      const x = ox + Math.floor(rnd() * (mode === 'teams' ? half : sx)) * SECTOR + 1
+      const x = ox + Math.floor(rnd() * (teams ? half : sx)) * SECTOR + 1
       if (y > 0 && y < rows - 1) for (let i = 0; i < 3; i++) if (cells[y][x + 1 + i] === 0) cells[y][x + 1 + i] = h
     } else {
-      const x = ox + Math.floor(rnd() * ((mode === 'teams' ? half : sx) + 1)) * SECTOR
+      const x = ox + Math.floor(rnd() * ((teams ? half : sx) + 1)) * SECTOR
       const y = oy + Math.floor(rnd() * sy) * SECTOR + 1
       if (x > 0 && x < cols - 1) for (let i = 0; i < 3; i++) if (cells[y + 1 + i]?.[x] === 0) cells[y + 1 + i][x] = h
     }
   }
-  if (mode === 'teams') for (let y = 0; y < rows; y++) for (let x = 0; x < cols / 2; x++) cells[y][cols - 1 - x] = cells[y][x]
+  if (teams) for (let y = 0; y < rows; y++) for (let x = 0; x < cols / 2; x++) cells[y][cols - 1 - x] = cells[y][x]
   // fill whatever the structures closed off: keep the largest connected open area
   const region = new Int32Array(cols * rows).fill(-1)
   let best = -1
@@ -229,10 +231,10 @@ export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mi
     return true
   })
   const spawns: [number, number][][] =
-    mode === 'teams'
+    teams
       ? [roomy.filter(([x]) => x < cols * 0.22), roomy.filter(([x]) => x > cols * 0.78)]
       : [roomy]
-  const halves: [number, number][][] = mode === 'teams' ? [roomy.filter(([x]) => x < cols * 0.46), roomy.filter(([x]) => x > cols * 0.54)] : spawns
+  const halves: [number, number][][] = teams ? [roomy.filter(([x]) => x < cols * 0.46), roomy.filter(([x]) => x > cols * 0.54)] : spawns
   return { seed, mode, theme, size, cols, rows, cells, spawns, halves, open }
 }
 

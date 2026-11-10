@@ -5,12 +5,12 @@ import { normalizeData } from '../../src/data'
 import { setTankRecords } from '../../src/sim/stats'
 import { ArenaSim } from '../../src/arena/sim'
 import { botThink } from '../../src/arena/bot'
-import { sizeOf } from '../../src/arena/rules'
+import { arenaModeOf, sizeOf } from '../../src/arena/rules'
 
 const params = JSON.parse(readFileSync('public/assets/data/params.json', 'utf8'))
 const maps = JSON.parse(readFileSync('public/assets/data/maps.json', 'utf8'))
 setTankRecords(normalizeData({ params, maps }).params.tanks)
-const mode = (process.argv[2] ?? 'ffa') as 'ffa' | 'teams'
+const mode = arenaModeOf(process.argv[2])
 const secs = Number(process.argv[3] ?? 120)
 const n = Number(process.argv[4] ?? 16)
 const size = sizeOf(process.argv[5])
@@ -29,6 +29,11 @@ for (let i = 0; i < secs * 60; i++) {
   worst = Math.max(worst, performance.now() - a)
   for (const e of sim.events) {
     count[e.t] = (count[e.t] ?? 0) + 1
+    // the match flow: rounds and results, with the time and who is left
+    if (e.t === 'round' || e.t === 'match') {
+      const left = sim.players.filter((p) => p.tank.alive).length
+      console.log(`${(i / 60).toFixed(1)}s ${e.t} ${JSON.stringify(e)} left ${left}${sim.zone ? ` zone r ${Math.round(sim.zoneR())}` : ''}${e.t === 'match' && e.state === 'over' ? ` winner ${sim.winner?.name ?? 'none'}` : ''}`)
+    }
     if (e.t === 'kill') {
       const k = e.killer === e.victim ? `self-${e.cause}` : e.tk ? `team-${e.cause}` : `kill-${e.cause}`
       kinds[k] = (kinds[k] ?? 0) + 1

@@ -18,12 +18,28 @@
 //     a flare launches a swarm of 10-15 tiny homing missiles that hunt down shells and rockets
 //     in flight (never tanks)
 //   - bots fill an arena up to its size's bot count and leave as players arrive
+//
+// Modes
+//   - Free-for-all and Teams: the timed matches above, with respawns
+//   - Battle royale: free-for-all with one life. A zone closes in on a random point; a tank
+//     left outside it for ROYALE.outside ticks is destroyed. The last tank standing wins
+//   - Elimination: Blue against Red with one life a round. A round ends when one team is
+//     wiped out (or after ELIM.roundTicks: the team with more tanks left wins it); the first
+//     team to ELIM.rounds rounds wins the match
+//   - in the one-life modes, players who join mid-round watch until the next one starts
 
 export const ARENA_TPS = 60
 /** snapshots per second (every SNAPSHOT_EVERY ticks) */
 export const SNAPSHOT_EVERY = 3
 
-export type ArenaMode = 'ffa' | 'teams'
+export type ArenaMode = 'ffa' | 'teams' | 'royale' | 'elim'
+export const ARENA_MODES: ArenaMode[] = ['ffa', 'teams', 'royale', 'elim']
+export const arenaModeOf = (v: unknown): ArenaMode => ((ARENA_MODES as unknown[]).includes(v) ? (v as ArenaMode) : 'ffa')
+export const MODE_NAMES: Record<ArenaMode, string> = { ffa: 'Free-for-all', teams: 'Teams', royale: 'Battle royale', elim: 'Elimination' }
+/** Blue against Red (no friendly-fire scoring, team bases, team colours) */
+export const isTeamMode = (m: ArenaMode) => m === 'teams' || m === 'elim'
+/** no respawns: out until the next round (Elimination) or the next match (Battle royale) */
+export const isOneLife = (m: ArenaMode) => m === 'royale' || m === 'elim'
 
 /**
  * Map sizes (each arena has one; players pick when they join). Bigger maps hold more players
@@ -42,6 +58,53 @@ export const MATCH_TICKS = 6 * 60 * 60
 export const INTERMISSION_TICKS = 12 * 60
 
 export const RESPAWN_TICKS = 3 * 60
+
+/**
+ * Battle royale. The zone starts big enough to hold the whole map and closes in on its centre
+ * in stages: [tick since the match started, radius as a fraction of the start]. After the last
+ * stage it holds at `min` units. `late`: players who join within this many ticks of the start
+ * still get a tank.
+ */
+export const ROYALE = {
+  stages: [
+    [0, 1],
+    [20 * 60, 1],
+    [50 * 60, 0.62],
+    [70 * 60, 0.62],
+    [95 * 60, 0.36],
+    [110 * 60, 0.36],
+    [135 * 60, 0.16],
+    [150 * 60, 0.16],
+    [175 * 60, 0],
+  ] as [number, number][],
+  min: 110,
+  outside: 3 * 60,
+  late: 10 * 60,
+}
+
+/** the zone's radius `t` ticks into a match that started at `r0` */
+export function zoneRadius(t: number, r0: number) {
+  const S = ROYALE.stages
+  let f = S[S.length - 1][1]
+  for (let i = 1; i < S.length; i++)
+    if (t < S[i][0]) {
+      const [t0, f0] = S[i - 1]
+      const [t1, f1] = S[i]
+      f = f0 + ((f1 - f0) * (t - t0)) / (t1 - t0)
+      break
+    }
+  return Math.max(ROYALE.min, r0 * f)
+}
+
+/** where the zone is headed: the radius it shrinks to next (its own radius once it's done) */
+export function zoneNext(t: number, r0: number) {
+  const now = zoneRadius(t, r0)
+  for (const [at, f] of ROYALE.stages) if (at > t && Math.max(ROYALE.min, r0 * f) < now - 0.5) return Math.max(ROYALE.min, r0 * f)
+  return now
+}
+
+/** Elimination: rounds to win the match, a round's length, the pause between rounds, late joins */
+export const ELIM = { rounds: 4, roundTicks: 2 * 60 * 60, between: 4 * 60, late: 5 * 60 }
 export const PROTECT_TICKS = Math.round(2.5 * 60)
 /** respawns: the best distance to the nearest enemy (about a screen away), the least, and how
  * far an enemy's line of sight counts against a spawn cell */

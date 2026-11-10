@@ -17,7 +17,7 @@ import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank
 import * as THREE from 'three/webgpu'
 import { generateMap, type ArenaMap } from './map'
 import { ARENA_PROTO, TF_ALIVE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
-import { EMOTE_TICKS, ITEM_INFO, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, isItem, type AnyPickup, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
+import { EMOTE_TICKS, ITEM_INFO, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, TEAM_NAMES, isItem, isTeamMode, type AnyPickup, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
 import { paramsFor } from '../sim/stats'
 import type { BaseModel } from '../render/registry'
 import { tankIcon } from '../ui/web/art'
@@ -56,6 +56,8 @@ export class ArenaSession implements Session {
   field: ArenaField | null = null
   world: World | null = null
   board: Board | null = null
+  /** when the last board arrived (performance.now), to move the zone between boards */
+  boardAt = 0
   you: YouRec | null = null
   feed: Feed[] = []
   /** big centre messages (streaks, match end) */
@@ -211,10 +213,11 @@ export class ArenaSession implements Session {
         // a match won (by this player, or by their team)
         if (m.state === 'over' && this.board?.state === 'play' && m.winner) {
           const me = m.players.find((p) => p[0] === this.pid)
-          const won = me && (this.mode === 'teams' ? m.winner.name === ['Blue', 'Red'][me[2]] : m.winner.name === me[1] && m.winner.color === me[3])
+          const won = me && (isTeamMode(this.mode) ? m.winner.name === ['Blue', 'Red'][me[2]] : m.winner.name === me[1] && m.winner.color === me[3])
           if (won) unlock('arena-win')
         }
         this.board = m
+        this.boardAt = performance.now()
         for (const p of m.players) this.names.set(p[0], { name: p[1], team: p[2], color: p[3] })
         return
       case 's':
@@ -477,13 +480,21 @@ export class ArenaSession implements Session {
     return pw ? PICKUP_KINDS[pw - 1] : null
   }
 
+  /** Battle royale: the zone now, moved on from the last board at its closing speed */
+  zoneNow(): { x: number; z: number; r: number; next: number } | null {
+    const z = this.board?.zone
+    if (!z) return null
+    const [x, y, r, next, speed] = z
+    return { x, z: y, r: Math.max(next, r - (speed * (performance.now() - this.boardAt)) / 1000), next }
+  }
+
   private lookOf(t: Tank): { base: BaseModel; color?: string } | { type: number } {
     const pid = t === this.world?.playerTanks[0] ? this.pid : (t.ai?.pid as number | undefined)
     const p = pid !== undefined ? this.names.get(pid) : undefined
     const power = this.powerOf(t)
     if (power) return { type: PICKUP_TYPE[power] }
     if (!p) return { base: '1p', color: '#8a8a8a' }
-    if (this.mode === 'teams') return { base: p.team === 1 ? '2p' : '1p' }
+    if (isTeamMode(this.mode)) return { base: p.team === 1 ? '2p' : '1p' }
     if (p.color === TEAM_COLORS[0]) return { base: '1p' }
     if (p.color === TEAM_COLORS[1]) return { base: '2p' }
     return { base: '1p', color: p.color }
@@ -694,7 +705,7 @@ export class ArenaSession implements Session {
             if (id === this.tankId) this.predicting = false
           }
           const v = this.names.get(victim)
-          const color = this.mode === 'teams' ? (v?.team ?? 9) : 9
+          const color = isTeamMode(this.mode) ? (v?.team ?? 9) : 9
           this.marks.push({ id: this.markId++, x, z, color })
           if (this.marks.length > 60) this.marks.shift()
           this.sound('RP_TNK_SE_HIT', x, z, 1)
@@ -778,6 +789,15 @@ export class ArenaSession implements Session {
             this.audio.play('RP_TNK_SE_GAMESTART')
           }
           break
+        case 'round': {
+          // Elimination: a round starts, or is decided
+          const [, n, team, start] = e
+          const me = this.board?.players.find((p) => p[0] === this.pid)
+          if (start) this.banner = { text: `Round ${n}`, until: performance.now() + 1800 }
+          else this.banner = { text: team < 0 ? `Round ${n}: a draw` : me && me[2] === team ? `Your team wins round ${n}!` : `${TEAM_NAMES[team]} wins round ${n}`, until: performance.now() + 3000 }
+          this.audio.play(start ? 'RP_TNK_SE_GAMESTART' : 'RP_TNK_SE_MISSION_BONUS')
+          break
+        }
         case 'match':
           if (e[1] === 'over') {
             this.audio.stopMusic(0.3)
@@ -795,7 +815,7 @@ export class ArenaSession implements Session {
     const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
     const tag = (p: { name: string; color: string; team: number } | undefined, pid: number) => {
       if (!p) return '<b>?</b>'
-      const c = this.mode === 'teams' ? TEAM_COLORS[p.team] : p.color
+      const c = isTeamMode(this.mode) ? TEAM_COLORS[p.team] : p.color
       const dark = `#${new THREE.Color(c).multiplyScalar(0.55).getHexString()}`
       return `<span class="who ${pid === this.pid ? 'me' : ''}">${tankIcon(c, dark).outerHTML}<b>${esc(p.name)}</b></span>`
     }
@@ -805,6 +825,9 @@ export class ArenaSession implements Session {
     if (killer === victim) {
       html = `${tag(v, victim)} <i>${cause === 'nuke' ? 'caught in their own nuke' : cause === 'mine' ? 'stepped on their own mine' : 'hit by their own shell'}</i>`
       text = `${v?.name} self-destructed`
+    } else if (cause === 'zone') {
+      html = `${tag(v, victim)} <i>was caught outside the zone</i>`
+      text = `${v?.name} was caught outside the zone`
     } else if (!killer) {
       html = `${tag(v, victim)} <i>was destroyed</i>`
       text = `${v?.name} was destroyed`
@@ -826,7 +849,7 @@ export class ArenaSession implements Session {
       this.banner = { text: up ? `${word ?? 'Streak!'} ${up}` : word ? `${word}` : `Destroyed ${v?.name ?? ''}`, until: performance.now() + (up ? 2400 : 1600) }
       this.audio.play(streak >= 3 ? 'RP_TNK_SE_MISSION_BONUS' : 'RP_TNK_SE_GET_HIT')
     } else if (victim === this.pid) {
-      this.banner = { text: killer === victim ? 'Oops!' : `Destroyed by ${k?.name ?? '?'}`, until: performance.now() + 2600 }
+      this.banner = { text: cause === 'zone' ? 'Caught outside the zone!' : killer === victim ? 'Oops!' : `Destroyed by ${k?.name ?? '?'}`, until: performance.now() + 2600 }
     }
   }
 }
