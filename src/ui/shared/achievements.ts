@@ -23,6 +23,8 @@
 //                                                                     ARENA_SPECIALS ('Teal', 'Green', ...)
 //   'arena-mine-steal'    unlock('arena-mine-steal')                  a kill credited to the local
 //                                                                     player by a mine another player laid
+//   'arena-chain'         unlock('arena-chain')                       a kill credited to the local player
+//                                                                     by a mine set off by another mine's blast
 // e.g.  import { unlock, progress, reach, collect } from '../ui/shared/achievements'
 //       if (e.t === 'kill' && e.killer === me.pid) { unlock('arena-first-kill'); progress('arena-kills-100'); reach('arena-streak-5', me.streak) }
 // =========================================================================================
@@ -86,6 +88,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'arena-win', group: 'arena', name: 'King of the arena', desc: 'Win an arena match.', tank: 5 },
   { id: 'arena-all-specials', group: 'arena', name: 'Collector', desc: 'Play as every special tank in the arena.', keys: ARENA_SPECIALS, tank: 6 },
   { id: 'arena-mine-steal', group: 'arena', name: 'Return to sender', desc: 'Destroy a tank with a mine someone else laid.', tank: 9 },
+  { id: 'arena-chain', group: 'arena', name: 'Chain reaction', desc: 'Destroy a tank with a mine set off by another mine\'s blast.', tank: 5 },
   { id: 'arena-kills-100', group: 'arena', name: 'Veteran', desc: 'Destroy 100 tanks in the arena.', goal: 100, tank: 2 },
 ]
 

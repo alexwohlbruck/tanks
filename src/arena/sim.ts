@@ -293,6 +293,9 @@ export type AMine = {
   /** who set it off: the shooter of the shell that hit it (or of the blast that chained it);
    * null when its own fuse or a tank driving close did. Its kills are credited to them. */
   by: Player | null
+  /** how far down a chain its blast came: 0 set off by itself, a shell or a tank; n + 1 set off
+   * by the blast of a mine at n */
+  chain: number
 }
 /** a flare missile */
 export type AFlare = { id: number; owner: ATank; pos: V3; vel: V3; age: number; range: number; target: AShell | null; dead: boolean }
@@ -304,7 +307,7 @@ export type ArenaEvent =
   | { t: 'shellDie'; x: number; z: number; wall: boolean }
   | { t: 'clash'; x: number; z: number }
   /** `tk`: a teammate did it (scores nothing, costs the killer a point) */
-  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine' | 'nuke' | 'zone'; streak: number; layer: number; tk: boolean }
+  | { t: 'kill'; tank: number; x: number; z: number; victim: number; killer: number; cause: 'shell' | 'mine' | 'nuke' | 'zone'; streak: number; layer: number; tk: boolean; chain: number }
   | { t: 'shieldPop'; tank: number; x: number; z: number }
   | { t: 'flare'; tank: number; x: number; z: number; n: number }
   | { t: 'flareHit'; x: number; z: number }
@@ -642,7 +645,7 @@ export class ArenaSim {
           this.control(t)
           continue
         }
-        if (mh) this.kill(t, this.detonator(mh), mh.nuke ? 'nuke' : 'mine', mh.owner.player.pid)
+        if (mh) this.kill(t, this.detonator(mh), mh.nuke ? 'nuke' : 'mine', mh.owner.player.pid, mh.chain)
         else this.kill(t, sh!.s.owner.player, 'shell')
         continue
       }
@@ -754,14 +757,14 @@ export class ArenaSim {
     }
     if (nuke && t.nukes > 0 && pc.mineTimer === 0) {
       t.nukes--
-      this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: true, fuseLit: true, timer: NUKE.fuse, blast: MINE.blastIdle, dead: false, by: null, nuke: true, blastMax: nukeBlast(this.level(t)) })
+      this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: true, fuseLit: true, timer: NUKE.fuse, blast: MINE.blastIdle, dead: false, by: null, chain: 0, nuke: true, blastMax: nukeBlast(this.level(t)) })
       this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
       pc.mineTimer = pc.mineCooldown
       pc.freeze = pc.mineFreeze
       t.protectUntil = 0
     } else if (mine) {
       if (pc.mineTimer === 0 && this.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines) {
-        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null, nuke: false, blastMax: MINE.blastMax })
+        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null, chain: 0, nuke: false, blastMax: MINE.blastMax })
         this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
         pc.mineTimer = pc.mineCooldown
         pc.freeze = pc.mineFreeze
@@ -928,9 +931,10 @@ export class ArenaSim {
     return t === m.owner || t.player === d || this.enemies(d, t.player)
   }
 
-  private explodeMine(m: AMine, by: Player | null = null) {
+  private explodeMine(m: AMine, by: Player | null = null, chain = 0) {
     if (m.state === 2) return
     if (by) m.by = by
+    m.chain = chain
     m.state = 2
     m.fuseLit = true
     m.timer = 0
@@ -945,7 +949,7 @@ export class ArenaSim {
         // a nuke: only its fuse, a shell or another blast
         for (const o of this.mines)
           if (o !== m && o.state === 2 && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) <= o.blast + NUKE.bodyRadius) {
-            this.explodeMine(m, this.detonator(o))
+            this.explodeMine(m, this.detonator(o), o.chain + 1)
             break
           }
         if ((m.state as number) !== 2 && --m.timer <= 0) this.explodeMine(m)
@@ -966,7 +970,7 @@ export class ArenaSim {
         // chained by another blast
         for (const o of this.mines)
           if (o !== m && o.state === 2 && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) <= o.blast + MINE.bodyRadius) {
-            this.explodeMine(m, this.detonator(o))
+            this.explodeMine(m, this.detonator(o), o.chain + 1)
             break
           }
         if ((m.state as number) === 2) continue
@@ -1014,8 +1018,8 @@ export class ArenaSim {
     }
   }
 
-  /** `layer`: whoever laid the mine (a mine kill) */
-  private kill(t: ATank, by: Player, cause: 'shell' | 'mine' | 'nuke' | 'zone', layer = 0) {
+  /** `layer`: whoever laid the mine; `chain`: how far down a chain of blasts it was (a mine kill) */
+  private kill(t: ATank, by: Player, cause: 'shell' | 'mine' | 'nuke' | 'zone', layer = 0, chain = 0) {
     const v = t.player
     t.alive = false
     t.vel = v3()
@@ -1048,7 +1052,7 @@ export class ArenaSim {
         if (this.mode === 'teams') this.teamScore[by.team]++
       }
     }
-    this.events.push({ t: 'kill', tank: t.id, x: t.pos.x, z: t.pos.z, victim: v.pid, killer, cause, streak: by !== v && !tk ? by.streak : 0, layer, tk })
+    this.events.push({ t: 'kill', tank: t.id, x: t.pos.x, z: t.pos.z, victim: v.pid, killer, cause, streak: by !== v && !tk ? by.streak : 0, layer, tk, chain })
   }
 
   private stepPickups(live: ATank[]) {
