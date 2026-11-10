@@ -118,7 +118,7 @@ export const SPAWN_SIGHT = 620
  *   Teal    rockets (shell speed 6, no ricochet)        Green  rockets with 2 ricochets
  *   Black   very fast, rockets                          Pink   fires in bursts of three
  *   Yellow  fast mine layer: 4 mines, short cooldown    Violet aggressive: 8 shells, 3 mines
- *   White   invisible to enemies (only its tracks show; firing gives it away for a moment)
+ *   White   invisible to enemies, firing included (only its tracks and shells show)
  */
 //   and two Tanks+ types (src/sim/types):
 //   Hornet  homing rockets (no ricochet)               Sniper very fast shells along a laser
@@ -188,8 +188,6 @@ export const PICKUP_RADIUS = 22
 export const ROCKET_SHELL_SPEED = 6
 /** Black: speed 2.4 against the player's 1.8 */
 export const BLACK_SPEED = 2.4 / 1.8
-/** White is seen by enemies for this long after firing */
-export const WHITE_REVEAL = 40
 
 /** what a power (and the streak level) does to the tank's numbers; the speed never depends
  * on the level (the client predicts it from the power alone) */

@@ -1,6 +1,6 @@
-// Input devices mapped onto the Wii controls:
+// Input devices mapped onto the original controls:
 //   Nunchuk stick  -> WASD / arrows / left stick (D-pad = digital, 46 degree drive cone)
-//   Wii pointer    -> mouse, or a virtual pointer moved by the right stick
+//   remote pointer    -> mouse, or a virtual pointer moved by the right stick
 //   B (fire)       -> left click / J / gamepad RT, RB or A
 //   A (mine)       -> right click / Space / E / Shift / K / gamepad LT, LB or X
 //   flare (arena)  -> F / Q / middle click / gamepad Y
@@ -194,7 +194,7 @@ export class Input {
     const dpx = (btn(15) ? 1 : 0) - (btn(14) ? 1 : 0)
     const dpy = (btn(13) ? 1 : 0) - (btn(12) ? 1 : 0)
     if (lx || ly || rx || ry || g.buttons.some((b) => b.pressed)) this.use(g.index)
-    // right stick drives a pointer, like pointing the Wii Remote
+    // right stick drives a pointer, like pointing a remote
     slot.pointer.x = Math.min(1, Math.max(0, slot.pointer.x + rx * 0.018))
     slot.pointer.y = Math.min(1, Math.max(0, slot.pointer.y + ry * 0.018 * (16 / 9)))
     const analog = !!(lx || ly)

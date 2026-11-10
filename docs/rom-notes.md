@@ -1,4 +1,4 @@
-# Wii Play (RHAE01) — Tanks! data notes
+# RHAE01 — Tanks! data notes
 
 Extract with `tools/extract_rom.sh` → `build/rom/x/...` (all `.carc` are Yaz0-compressed U8).
 

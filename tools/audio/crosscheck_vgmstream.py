@@ -33,7 +33,7 @@ def find_vgmstream(arg):
 
 
 def dsp_header(d, wi, nsamples_override=None):
-    """Build a 0x60-byte Nintendo .dsp header for the WaveInfo at d[wi] (mono)."""
+    """Build a 0x60-byte .dsp header for the WaveInfo at d[wi] (mono)."""
     loop = d[wi + 1]
     rate = (d[wi + 3] << 16) + nw4r.u16(d, wi + 4)
     ls = nw4r.u32(d, wi + 8)

@@ -256,7 +256,10 @@ body.touch-play .ar-slot kbd { display: none; }
 .ar-hud .ar-sheet { background: rgba(30, 14, 2, 0.35); backdrop-filter: blur(3px); animation: fade-in 0.12s ease-out; }
 .panel.results.ar-results { width: min(54em, 96vw); max-height: 88vh; }
 .ar-results .kills { min-height: 0; }
-.ar-results .kills-head, .ar-results .kill-row { grid-template-columns: 1.3em minmax(0, 1fr) repeat(3, 2.7em); gap: 0.35em; }
+/* the head shrinks only its text, so its columns are the same width as the rows' */
+.ar-results .kills-head, .ar-results .kill-row { grid-template-columns: 1.3em minmax(0, 1fr) repeat(3, 3.2em); gap: 0.35em; }
+.ar-results .kills-head { font-size: 1em; }
+.ar-results .kills-head span { font-size: 0.72em; }
 .ar-results .kills-head span:nth-child(n + 3) { text-align: right; }
 .ar-results .kill-row .rk { opacity: 0.55; font-weight: 700; }
 .ar-results .kill-row .kname { display: flex; align-items: center; gap: 0.4em; min-width: 0; }
@@ -352,18 +355,16 @@ body:has(.arena-ui .ar-connecting:not([hidden])) #pause-btn { display: none; }
 /* quick chat leaves the aim stick's corner on touch screens: under the pause button */
 body.touch-play .ar-chat { bottom: auto; top: calc(max(12px, env(safe-area-inset-top)) + clamp(40px, 6vmin, 56px) + 2.4em); right: 0.9em; flex-direction: column; }
 
-/* where you just spawned: a bouncing tag in your colour over the tank (screen.ts drawYou) */
+/* where you just spawned: a small tag in your colour over the tank (screen.ts drawYou) */
 .ar-you { position: absolute; left: 0; top: 0; pointer-events: none; }
 .ar-you span {
-  display: block; position: relative; margin-bottom: 0.9em;
-  padding: 0.15em 0.75em; border-radius: 99em;
-  background: var(--c, #fff); color: #fff; font-weight: 900; font-size: 1em; letter-spacing: 0.02em;
-  text-shadow: 0 0.08em 0 rgba(0, 0, 0, 0.35);
-  box-shadow: 0 0 0 0.14em #fffdf7, 0 0.25em 0.5em rgba(0, 0, 0, 0.35);
-  animation: you-bob 0.6s ease-in-out infinite alternate, pop-in 0.25s cubic-bezier(0.2, 1.6, 0.4, 1);
+  display: block; position: relative; margin-bottom: 0.6em;
+  padding: 0.05em 0.55em; border-radius: 99em;
+  background: var(--c, #fff); color: #fff; font-weight: 800; font-size: 0.72em;
+  box-shadow: 0 0 0 0.12em #fffdf7, 0 0.1em 0.25em rgba(0, 0, 0, 0.3);
+  animation: pop-in 0.2s ease-out;
 }
 .ar-you span::after {
-  content: ''; position: absolute; left: 50%; top: 100%; margin: 0.12em 0 0 -0.5em;
-  border: 0.5em solid transparent; border-top-color: #fffdf7; border-bottom: 0;
+  content: ''; position: absolute; left: 50%; top: 100%; margin: 0.1em 0 0 -0.35em;
+  border: 0.35em solid transparent; border-top-color: #fffdf7; border-bottom: 0;
 }
-@keyframes you-bob { from { transform: translateY(0); } to { transform: translateY(-0.45em); } }

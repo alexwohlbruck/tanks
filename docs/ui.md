@@ -50,7 +50,7 @@ preview.html
 
 PNGs are RGBA with **GX channel semantics**. I4/I8 are written as (I,I,I,I), so alpha equals intensity.
 IA4/IA8 are written as (I,I,I,A). The PNGs therefore hold the texel values the TEV sees, and a renderer can
-apply material colours the same way the Wii does (see Rendering). Wrap modes are `clamp|repeat|mirror`.
+apply material colours the same way the console does (see Rendering). Wrap modes are `clamp|repeat|mirror`.
 
 ### Layout JSON
 
@@ -172,7 +172,7 @@ Each tag is replaced in `text` with a placeholder and kept verbatim in `tags[]` 
 | `00 1A 08 02 00 02 pp pp` | `{win:2:pppp}` | choice variant (inferred) |
 | `00 1A 08 02 00 03 00 00` | `{win:3:0000}` | left-aligned / indented message box text (inferred) |
 
-No colour, size or ruby tags appear in the US Wii Play BMGs. A decoder would emit `{color:n}`, `{size:n}`
+No colour, size or ruby tags appear in the game's US BMGs. A decoder would emit `{color:n}`, `{size:n}`
 or `{ruby:…}` for group 0 ids 3, 2 and 0 with params.
 Private-use glyphs in the font: U+E041 = +Control Pad, U+E042 = A Button, U+E043 = B Button, U+E045 = + Button,
 U+E047/U+E048 = 1/2 Buttons, and U+3327 (㌧) = Nunchuk Control Stick.
@@ -408,7 +408,7 @@ It is spawned from `RPTnkTank` when a shell hits a tank, but only when `ModeIdx 
   - `N_remoteP_00` hosts `ptG8RemoteH_00`.
 
   Animations: `in_00`, `inFrame_00`, `inAlphaFrame_00`, `pushA_00`, `out_00`, `outFrame_00`, and `tpaGameScreen_00`, which is a texture pattern over `te_game_00..08`.
-- `ptG8RemoteH_00` is the Tanks controller illustration (Nunchuk + Wii Remote). It uses `sm_remoteH_00/01` and the animation `remote_00`. Tanks is game texture index 8: `te_game_08.png` is the screenshot and `sm_gameIcon_08.png` is the icon. The BMG game index is 9, because slot 6 is an empty message.
+- `ptG8RemoteH_00` is the Tanks controller illustration (nunchuk + remote). It uses `sm_remoteH_00/01` and the animation `remote_00`. Tanks is game texture index 8: `te_game_08.png` is the screenshot and `sm_gameIcon_08.png` is the icon. The BMG game index is 9, because slot 6 is an empty message.
 - `ptSelectGame_00` is the game-select grid.
 - `pause_00` is the pause menu (`RPSysPauseMenu`): 750/751/752 = 0x0002ee00 Continue / 0x0002ef00 Start over / 0x0002f000 Quit (common_message). `in_00` / `out_00` are bound to `N_center_00`; `active_00` / `push_00` are bound to each button pane.
 - `ptPauseText_00` is the "⊕ Pause" hint.
@@ -424,7 +424,7 @@ It is spawned from `RPTnkTank` when a shell hits a tank, but only when `ModeIdx 
   - `T_rankGet_*` = 0x1F4C sub rank: Bronze, Silver, Gold or Platinum Medal Earned.
   - `T_congrats_*` = 0x1F4D00 "Congratulations!".
 - `rankComplete_00` is the all-medals-completed popup.
-- `playAdvice_00` is the safety advice window. It contains Wii Sports artwork (`te_wiiSportsLogo`); Wii Play reuses the archive.
+- `playAdvice_00` is the safety advice window. It contains another game's artwork (a logo texture); this game reuses the archive.
 - `messageWindowB/W_00` and `systemWindow_00` are generic dialogs.
 - `playerSelect_0x` and `rimoconEntry_00` are player and remote selection.
 - `nunchukCheck_00` is the "connect the Nunchuk" prompt.
@@ -457,7 +457,7 @@ IDs are confirmed against the decomp's `setMessage` calls.
 | 0x000b6400/01, 0x000b6500, 0x000b6600/01 | `P1` / `P2` | tnkResult_00 2P list / 1P list / 2P total |
 | 0x000b7c00..03 | `Move the tank with ㌧ or ✚.` / `Aim at the enemy tank.` / `Fire with Ⓑ.` / `Drop mines with Ⓑ.` | tnkEx_00 (the last string uses U+E043 in the ROM) |
 | 0x001b5809, 0x001b6209 | `Tanks!` | game title |
-| 0x001b5909 (= 0x001b5a09) | `Wii Remote: Aim\n㌧ or ✚: Steer tank\nⒷ: Fire\nⒶ: Drop a mine` | how-to-play T_comment_00 |
+| 0x001b5909 (= 0x001b5a09) | `Remote: Aim\n㌧ or ✚: Steer tank\nⒷ: Fire\nⒶ: Drop a mine` | how-to-play T_comment_00 |
 | 0x001b5b00 | `Ⓐ: Start` | how-to-play |
 | 0x001b5c09 / 0x001f4b09 | `Stage 9` | |
 | 0x001b8a09 | `Point to aim` | |

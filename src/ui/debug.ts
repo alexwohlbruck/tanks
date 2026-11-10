@@ -1,5 +1,6 @@
 // Debug panel (not in the original): unlimited lives, mission select, skip/lose a mission.
 // Open with ` (backquote) or ?debug in the URL. Settings persist in localStorage.
+// Development builds only (src/app/app.ts creates it behind import.meta.env.DEV).
 
 import type { Game } from '../game'
 import type { Hud } from './hud'

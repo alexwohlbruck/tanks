@@ -1,4 +1,4 @@
-// What Wii Play keeps for Tanks: RPPartyPlayerData's best medal and five-entry "My Record" list
+// What the original keeps for Tanks: RPPartyPlayerData's best medal and five-entry "My Record" list
 // (persisted in localStorage), and RPSceneInfo's 2P win tally (kept for the session only, as it
 // is reset when the player count is chosen again).
 
@@ -40,7 +40,7 @@ export function resetVsSession() {
   vsSession.streak = 0
 }
 
-// ---- level pack medals (the Tanks+ campaign; not a Wii Play feature) ----------------------------
+// ---- level pack medals (the Tanks+ campaign; not an original feature) ----------------------------
 
 const PACK_KEY = 'tanks.packMedals'
 

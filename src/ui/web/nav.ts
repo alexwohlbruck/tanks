@@ -1,6 +1,6 @@
 // Focus navigation for the web screens: arrow keys / WASD and the gamepad D-pad or left stick
 // move the focus spatially between controls, Enter / Space / A activate, Esc / Backspace / B
-// go back. The pointer focuses what it hovers (like the Wii pointer), so key and pointer use
+// go back. The pointer focuses what it hovers (like a remote pointer), so key and pointer use
 // mix freely. Gamepad edges come from the app's 60 Hz input poll (feedMenuPad).
 
 import type { PadState } from '../../input'

@@ -1,6 +1,6 @@
 """Effect assets: BTI tread marks, REFT effect textures, REFF emitters.
 
-REFF/REFT layout (NW4R ef, file version 5 as shipped in Wii Play):
+REFF/REFT layout (NW4R ef, file version 5 as shipped in this game):
 
   FileHeader 0x10: magic 'REFF'/'REFT', u16 BOM, u16 version, u32 size,
                    u16 header size, u16 block count
@@ -16,7 +16,7 @@ REFF/REFT layout (NW4R ef, file version 5 as shipped in Wii Play):
              u16 nPtclTrack, u16 nPtclInitTrack, u32 ptr[n], u32 size[n],
              u16 nEmitTrack, u16 nEmitInitTrack, u32 ptr[m], u32 size[m],
              track data (AnimCurve, see parse_track).
-Field offsets follow nw4r/ef headers from the Wii Play decompilation; the
+Field offsets follow nw4r/ef headers from the decompilation; the
 v5 data differs from the decomp's v7 structs in two places (documented in
 docs/models.md): EmitterDesc has 0xC extra bytes before the draw setting and
 the draw setting is 0xC shorter; ParticleParameterDesc stores its texture

@@ -1,4 +1,4 @@
-# Wii Play Tanks! — game logic recovered from main.dol
+# Tanks! — game logic recovered from main.dol
 
 Status: superseded by the matching decompilation (`build/decomp`, see §9). The DOL analysis below
 was used to confirm that the decomp matches RHAE01 Rev 0.
@@ -100,8 +100,8 @@ Field types (from lwz/lfs in the copy) and destinations:
 
 ## 9. Decomp cross-check summary
 
-Midway through this analysis a matching C++ decompilation of Wii Play was found
-(https://github.com/Nikman800/wiiplay, cloned to `build/decomp`; built for Rev 1). The
+Midway through this analysis a matching C++ decompilation of the game was found
+(cloned to `build/decomp`, whose git remote has the source; built for Rev 1). The
 simulation in `src/sim/` and `src/game.ts` is a direct port of it, with every routine
 citing its decomp file and function. The following was checked instruction-by-instruction
 against this DOL (RHAE01 Rev 0) and found identical [C]:

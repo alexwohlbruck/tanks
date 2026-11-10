@@ -1,4 +1,4 @@
-// Modern UI wording for the mission 1 control hints (RPTnkExGuide): the Wii Remote and Nunchuk
+// Modern UI wording for the mission 1 control hints (RPTnkExGuide): the remote and nunchuk
 // icons become the keyboard, mouse and gamepad controls (following the key bindings), or the
 // on-screen sticks on touch screens (src/ui/touch.ts).
 

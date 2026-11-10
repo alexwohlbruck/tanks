@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { LEVEL_H, LEVEL_W, type EnemySlot, type LevelDef, type LevelPack } from '../../src/levels/format'
 import { checkPack, normalizePack } from '../../src/levels/check'
-import { getRow, insertPack } from './store'
+import { getRow, insertPack, updatePack } from './store'
 
 /**
  * ASCII level rows: `.` empty, `1`-`7` wood stack (201-207), `a`-`g` cork stack (101-107),
@@ -171,7 +171,7 @@ export function seedStore() {
       const maps = JSON.parse(readFileSync(`${dir}/maps.json`, 'utf8')) as Record<string, RawMap>
       const missions = (JSON.parse(readFileSync(`${dir}/params.json`, 'utf8')) as { missions: RawMission[] }).missions
       const add = (id: string, p: LevelPack | null) => p && packs.push({ id, pack: p })
-      add('classic-highlights', discPack(maps, missions, 'Classic Highlights', 'Eight memorable arenas from the Wii Play campaign, with their original tanks.', [3, 6, 9, 13, 14, 17, 18, 30]))
+      add('classic-highlights', discPack(maps, missions, 'Classic Highlights', 'Eight memorable arenas from the original campaign, with their original tanks.', [3, 6, 9, 13, 14, 17, 18, 30]))
       add('classic-gauntlet', discPack(maps, missions, 'Late Game Gauntlet', 'Missions from the gold-medal half of the campaign: Violet, White and Black tanks.', [41, 51, 61, 71, 75, 85], 5))
       add('classic-mazes', discPack(maps, missions, 'Wood & Cork Mazes', 'The twistiest maze layouts of the original game.', [10, 11, 16, 19, 25]))
     } catch (e) {
@@ -179,7 +179,12 @@ export function seedStore() {
     }
   }
   for (const { id, pack } of packs) {
-    if (getRow(id)) continue
+    const row = getRow(id)
+    // a seed pack already in the store: refreshed when its text changes here (plays and ratings stay)
+    if (row) {
+      if (row.seed && (row.name !== pack.name || row.description !== (pack.description ?? ''))) updatePack(id, normalizePack(pack), row.author)
+      continue
+    }
     const c = checkPack(pack)
     if (c.errors.length) {
       console.warn(`levels: seed ${id} invalid:`, c.errors)

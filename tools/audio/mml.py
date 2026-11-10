@@ -1,6 +1,6 @@
 """RSEQ (NW4R MML sequence) bytecode decoding and disassembly.
 
-Command set follows nw4r::snd::detail::MmlParser (Wii Sports / Wii Play era).
+Command set follows nw4r::snd::detail::MmlParser (this game's era).
 """
 
 NAMES = {

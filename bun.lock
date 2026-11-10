@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "wii-play-tanks",
+      "name": "tanks",
       "dependencies": {
         "three": "^0.187.0",
       },

@@ -1,6 +1,6 @@
-"""Parsers for NintendoWare for Revolution (NW4R) sound formats.
+"""Parsers for NW4R sound formats.
 
-Stdlib-only. Covers the formats found in Wii Play's sound archives:
+Stdlib-only. Covers the formats found in the game's sound archives:
 
   RSAR  sound archive (SYMB / INFO / FILE)
   RWSD  wave sound data (DATA + WAVE info blocks, sample data in the group's
@@ -10,8 +10,8 @@ Stdlib-only. Covers the formats found in Wii Play's sound archives:
   RSTM  stream (HEAD / ADPC / DATA)
   WaveInfo + DSP-ADPCM decoding
 
-Layouts follow nw4r::snd (see the Wii Sports decompilation, kiwi515/ogws,
-include/nw4r/snd/snd_*File.h), which is the same NW4R generation as Wii Play.
+Layouts follow nw4r::snd (see the ogws decompilation (kiwi515/ogws),
+include/nw4r/snd/snd_*File.h), which is the same NW4R generation as this game.
 """
 import struct
 
@@ -80,7 +80,7 @@ def table_refs(d, o, base):
 # ---------------------------------------------------------------------------
 
 def decode_adpcm(data, off, nsamples, coefs, hist1=0, hist2=0):
-    """Decode GameCube/Wii DSP-ADPCM. Frames are 8 bytes / 14 samples."""
+    """Decode DSP-ADPCM. Frames are 8 bytes / 14 samples."""
     out = [0] * nsamples
     c = coefs
     i = 0

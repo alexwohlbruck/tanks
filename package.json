@@ -1,5 +1,5 @@
 {
-  "name": "wii-play-tanks",
+  "name": "tanks",
   "private": true,
   "type": "module",
   "scripts": {

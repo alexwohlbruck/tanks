@@ -5,7 +5,7 @@
 // - modern (default): the window is filled at any aspect, the 2D layouts render as vectors
 //   at device resolution, and the menus are DOM screens (src/ui/web: title, menu, settings,
 //   pause, results, credits) over an attract-mode match;
-// - classic (Settings > "Classic Wii UI", or ?classic): the 16:9 TV picture with Wii Play's
+// - classic (Settings > "Classic UI", or ?classic): the 16:9 TV picture with the original game's
 //   own pre-game, pause and result screens and bitmap fonts.
 
 import { Vector3 } from 'three/webgpu'
@@ -52,13 +52,14 @@ export class App implements AppContext {
   input: Input
   view: SceneView
   presenter: UiPresenter
-  /** Wii Play's pre-game / pause screens (classic UI only) */
+  /** the original game's pre-game / pause screens (classic UI only) */
   hud: Hud | null = null
   router: Router
-  debug!: DebugPanel
+  /** development builds only: the ` debug panel (unlimited lives, mission select) */
+  debug?: DebugPanel
   session: Session
   params = new URLSearchParams(location.search)
-  /** the original Wii Play front end (see the header) */
+  /** the original front end (see the header) */
   readonly classic = classicUi()
   private pad: PadState
   private frame = 0
@@ -112,7 +113,7 @@ export class App implements AppContext {
       menu: () => this.hud?.mi ?? { up: false, down: false, left: false, right: false, a: false, b: false, plus: false, ab: false, pointer: null },
       screenFade: (t) => (gl.style.filter = t > 0 ? screenFilter(t, gl.clientHeight) : ''),
       // RPPartyPlayerData medal >= 3 (gold) lifts the 20-mission cap of later runs
-      medalSaved: (medal) => (game.options.goldMedal = medal >= 3 || this.params.has('gold')),
+      medalSaved: (medal) => (game.options.goldMedal = medal >= 3 || (import.meta.env.DEV && this.params.has('gold'))),
     })
     if (!this.classic) this.presenter.web = { results: (players) => this.show('results', { players }) }
     if (this.classic)
@@ -151,7 +152,7 @@ export class App implements AppContext {
       onSettings((s) => applyModernMessages(s, this.touch.enabled))
       this.touch.onEnabled = (on) => applyModernMessages(settings, on)
     }
-    game.options.goldMedal = loadPlayerData().medal >= 3 || this.params.has('gold')
+    game.options.goldMedal = loadPlayerData().medal >= 3 || (import.meta.env.DEV && this.params.has('gold'))
     this.wireGameAudio()
     let fieldW = 0
     game.listener = {
@@ -173,7 +174,7 @@ export class App implements AppContext {
     // phones report the new size a little after an orientation change
     screen.orientation?.addEventListener('change', () => setTimeout(() => this.resize(), 250))
     this.resize()
-    this.debug = new DebugPanel(game, { debugStart: (players, mission) => this.debugStart(players, mission) }, document.body)
+    if (import.meta.env.DEV) this.debug = new DebugPanel(game, { debugStart: (players, mission) => this.debugStart(players, mission) }, document.body)
     let acc = 0
     let last = performance.now()
     const dt = 1000 / FPS
@@ -195,13 +196,12 @@ export class App implements AppContext {
       }
     }
     requestAnimationFrame(loop)
-    if (this.params.has('mission')) this.playClassic(this.params.get('p2') ? 2 : 1, Number(this.params.get('mission')) - 1)
+    if (import.meta.env.DEV && this.params.has('mission')) this.playClassic(this.params.get('p2') ? 2 : 1, Number(this.params.get('mission')) - 1)
     else if (!this.classic) this.toTitle()
     // [net] ?join=CODE (shared room link) / ?online opens the lobby
     handleJoinParam(this)
-    ;(window as unknown as { game: Game; audio: Audio; app: App }).game = game
-    ;(window as unknown as { audio: Audio }).audio = audio
-    ;(window as unknown as { app: App }).app = this
+    // the headless test scripts (tools/dev) drive the game through these
+    if (import.meta.env.DEV) Object.assign(window, { game, audio, app: this })
   }
 
   private applySettings(s: Settings) {
@@ -219,7 +219,7 @@ export class App implements AppContext {
     // the attract-mode match behind the title and menus plays silently
     const live = () => this.session.kind !== 'demo'
     this.game.audio = {
-      // *_CSPK sounds come out of the Wii Remote speaker on the console; play them quieter
+      // *_CSPK sounds come out of the remote's speaker on the console; play them quieter
       se: (name, pos) => live() && audio.play(name, { pan: pan(pos), volume: name.endsWith('_CSPK') ? 0.5 : 1 }),
       seHold: (name, key) => {
         if (!live()) return
@@ -268,7 +268,7 @@ export class App implements AppContext {
   /**
    * Pointer [0,1]^2 over the stage -> the cursor (layout units) and the aim point: modern play
    * casts the pointer through the actual camera onto the turret plane, so it is exact at any
-   * window shape; classic play keeps the Wii pointer box and the 480-unit cursor leash.
+   * window shape; classic play keeps the remote pointer box and the 480-unit cursor leash.
    */
   private aim: AimFn | undefined = this.classic
     ? undefined
@@ -379,7 +379,7 @@ export class App implements AppContext {
       this.hud?.draw(ctx)
     }
     this.router.update()
-    this.debug.update()
+    this.debug?.update()
     const playing = !this.router.id && PAUSABLE(this.game.state) && !demo
     const local = this.session.kind === 'local'
     this.gl.style.cursor = this.hud?.wantsPointer || this.router.modal || !playing ? 'default' : 'none'

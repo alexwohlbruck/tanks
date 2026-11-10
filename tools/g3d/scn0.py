@@ -196,7 +196,7 @@ def build_scene(rom):
     import math
     s42, c42 = math.sin(math.radians(42)), math.cos(math.radians(42))
     scene["tanks_runtime"] = {
-        "source": "Wii Play decompilation (build/decomp): RPTnkScene.cpp, RPTnkCamera.cpp, "
+        "source": "the decompilation (build/decomp): RPTnkScene.cpp, RPTnkCamera.cpp, "
                   "RPTnkField.cpp, RPGrpRenderer.cpp, egg/gfxe/eggFrustum.cpp - code constants, "
                   "not ROM data",
         "field_camera": {

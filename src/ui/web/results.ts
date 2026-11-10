@@ -1,10 +1,10 @@
-// 'results': the end-of-run summary that replaces Wii Play's medal / VS winner / result menu
+// 'results': the end-of-run summary that replaces the original game's medal / VS winner / result menu
 // screens in the modern UI. Opened by the game manager's result flow (UiPresenter.web,
 // params.players); answers through App.resultChoice (0 play again, 1 menu).
 //
 // 1P classic campaign: the medal per the original thresholds (TANKS_MEDALS: 11 / 32 / 84 / 125
 // tanks; a medal is awarded when it beats the saved one) and the five-entry "My Record" list,
-// saved with Wii Play's own data (src/ui/shared/save.ts). 2P: winner and the session's win tally.
+// saved with the original game's own data (src/ui/shared/save.ts). 2P: winner and the session's win tally.
 
 import { registerScreen } from '../../app/router'
 import type { Game } from '../../game'

@@ -776,7 +776,7 @@ class ArenaScreen implements Screen {
     const el = this.youTag
     el.hidden = false
     el.style.setProperty('--c', this.colorOf(s, p.team, p.color))
-    el.style.opacity = String(Math.min(1, (SPAWN_MARK_MS - age) / 500))
+    el.style.opacity = String(Math.min(1, (SPAWN_MARK_MS - age) / 400))
     const rect = this.root.getBoundingClientRect()
     const v = new THREE.Vector3(me.pos.x, 52, me.pos.z).project(this.app.view.camera)
     el.style.transform = `translate(${((v.x + 1) / 2) * rect.width}px, ${((1 - v.y) / 2) * rect.height}px) translate(-50%, -100%)`
@@ -947,28 +947,25 @@ class ArenaScreen implements Screen {
       ;(flash.material as THREE.MeshBasicNodeMaterial).opacity = 0.5 * Math.max(0, 1 - f * 1.6)
     }
     for (const [k, o] of this.burstObjs) if (!live.has(k)) (this.fx.remove(o), this.burstObjs.delete(k))
-    // where you spawned: three rings of your colour closing in on the tank, again and again
+    // where you spawned: one ring of your colour closes in on the tank once, then fades
     const me = s.world?.playerTanks[0]
     const you = s.nameOf(s.pid)
     const age = now - s.spawnedAt
     if (me?.alive && you && age < SPAWN_MARK_MS) {
       if (!this.youRings) {
         this.youRings = new THREE.Group()
-        for (let i = 0; i < 3; i++) this.youRings.add(ringObject('#ffffff', 0.9, 1, 0.9))
+        this.youRings.add(ringObject('#ffffff', 0.92, 1, 0.6))
         this.fx.add(this.youRings)
       }
       const g = this.youRings
       g.visible = true
       g.position.set(me.pos.x, 0, me.pos.z)
-      const fade = Math.min(1, (SPAWN_MARK_MS - age) / 500)
-      g.children.forEach((r, i) => {
-        const f = ((age / 900 + i / 3) % 1) ** 0.8
-        const ring = r.children[0] as THREE.Mesh
-        ring.scale.setScalar(26 + (1 - f) * 150)
-        const m = ring.material as THREE.MeshBasicNodeMaterial
-        m.color.set(this.colorOf(s, you.team, you.color))
-        m.opacity = 0.85 * fade * Math.min(1, f * 4)
-      })
+      const f = 1 - (1 - Math.min(1, age / 450)) ** 3
+      const ring = g.children[0].children[0] as THREE.Mesh
+      ring.scale.setScalar(28 + (1 - f) * 60)
+      const m = ring.material as THREE.MeshBasicNodeMaterial
+      m.color.set(this.colorOf(s, you.team, you.color))
+      m.opacity = 0.6 * Math.min(1, age / 120, (SPAWN_MARK_MS - age) / 600)
     } else if (this.youRings) this.youRings.visible = false
     // Battle royale: the zone
     const zn = s.zoneNow()
@@ -1058,7 +1055,7 @@ function bubbleMat() {
 }
 
 /** how long the "you are here" marker shows after spawning (ms) */
-const SPAWN_MARK_MS = 3000
+const SPAWN_MARK_MS = 1500
 
 function ringObject(color: string, r0: number, r1: number, opacity = 0.75) {
   const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 40), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(color), transparent: true, opacity, depthWrite: false }))
