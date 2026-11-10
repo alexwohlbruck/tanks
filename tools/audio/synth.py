@@ -1,6 +1,6 @@
 """Offline renderer for NW4R sequences (RSEQ + RBNK) and wave sounds.
 
-This is a port of the playback semantics of nw4r::snd (Wii Sports / Wii Play
+This is a port of the playback semantics of nw4r::snd (this game's
 generation): SeqPlayer / SeqTrack / MmlParser / Channel / EnvGenerator / Lfo /
 Bank / Voice pan law.  Differences from hardware, all deliberate:
 

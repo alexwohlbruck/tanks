@@ -1,7 +1,7 @@
-// The screens before Tanks starts, as Wii Play shows them: the player count (RPRimoconEntryLyt,
+// The screens before Tanks starts, as the original shows them: the player count (RPRimoconEntryLyt,
 // rimoconEntry_00 in its 2-player form) and the game info / how-to-play card (RPGameInfoLyt:
 // ptSelectGame_01 with ptG8RemoteH_00's N_remote_00 reparented under N_remoteP_00).
-// The 3D menu backdrop (PT_menu_BG_model), the Mii dolls and the Wii Remote pairing panel have no
+// The 3D menu backdrop (PT_menu_BG_model), the Mii dolls and the remote pairing panel have no
 // web counterpart: a plain backdrop stands in and the pairing panel is left out.
 
 import { loadLayout, Lyt, msg } from '../lyt'
@@ -44,7 +44,7 @@ class PlayerNumSelect {
     l.setText('T_text_05', msg(511))
     // countSelect = false: the 1 / 2 player buttons
     for (const n of ['N_play4_00', 'N_rimo4_00', 'N_rimocon4']) l.setVisible(n, false)
-    // no Wii Remote pairing on the web
+    // no remote pairing on the web
     l.setVisible('N_rimoconBg_00', false)
     this.seq.reset(0)
     this.seq.change(1)

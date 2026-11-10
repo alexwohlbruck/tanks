@@ -1,4 +1,4 @@
-"""BRLYT (NW4R layout, version 8 as used by Wii Play) -> JSON-able dict."""
+"""BRLYT (NW4R layout, version 8 as used by this game) -> JSON-able dict."""
 import struct
 
 from tpl import WRAP

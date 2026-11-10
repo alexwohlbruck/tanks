@@ -202,7 +202,7 @@ LAYOUT_INFO = {
     "rankComplete_00": "Shared all-medals-completed popup.",
     "ptSelectGame_00": "Shared game select grid (Tanks! is game index 9).",
     "ptSelectGame_01": "Shared pre-game how-to-play screen: stage label, game title, screenshot, controls text, 'A: Start'.",
-    "ptG8RemoteH_00": "Tanks! controller illustration (Nunchuk + Wii Remote) animated on the how-to-play screen; "
+    "ptG8RemoteH_00": "Tanks! controller illustration (nunchuk + remote) animated on the how-to-play screen; "
                       "game index 8 = te_game_08 screenshot / sm_gameIcon_08.",
     "playAdvice_00": "Shared safety advice window shown before play.",
     "messageWindowB_00": "Shared message window (black).",

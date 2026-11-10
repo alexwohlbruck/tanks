@@ -213,7 +213,7 @@ function applyAnim(L: Json, A: Json, frame: number, bindPane?: string, force = f
 // ---- shading -----------------------------------------------------------------
 
 /**
- * Rendering options. Classic: the Wii's own pixels (bitmap fonts, textures at their size,
+ * Rendering options. Classic: the console's own pixels (bitmap fonts, textures at their size,
  * shaded quads at 2 px per layout unit). Modern: vector text in the bundled web font,
  * textures upscaled with edge-preserving filtering, quads shaded at the display resolution.
  */
@@ -525,7 +525,7 @@ function drawText(ctx: CanvasRenderingContext2D, D: DrawCtx, p: Json, rect: Retu
   lines.forEach((l, i) => {
     let x = bx + ((bw - lw[i]) * hx) / 2
     if (vf) {
-      // each character centred where the bitmap glyph's cell would be; Wii button icons
+      // each character centred where the bitmap glyph's cell would be; controller button icons
       // (private use area) keep their bitmap glyph, smoothly upscaled
       drawVectorText(ctx, vf, l, x, y, sx, sy, p.charSpace, fi, m, p.topColor, p.bottomColor, (ch, g, gx) => {
         const c = shadeGlyph(F, g, m, p.topColor, p.bottomColor)

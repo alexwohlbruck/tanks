@@ -5,7 +5,7 @@
 #      [major] in a commit message bumps those), builds it into the client and the server
 #   3. deploys (tools/deploy.sh), waits for the live server to report the new version
 #   4. tags the release and publishes it on GitHub with the commits since the last one
-# Runs on a self-hosted runner (label `tanks`): the game assets come from the Wii Play disc and
+# Runs on a self-hosted runner (label `tanks`): the game assets come from the disc and
 # are not in the repository, so the build needs a machine that has them. Repository variables:
 #   TANKS_ASSETS   the runner's public/assets directory (built with `bun run assets`)
 #   DEPLOY_HOST    ssh destination of the Docker host        PROXY_NETWORK  its proxy network

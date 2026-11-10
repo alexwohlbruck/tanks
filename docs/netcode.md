@@ -45,10 +45,10 @@ timings (the BRLAN frame counts) and records every call (`fadeStart`, `hudIn`, `
 `clearMsgShow`, `resultStart`, `winnerStart`, ...) as an `['u', method, ...args]` event; clients
 call the same method on their real `UiPresenter`, at the same tick, so the curtain, messages and
 result list play in sync. Layout sounds are played by the client layouts themselves, so the
-server's timing model is muted. The result screens are interactive on the Wii (skip with A/B),
+server's timing model is muted. The result screens are interactive on the console (skip with A/B),
 so the server waits for the host's client to report each one finished (`gate`: `result`,
 `totals`, `winner`, `medal`; 20 s timeout). After the last screen the room is `ended` and the
-host picks *Play again* or *Back to room* in the overlay (the Wii's result menu is not used).
+host picks *Play again* or *Back to room* in the overlay (the console's result menu is not used).
 
 ## Timing
 
@@ -257,5 +257,5 @@ running games (clients fall back to the lobby).
   trip + the interpolation delay; the shot sound plays at once
 - no lag compensation: hits are decided on the server's present
 - a player who left keeps an idle tank in that co-op game until it ends
-- the Wii result menu (Try again / Quit) is replaced by the overlay's host choice
+- the console's result menu (Try again / Quit) is replaced by the overlay's host choice
 - 3-4 player result screens use the existing layouts (which were made for 2)

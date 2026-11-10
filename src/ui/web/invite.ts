@@ -180,7 +180,7 @@ class InviteScreen extends WebScreen {
           'div',
           null,
           h('b', null, classic ? 'Classic co-op' : 'Tanks+ co-op'),
-          h('span', null, classic ? 'The Wii missions together, on the 2-player rules.' : 'The Tanks+ campaign together, up to 4 players.'),
+          h('span', null, classic ? 'The classic missions together, on the 2-player rules.' : 'The Tanks+ campaign together, up to 4 players.'),
         ),
       ),
     ]

@@ -5,7 +5,7 @@ C4, C8, C14X2 (with IA8/RGB565/RGB5A3 palettes) and CMPR.
 
 GX semantics are kept: intensity formats replicate I into all four channels
 (I4/I8 -> RGBA = I,I,I,I), IA formats give RGB = I, A = A. This is what the TEV
-sees, so the layout renderer can apply material colours exactly like the Wii.
+sees, so the layout renderer can apply material colours exactly like the console.
 """
 import struct
 

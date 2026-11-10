@@ -1,5 +1,5 @@
 // User settings (localStorage 'tanks.settings'): volumes, graphics quality, key bindings and
-// the "Classic Wii UI" switch. Read once at boot; screens change them through `updateSettings`.
+// the "Classic UI" switch. Read once at boot; screens change them through `updateSettings`.
 
 /** render quality presets of SceneView.setQuality (src/render/quality.ts) */
 export type Quality = 'classic' | 'high' | 'ultra'
@@ -13,7 +13,7 @@ export type Settings = {
   /** 0..1 */
   sfx: number
   quality: Quality
-  /** the original Wii Play screens, bitmap fonts and the fixed 16:9 picture */
+  /** the original game's screens, bitmap fonts and the fixed 16:9 picture */
   classicUi: boolean
   /** KeyboardEvent.code lists per action */
   keys: Record<KeyAction, string[]>
@@ -74,7 +74,7 @@ export function updateSettings(p: Partial<Settings>) {
   for (const f of listeners) f(settings)
 }
 
-/** ?classic forces the Wii UI, ?modern the web UI (for testing), else the saved setting */
+/** ?classic forces the classic UI, ?modern the web UI (for testing), else the saved setting */
 export function classicUi() {
   const p = new URLSearchParams(location.search)
   if (p.has('classic')) return true

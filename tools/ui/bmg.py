@@ -15,7 +15,7 @@ ENCODING = {1: "cp1252", 2: "utf-16-be", 3: "shift-jis", 4: "utf-8"}
 def describe_tag(group, tid, params):
     """Readable placeholder for a tag.
 
-    Observed in Wii Play's US BMGs:
+    Observed in the game's US BMGs:
       group 0 id 0, no params  -> {num}     number substitution (printf %d)
       group 0 id 1, no params  -> {player}  player / Mii name substitution
       group 2 id N, u16 param  -> {win:N:pppp} message-window control codes

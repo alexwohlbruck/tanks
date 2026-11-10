@@ -10,7 +10,7 @@
 // See docs/netcode.md.
 
 import type { Pads, Session } from '../app/types'
-import { wiiPointer, type Cursor } from '../app/session'
+import { pointerUnits, type Cursor } from '../app/session'
 import { pointerToScreen, projectToScreen, screenToField, type Game } from '../game'
 import type { PadState } from '../input'
 import { TANK } from '../sim/consts'
@@ -496,7 +496,7 @@ export class NetSession implements Session {
     const t = w.playerTanks[me]
     const cur = this.cursors[me]
     const blocked = this.inputBlocked
-    const ptr = pad.pointer ? wiiPointer(pad.pointer) : null
+    const ptr = pad.pointer ? pointerUnits(pad.pointer) : null
     if (ptr && !blocked) {
       const s = pointerToScreen(ptr.x, ptr.y, this.game.aspect, t.lives ? t : null)
       Object.assign(cur, s, { visible: true })

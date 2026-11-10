@@ -17,7 +17,7 @@ import { BigField } from './bigfield'
 import { BlockShade } from './blockshade'
 
 // RPTnkScene::CreateCamerasAndScreens: orthographic view of the 832x456 (16:9) or 608x456 (4:3)
-// screen at scale 1.125, in world units. The Wii output is anamorphic, so the 16:9 view is
+// screen at scale 1.125, in world units. The console output is anamorphic, so the 16:9 view is
 // stretched to the display aspect exactly as on the TV.
 export const ORTHO = { halfW16_9: (832 * 1.125) / 2, halfW4_3: (608 * 1.125) / 2, halfH: (456 * 1.125) / 2 }
 /**

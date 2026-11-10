@@ -1,4 +1,4 @@
-"""GX texture decoding (all Wii/GameCube formats) and a minimal PNG encoder.
+"""GX texture decoding (all GX formats) and a minimal PNG encoder.
 
 Decoders return a bytearray of RGBA8 pixels, row-major, top row first.
 """

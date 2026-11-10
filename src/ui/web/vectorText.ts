@@ -84,7 +84,7 @@ function narrow(cp: number) {
   return cp >= 0xff01 && cp <= 0xff5e ? cp - 0xfee0 : cp === 0x3000 ? 0x20 : cp
 }
 
-/** characters the web font draws (Latin, punctuation, full-width forms); the rest are the Wii's
+/** characters the web font draws (Latin, punctuation, full-width forms); the rest are the original's
  * button and controller icons (private use area, CJK compatibility squares, …) */
 const isIcon = (cp: number) => !(cp < 0x2100 || (cp >= 0xff01 && cp <= 0xff5e) || cp === 0x3000)
 

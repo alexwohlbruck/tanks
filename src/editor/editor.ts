@@ -192,7 +192,7 @@ class Editor implements Screen {
       this.redoBtn,
       h('button', { class: 'tk-btn', title: 'Empty the level (or the selection); undo brings it back', on: { click: () => this.clearLevel() } }, 'Clear'),
       h('button', { class: 'tk-btn', title: 'Your drafts, new pack, import a file', on: { click: () => this.packsDialog() } }, 'Packs'),
-      h('button', { class: 'tk-btn', title: 'Start from an original Wii Play map', on: { click: () => this.discDialog() } }, 'Disc maps'),
+      h('button', { class: 'tk-btn', title: 'Start from an original campaign map', on: { click: () => this.discDialog() } }, 'Disc maps'),
       h('button', { class: 'tk-btn', title: 'Download the pack as a .json file', on: { click: () => this.exportPack() } }, 'Export'),
       h('button', { class: 'tk-btn', title: 'Browse community packs', on: { click: () => this.app.show('store') } }, 'Store'),
       h('button', { class: 'tk-btn ed-play', title: 'Play this level (T)', on: { click: () => this.testDialog() } }, '▶ Test play'),
@@ -1157,7 +1157,7 @@ class Editor implements Screen {
         h('div', { class: 'ed-row' }, h('button', { class: 'tk-btn tk-small', on: { click: () => use(true) } }, 'Replace level'), h('button', { class: 'tk-btn tk-small tk-primary', on: { click: () => use(false) } }, 'Add level')),
       )
     })
-    close = modal(this.root, 'Original Wii Play maps', h('div', { class: 'ed-discs' }, cards), [{ label: 'Close' }], 'tk-wide')
+    close = modal(this.root, 'Original campaign maps', h('div', { class: 'ed-discs' }, cards), [{ label: 'Close' }], 'tk-wide')
   }
 
   private publishDialog() {

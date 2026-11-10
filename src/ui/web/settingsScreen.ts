@@ -1,4 +1,4 @@
-// 'settings': volumes, graphics quality, fullscreen, the Classic Wii UI switch, and the
+// 'settings': volumes, graphics quality, fullscreen, the Classic UI switch, and the
 // controls (keyboard rebinding, mouse and gamepad reference). params.from: the screen to
 // return to ('menu', 'pause', 'title').
 
@@ -106,7 +106,7 @@ class SettingsScreen extends WebScreen {
             h('h3', null, 'Display'),
             seg<Quality>('Graphics quality', [['classic', 'Classic'], ['high', 'High'], ['ultra', 'Ultra']], s.quality, (v) => updateSettings({ quality: v })),
             fsSupported ? toggle('Fullscreen', 'Fill the whole screen (Alt+Enter)', isFullscreen(), (v) => void setFullscreen(v)) : null,
-            toggle('Classic Wii UI', "Wii Play's own menus and fonts in a 16:9 picture. Reloads the game.", s.classicUi, (v) => {
+            toggle('Classic UI', "The original game's menus and fonts in a 16:9 picture. Reloads the game.", s.classicUi, (v) => {
               updateSettings({ classicUi: v })
               setTimeout(() => location.reload(), 300)
             }),

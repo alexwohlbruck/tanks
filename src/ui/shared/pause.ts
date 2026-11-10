@@ -1,4 +1,4 @@
-// RPSysPauseMgr / RPSysPauseMenu (pause_00: Continue / Start over / Quit, Wii Play's three-button
+// RPSysPauseMgr / RPSysPauseMenu (pause_00: Continue / Start over / Quit, the original game's three-button
 // version with D-pad and pointer selection) and RPPauseTextLyt (ptPauseText_00, the "+ Pause" hint).
 
 import { loadLayout, Lyt, msg } from '../lyt'
@@ -39,7 +39,7 @@ export class PauseMenu {
 
   private prepare() {
     this.l.reset()
-    // Wii Play (PartyPack) hides the dark backdrop
+    // The original (PartyPack) hides the dark backdrop
     this.l.setVisible('N_bg_00', false)
     TEXTS.forEach((t, i) => this.l.setText(t, msg(MESSAGES[i], 0)))
   }
@@ -148,7 +148,7 @@ export class PauseMenu {
       case 4:
         if (this.counter === 0) {
           this.phase = 8
-          // Wii Play always plays the closing animation (the Wii Sports path skips it)
+          // The original always plays the closing animation (another game's path skips it)
           this.l.play('pause_00_out_00', { key: 'center', bind: 'N_center_00' })
           this.counter = animLen(this.l, 'pause_00_out_00') - 1
           // resetButtonAnims: the chosen button stays lit, the others go back to frame 0
