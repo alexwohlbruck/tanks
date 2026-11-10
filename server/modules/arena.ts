@@ -504,6 +504,8 @@ function onMessage(c: Client, raw: string | Buffer) {
       if (!process.env.ARENA_DEV || !t) return
       // 'end': finish the match now (results + map vote)
       if (m.power === 'end') return void (c.arena!.sim.phaseEnd = c.arena!.sim.tick)
+      // 'score': five points (to win the match 'end' finishes)
+      if (m.power === 'score') return void (c.player!.score += 5)
       // 'zone': Battle royale's zone a minute further on
       if (m.power === 'zone') return void (c.arena!.sim.roundStart -= 60 * 60)
       // items, and a kill streak (+3)

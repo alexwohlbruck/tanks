@@ -210,11 +210,14 @@ export class ArenaSession implements Session {
         this.audio.playMusic('RP_TNK_BGM_LOOP2')
         return
       case 'board':
-        // a match won (by this player, or by their team)
-        if (m.state === 'over' && this.board?.state === 'play' && m.winner) {
+        // the match just ended: the campaign's victory fanfare if this player (or their team)
+        // won it, the results music otherwise
+        if (m.state === 'over' && this.board?.state === 'play') {
           const me = m.players.find((p) => p[0] === this.pid)
-          const won = me && (isTeamMode(this.mode) ? m.winner.name === ['Blue', 'Red'][me[2]] : m.winner.name === me[1] && m.winner.color === me[3])
+          const won = !!m.winner && !!me && (isTeamMode(this.mode) ? m.winner.name === ['Blue', 'Red'][me[2]] : m.winner.name === me[1] && m.winner.color === me[3])
           if (won) unlock('arena-win')
+          this.audio.stopMusic(0.3)
+          this.audio.playMusic(won ? 'RP_TNK_BGM_COMP20' : 'RP_TNK_BGM_RESULT2')
         }
         this.board = m
         this.boardAt = performance.now()
@@ -799,10 +802,8 @@ export class ArenaSession implements Session {
           break
         }
         case 'match':
-          if (e[1] === 'over') {
-            this.audio.stopMusic(0.3)
-            this.audio.playMusic('RP_TNK_BGM_RESULT2')
-          }
+          // (the end-of-match music starts with the board that names the winner)
+          if (e[1] === 'over') this.audio.stopMusic(0.3)
           break
       }
     }
