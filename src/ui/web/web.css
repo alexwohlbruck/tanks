@@ -405,6 +405,12 @@
 .credits p.made { margin-top: 1.1em; font-weight: 700; }
 .credits p.made a { color: #c8302a; text-decoration: none; border-bottom: 0.1em solid currentColor; }
 .credits p.made a:hover, .credits p.made a:focus-visible { color: #e0453c; }
+.credits p.coffee { margin-top: 0.6em; }
+.credits p.coffee a {
+  display: inline-block; padding: 0.35em 1em; border-radius: 99em; text-decoration: none;
+  font-weight: 800; color: var(--ink); background: #ffdd00; box-shadow: 0 0.18em 0 #b89c00;
+}
+.credits p.coffee a:hover, .credits p.coffee a:focus-visible { background: #ffe633; }
 .credits h3 { margin: 0.9em 0 0.2em; font-size: 0.75em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--wood-dark); }
 .credits ul { margin: 0.2em 0; padding-left: 1.2em; }
 /* Tanks+ level select */
