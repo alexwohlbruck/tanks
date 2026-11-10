@@ -313,6 +313,7 @@ function ipOf(req: Request) {
 
 register({
   name: 'rooms',
+  online: () => [...clients.values()].filter((c) => c.room).length,
   http(req, url) {
     if (req.method !== 'GET') return
     if (url.pathname === '/api/rooms') return json({ rooms: listPublic() })

@@ -19,6 +19,7 @@ services:
     environment:
       - PORT=3001
       - DATA_DIR=/data
+      - TANKS_VERSION=${TANKS_VERSION:-dev}
     volumes:
       - ./data:/data
     networks: [proxy]

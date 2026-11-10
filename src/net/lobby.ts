@@ -2,46 +2,53 @@
 // join by code, and the list of public rooms. In a room: the code and share link, the players
 // (P1 blue, P2 red, P3 green, P4 yellow), the host's game settings (co-op classic, co-op level
 // pack, versus) and Start. params: { join?: string } joins that room on open.
+//
+// Built from the web screens' pieces (src/ui/web: the wooden panel, the red band, cream button
+// tiles, cards and segmented switches) like the arena's join panel.
 
 import { registerScreen } from '../app/router'
-import type { AppContext, Screen } from '../app/types'
 import type { LevelPack } from '../levels/format'
+import { PLAYER_COLORS, tankIcon } from '../ui/web/art'
+import { backButton, band, button, WebScreen } from '../ui/web/base'
+import { h, touch } from '../ui/web/dom'
 import { ARENAS } from './arenas'
 import { netClient, type NetClient } from './client'
 import { bindNet, joinLink } from './index'
 import './net.css'
-import { PLAYER_COLOR_NAMES, PLAYER_COLORS, type RoomInfo, type RoomSettings } from './protocol'
+import { PLAYER_COLOR_NAMES, type RoomInfo, type RoomSettings } from './protocol'
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const MODES: { id: RoomSettings['mode']; name: string; desc: string }[] = [
   { id: 'coop', name: 'Co-op', desc: 'The original missions together, on the 2-player rules: a destroyed tank sits out until the next mission.' },
   { id: 'pack', name: 'Level pack', desc: 'A custom level pack from the level store (or a .json file), played co-op.' },
   { id: 'versus', name: 'Versus', desc: 'Free-for-all: last tank standing wins the round. Optional AI tanks join the fight.' },
 ]
+const modeName = (m: string) => MODES.find((x) => x.id === m)?.name ?? m
 
-class Lobby implements Screen {
-  readonly opaque = true
-  readonly modal = true
-  private root!: HTMLElement
-  private app!: AppContext
+class Lobby extends WebScreen {
   private net: NetClient = netClient()
   private off: (() => void) | null = null
   private poll: ReturnType<typeof setInterval> | null = null
-  private view: 'home' | 'room' | null = null
+  private view: 'home' | 'room' | 'offline' | 'connecting' | null = null
   private toastTimer: ReturnType<typeof setTimeout> | null = null
-  private lastSettings = ''
+  private lastKey = ''
+  private vis: 'private' | 'public' = 'private'
+  private max = 4
+  private head!: HTMLElement
+  private body!: HTMLElement
+  private status!: HTMLElement
+  private toastEl!: HTMLElement
 
-  async mount(root: HTMLElement, app: AppContext, params?: Record<string, unknown>) {
-    this.root = root
-    this.app = app
-    bindNet(app)
-    root.classList.add('net-ui', 'net-lobby')
+  protected build(root: HTMLElement) {
+    bindNet(this.app)
+    root.classList.add('net-lobby')
     // keys typed here are not game input (Input blocks Space / arrows on window)
     root.addEventListener('keydown', (e) => e.stopPropagation())
     root.addEventListener('pointerdown', (e) => e.stopPropagation())
-    root.innerHTML = `<div class="nl-wrap"><header class="nl-head"><button class="net-btn ghost" data-act="back">← Menu</button><h1>Tanks! <span>Online</span></h1><div class="nl-status"></div></header><main class="nl-main"><div class="nl-loading">Connecting…</div></main><div class="nl-toast" hidden></div></div>`
-    root.addEventListener('click', (e) => this.onClick(e))
-    root.addEventListener('change', (e) => this.onChange(e))
+    this.head = h('div.panel-head')
+    this.status = h('div.nl-status')
+    this.body = h('div.panel-scroll.nl-body')
+    this.toastEl = h('div.nl-toast', { hidden: true })
+    root.append(h('div.menu-screen.nl-screen', null, h('div.panel.nl-panel', null, this.head, this.status, this.body), this.toastEl))
     this.off = this.net.on((m) => {
       if (m.t === 'error') this.toast(m.msg)
       if (m.t === 'room' || m.t === 'rooms' || m.t === 'status') this.render()
@@ -50,10 +57,15 @@ class Lobby implements Screen {
       if (this.net.status === 'online' && !this.net.room) this.net.send({ t: 'list' })
       this.renderStatus()
     }, 2500)
+    this.render()
+    void this.connect()
+  }
+
+  private async connect() {
     try {
       await this.net.connect()
       this.net.send({ t: 'list' })
-      const code = typeof params?.join === 'string' ? params.join : ''
+      const code = typeof this.params.join === 'string' ? this.params.join : ''
       if (code && this.net.room?.code !== code.toUpperCase()) this.net.send({ t: 'join', code })
     } catch (e) {
       this.toast((e as Error).message)
@@ -62,238 +74,369 @@ class Lobby implements Screen {
   }
 
   unmount() {
+    super.unmount()
     this.off?.()
     if (this.poll) clearInterval(this.poll)
+    if (this.toastTimer) clearTimeout(this.toastTimer)
+  }
+
+  protected back() {
+    if (this.net.room) {
+      this.sound('back')
+      this.net.send({ t: 'leave' })
+      return
+    }
+    this.saveName()
+    this.app.toMenu()
   }
 
   private toast(msg: string) {
-    const t = this.root.querySelector<HTMLElement>('.nl-toast')!
-    t.textContent = msg
-    t.hidden = false
+    this.toastEl.textContent = msg
+    this.toastEl.hidden = false
     if (this.toastTimer) clearTimeout(this.toastTimer)
-    this.toastTimer = setTimeout(() => (t.hidden = true), 4000)
+    this.toastTimer = setTimeout(() => (this.toastEl.hidden = true), 4000)
   }
 
   private renderStatus() {
-    const el = this.root.querySelector('.nl-status')!
     const n = this.net
-    el.innerHTML = n.status === 'online' ? `<span class="nh-dot ${n.rtt < 80 ? 'good' : n.rtt < 160 ? 'ok' : 'bad'}"></span>${Math.round(n.rtt)} ms` : n.status === 'connecting' ? 'connecting…' : '<span class="nh-dot off"></span>offline'
+    const q = n.rtt < 80 ? 'good' : n.rtt < 160 ? 'ok' : 'bad'
+    const [cls, text] = n.status === 'online' ? [q, `Online · ${Math.round(n.rtt)} ms`] : n.status === 'connecting' ? ['wait', 'Connecting…'] : ['off', 'Offline']
+    this.status.replaceChildren(h('i.nl-dot', { class: cls }), h('span', null, text))
   }
 
   private render() {
     this.renderStatus()
-    const main = this.root.querySelector<HTMLElement>('.nl-main')!
     const n = this.net
-    if (n.status !== 'online' && !n.room) {
-      if (n.status === 'offline') {
-        this.view = null
-        main.innerHTML = `<div class="nl-card nl-center"><h2>Can't reach the game server</h2><p>Online play needs the Tanks! server.</p><button class="net-btn primary" data-act="retry">Try again</button></div>`
-      }
+    if (n.room) return this.renderRoom(n.room)
+    if (n.status === 'online') return this.renderHome()
+    if (n.status === 'offline') {
+      if (this.view === 'offline') return
+      this.view = 'offline'
+      this.setHead('Online', () => this.app.toMenu())
+      this.body.replaceChildren(
+        h(
+          'div.card.nl-center',
+          null,
+          h('div.card-title', null, 'Can’t reach the game server'),
+          h('div.card-text', null, 'Online play needs the Tanks! server. Check your connection and try again.'),
+          button('Try again', { icon: 'restart', class: 'primary', autofocus: true, onclick: () => this.retry() }),
+        ),
+      )
+      this.refocus()
       return
     }
-    if (n.room) this.renderRoom(main, n.room)
-    else this.renderHome(main)
+    if (this.view === 'connecting') return
+    this.view = 'connecting'
+    this.setHead('Online', () => this.app.toMenu())
+    this.body.replaceChildren(h('div.nl-loading', null, 'Connecting…'))
+  }
+
+  private setHead(title: string, back: () => void, label = 'Back') {
+    this.head.replaceChildren(backButton(back, label), band(title))
+  }
+
+  private retry() {
+    this.view = null
+    this.net.connect().then(
+      () => (this.net.send({ t: 'list' }), this.render()),
+      (er) => this.toast(er.message),
+    )
+    this.render()
   }
 
   // ---- no room ---------------------------------------------------------------------------
 
-  private renderHome(main: HTMLElement) {
+  private renderHome() {
     if (this.view !== 'home') {
       this.view = 'home'
-      this.lastSettings = ''
-      main.innerHTML = `
-        <section class="nl-card nl-name"><label>Your name <input class="nl-input" data-f="name" maxlength="16" placeholder="Player" value="${esc(this.net.name)}"></label></section>
-        <section class="nl-grid">
-          <div class="nl-card"><h2>Quick play</h2><p>Jump into an open public room, or start one others can find.</p><button class="net-btn primary big" data-act="quick">Play now</button></div>
-          <div class="nl-card"><h2>Create a room</h2>
-            <div class="nl-seg" data-f="vis"><button class="on" data-v="private">Private</button><button data-v="public">Public</button></div>
-            <label class="nl-row">Players <select class="nl-input" data-f="max"><option>2</option><option>3</option><option selected>4</option></select></label>
-            <button class="net-btn primary" data-act="create">Create</button></div>
-          <div class="nl-card"><h2>Join with a code</h2><p>Got a code or a link from a friend?</p>
-            <input class="nl-input nl-code" data-f="code" maxlength="8" placeholder="ABCDE" autocapitalize="characters" spellcheck="false">
-            <button class="net-btn primary" data-act="join">Join</button></div>
-        </section>
-        <section class="nl-card"><h2>Open rooms</h2><div class="nl-rooms"></div></section>`
+      this.lastKey = ''
+      this.setHead('Online', () => this.back())
+      const name = h('input.nl-input', { maxLength: 16, placeholder: 'Player', value: this.net.name, spellcheck: 'false', autocomplete: 'nickname', 'data-k': 'name' })
+      name.addEventListener('change', () => this.saveName())
+      const code = h('input.nl-input.nl-code', { maxLength: 8, placeholder: 'ABCDE', spellcheck: 'false', autocapitalize: 'characters', autocomplete: 'off', 'data-k': 'code' })
+      const join = () => {
+        const c = code.value.trim()
+        if (c) (this.sound('ok'), this.net.send({ t: 'join', code: c }))
+      }
+      code.addEventListener('keydown', (e) => e.key === 'Enter' && join())
+      this.body.replaceChildren(
+        h('p.nl-lede', null, 'Play the campaign together with up to 4 friends, or battle it out in Versus.'),
+        h('label.nl-name', null, h('span', null, 'Your name'), name),
+        this.k('quick', button('Quick play', { icon: 'play', class: 'primary big nl-quick', hint: 'Join an open room, or start one others can find', autofocus: true, onclick: () => this.act(() => this.net.send({ t: 'quick' })) })),
+        h(
+          'div.nl-two',
+          null,
+          h(
+            'div.card',
+            null,
+            h('div.card-title', null, 'Create a room'),
+            h('div.nl-row', null, h('span.row-label', null, 'Who can join'), this.seg('vis', [['private', 'Invite only'], ['public', 'Anyone']], this.vis, (v) => (this.vis = v as 'private' | 'public'))),
+            h('div.nl-row', null, h('span.row-label', null, 'Players'), this.seg('max', [['2', '2'], ['3', '3'], ['4', '4']], String(this.max), (v) => (this.max = Number(v)))),
+            h('div.card-actions.one', null, this.k('create', button('Create room', { icon: 'online', onclick: () => this.act(() => this.net.send({ t: 'create', public: this.vis === 'public', maxPlayers: this.max })) }))),
+          ),
+          h(
+            'div.card',
+            null,
+            h('div.card-title', null, 'Join with a code'),
+            h('div.card-text', null, 'Got a code or a link from a friend?'),
+            code,
+            h('div.card-actions.one', null, button('Join', { icon: 'play', onclick: () => (this.saveName(), join()) })),
+          ),
+        ),
+        h('div.card.nl-roomlist', null, h('div.records-head', null, 'Open rooms'), h('div.nl-rooms')),
+      )
+      this.refocus()
     }
-    const list = main.querySelector('.nl-rooms')!
+    const list = this.body.querySelector<HTMLElement>('.nl-rooms')!
+    const key = JSON.stringify(this.net.rooms)
+    if (key === this.lastKey) return
+    this.lastKey = key
+    const had = this.focusKey()
     const rooms = this.net.rooms
-    list.innerHTML = rooms.length
-      ? rooms
-          .map(
-            (r) =>
-              `<div class="nl-room"><b>${esc(r.name)}</b><span class="tag">${MODES.find((m) => m.id === r.mode)?.name ?? r.mode}</span><span>${r.players}/${r.maxPlayers}</span><span class="state ${r.state}">${r.state === 'lobby' ? 'waiting' : 'in game'}</span><button class="net-btn small" data-act="joinCode" data-code="${esc(r.code)}" ${r.players >= r.maxPlayers ? 'disabled' : ''}>Join</button></div>`,
-          )
-          .join('')
-      : `<p class="nl-empty">No public rooms right now. Create one!</p>`
+    list.replaceChildren(
+      ...(rooms.length
+        ? rooms.map((r) => {
+            const full = r.players >= r.maxPlayers
+            const seats = h('span.nl-seats')
+            for (let s = 0; s < r.maxPlayers; s++) seats.append(tankIcon(s < r.players ? PLAYER_COLORS[s].body : '#d9c6a4', s < r.players ? PLAYER_COLORS[s].dark : '#b09a78'))
+            const b = button(full ? 'Full' : 'Join', { class: 'small', disabled: full, onclick: () => this.act(() => this.net.send({ t: 'join', code: r.code })) })
+            b.dataset.k = `room-${r.code}`
+            return h(
+              'div.nl-room',
+              null,
+              h('div.nl-room-name', null, h('b', null, r.name), h('small', null, `${modeName(r.mode)} · ${r.state === 'lobby' ? 'waiting' : 'in game'}`)),
+              seats,
+              b,
+            )
+          })
+        : [h('div.nl-empty', null, 'No public rooms right now. Create one, or try Quick play!')]),
+    )
+    this.refocus(had)
   }
 
   // ---- in a room ---------------------------------------------------------------------------
 
-  private renderRoom(main: HTMLElement, room: RoomInfo) {
+  private renderRoom(room: RoomInfo) {
     const me = room.members.find((m) => m.slot === room.you)
     const host = !!me?.host
-    if (this.view !== 'room') {
-      this.view = 'room'
-      this.lastSettings = ''
-      main.innerHTML = `
-        <section class="nl-card nl-roomhead">
-          <div><h2 class="nl-roomname"></h2><span class="tag nl-vis"></span></div>
-          <div class="nl-codebox"><small>Room code</small><b class="nl-bigcode"></b></div>
-          <div class="nl-share"><button class="net-btn" data-act="copy">Copy invite link</button><button class="net-btn ghost" data-act="leave">Leave room</button></div>
-        </section>
-        <section class="nl-grid two">
-          <div class="nl-card"><h2>Players</h2><div class="nl-players"></div></div>
-          <div class="nl-card nl-settings"></div>
-        </section>`
-    }
-    main.querySelector('.nl-roomname')!.textContent = room.name
-    main.querySelector('.nl-vis')!.textContent = room.public ? 'Public' : 'Private'
-    main.querySelector('.nl-bigcode')!.textContent = room.code
-    const slots: string[] = []
-    for (let s = 0; s < room.maxPlayers; s++) {
-      const m = room.members.find((x) => x.slot === s)
-      slots.push(
-        m
-          ? `<div class="nl-player${m.slot === room.you ? ' you' : ''}${m.connected ? '' : ' away'}"><i class="tankdot" style="--c:${PLAYER_COLORS[s]}"></i><b>${esc(m.name)}</b>${m.host ? '<span class="tag host">host</span>' : ''}${m.slot === room.you ? '<span class="tag">you</span>' : ''}<small>${m.connected ? `${m.ping} ms` : 'reconnecting…'}</small></div>`
-          : `<div class="nl-player empty"><i class="tankdot" style="--c:${PLAYER_COLORS[s]}"></i><span>${PLAYER_COLOR_NAMES[s]} · waiting for a player</span></div>`,
-      )
-    }
-    main.querySelector('.nl-players')!.innerHTML = slots.join('')
-    // settings: rebuilt when they change, but not under the host's cursor
-    const panel = main.querySelector<HTMLElement>('.nl-settings')!
-    const key = JSON.stringify([room.settings, host, room.state, room.members.length])
-    if (key !== this.lastSettings && !(panel.contains(document.activeElement) && document.activeElement?.tagName === 'INPUT')) {
-      this.lastSettings = key
-      panel.innerHTML = this.settingsHtml(room, host)
-    }
-  }
-
-  private settingsHtml(room: RoomInfo, host: boolean) {
-    const s = room.settings
-    const dis = host ? '' : 'disabled'
-    const mode = MODES.find((m) => m.id === s.mode)!
-    let opts = ''
-    if (s.mode === 'coop') {
-      opts = `<label class="nl-row">Start at mission <input class="nl-input num" type="number" data-f="mission" min="1" max="${s.allMissions ? 100 : 20}" value="${s.mission + 1}" ${dis}></label>
-        <label class="nl-row check"><input type="checkbox" data-f="allMissions" ${s.allMissions ? 'checked' : ''} ${dis}> All 100 missions</label>`
-    } else if (s.mode === 'pack') {
-      opts = `<div class="nl-pack">${s.packName ? `<b>${esc(s.packName)}</b> · ${s.packLevels} level${s.packLevels === 1 ? '' : 's'}` : '<i>No pack chosen</i>'}</div>` +
-        (host
-          ? `<label class="nl-row">Store id <input class="nl-input" data-f="packId" placeholder="pack id" value="${esc(s.packId)}"></label>
-             <div class="nl-row"><button class="net-btn small" data-act="loadPack">Load from store</button><label class="net-btn small file">Upload .json<input type="file" accept=".json,application/json" data-f="packFile" hidden></label></div>`
-          : '')
-    } else {
-      opts = `<label class="nl-row">Arena <select class="nl-input" data-f="arena" ${dis}>${ARENAS.map((a, i) => `<option value="${i}" ${i === s.arena ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
-        <label class="nl-row">Rounds to win <input class="nl-input num" type="number" data-f="rounds" min="1" max="9" value="${s.rounds}" ${dis}></label>
-        <label class="nl-row">AI tanks <input class="nl-input num" type="number" data-f="ai" min="0" max="4" value="${s.ai}" ${dis}></label>`
-    }
-    const canStart = s.mode !== 'pack' || s.packLevels > 0
-    const starting = room.state !== 'lobby'
-    return `<h2>Game</h2>
-      <div class="nl-seg modes" data-f="mode">${MODES.map((m) => `<button class="${m.id === s.mode ? 'on' : ''}" data-v="${m.id}" ${dis}>${m.name}</button>`).join('')}</div>
-      <p class="nl-desc">${mode.desc}</p>
-      <div class="nl-opts">${opts}</div>
-      ${host ? `<button class="net-btn primary big" data-act="start" ${canStart && !starting ? '' : 'disabled'}>${starting ? 'Game running…' : 'Start game'}</button>` : `<p class="nl-wait">${starting ? 'Game running…' : 'Waiting for the host to start…'}</p>`}`
-  }
-
-  // ---- input ---------------------------------------------------------------------------------
-
-  private field<T extends HTMLElement = HTMLInputElement>(f: string) {
-    return this.root.querySelector<T>(`[data-f="${f}"]`)
-  }
-
-  private onClick(e: Event) {
-    const t = e.target as HTMLElement
-    const seg = t.closest('.nl-seg button') as HTMLButtonElement | null
-    if (seg && !seg.disabled) {
-      const box = seg.parentElement!
-      const f = box.getAttribute('data-f')
-      if (f === 'mode') this.net.send({ t: 'settings', settings: { mode: seg.dataset.v as RoomSettings['mode'] } })
-      else {
-        box.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === seg))
+    const typing = document.activeElement?.tagName === 'INPUT' && this.body.contains(document.activeElement)
+    // pings change all the time: they update in place, anything else rebuilds
+    const key = JSON.stringify([{ ...room, members: room.members.map((m) => ({ ...m, ping: 0 })) }, host])
+    if (this.view === 'room' && (key === this.lastKey || typing)) {
+      for (const m of room.members) {
+        const el = this.body.querySelector(`[data-ping="${m.slot}"]`)
+        if (el && m.connected && !m.spectating) el.textContent = `${m.ping} ms`
       }
       return
     }
-    const btn = t.closest('[data-act]') as HTMLElement | null
-    if (!btn || (btn as HTMLButtonElement).disabled) return
-    const n = this.net
+    const first = this.view !== 'room'
+    this.view = 'room'
+    this.lastKey = key
+    const had = first ? undefined : this.focusKey()
+    this.setHead(room.name, () => this.back(), 'Leave room')
+    const s = room.settings
+    const mode = MODES.find((m) => m.id === s.mode)!
+    const share = touch() && typeof navigator.share === 'function'
+    // the code and the invite link
+    const codeCard = h(
+      'div.nl-codebar',
+      null,
+      h('div.nl-codebox', null, h('small', null, room.public ? 'Public room · code' : 'Invite only · code'), h('b', null, room.code)),
+      h(
+        'div.nl-share',
+        null,
+        share ? this.k('share', button('Share invite', { icon: 'share', class: 'small', onclick: () => void this.share() })) : null,
+        this.k('copy', button('Copy link', { icon: 'copy', class: 'small', onclick: () => void this.copy() })),
+      ),
+    )
+    // the seats
+    const seats = h('div.nl-players')
+    for (let i = 0; i < room.maxPlayers; i++) {
+      const m = room.members.find((x) => x.slot === i)
+      const c = PLAYER_COLORS[i]
+      seats.append(
+        m
+          ? h(
+              'div.nl-player',
+              { class: `${m.slot === room.you ? 'you' : ''} ${m.connected ? '' : 'away'}` },
+              tankIcon(c.body, c.dark),
+              h(
+                'div.nl-who',
+                null,
+                h('b', null, m.name || 'Player'),
+                h(
+                  'span.nl-meta',
+                  null,
+                  m.host ? h('span.nl-tag.host', null, 'Host') : null,
+                  m.slot === room.you ? h('span.nl-tag', null, 'You') : null,
+                  h('small', { 'data-ping': m.slot }, m.connected ? (m.spectating ? 'next game' : `${m.ping} ms`) : 'reconnecting…'),
+                ),
+              ),
+            )
+          : h('div.nl-player.empty', null, tankIcon(c.body, c.dark), h('span', null, `${PLAYER_COLOR_NAMES[i]} · waiting for a player`)),
+      )
+    }
+    // the game settings (the host's to change)
+    const dis = !host
+    const opts: (HTMLElement | null)[] = []
+    if (s.mode === 'coop') {
+      const top = s.allMissions ? 100 : 20
+      opts.push(
+        this.row('Start at mission', this.stepper('mission', s.mission + 1, 1, top, dis, (v) => this.set({ mission: v - 1 }))),
+        this.row('All 100 missions', this.toggle('all', s.allMissions, dis, (on) => this.set({ allMissions: on })), 'Keep going after mission 20'),
+      )
+    } else if (s.mode === 'pack') {
+      opts.push(h('div.nl-pack', null, s.packName ? h('span', null, h('b', null, s.packName), ` · ${s.packLevels} level${s.packLevels === 1 ? '' : 's'}`) : h('i', null, 'No pack chosen yet')))
+      if (host) {
+        const id = h('input.nl-input', { placeholder: 'Pack id from the level store', value: s.packId, spellcheck: 'false', 'data-k': 'packId' })
+        const load = () => id.value.trim() && this.set({ mode: 'pack', packId: id.value.trim() })
+        id.addEventListener('keydown', (e) => e.key === 'Enter' && load())
+        const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true })
+        file.addEventListener('change', () => this.upload(file))
+        opts.push(
+          h('div.nl-packrow', null, id, this.k('load', button('Load', { class: 'small', onclick: load }))),
+          this.k('file', button('Upload a .json pack', { icon: 'share', class: 'small nl-upload', onclick: () => file.click() })),
+          file,
+        )
+      }
+    } else {
+      opts.push(
+        this.row('Arena', this.stepper('arena', s.arena, 0, ARENAS.length - 1, dis, (v) => this.set({ arena: v }), (v) => ARENAS[v]?.name ?? '?')),
+        this.row('Rounds to win', this.stepper('rounds', s.rounds, 1, 9, dis, (v) => this.set({ rounds: v }))),
+        this.row('AI tanks', this.stepper('ai', s.ai, 0, 4, dis, (v) => this.set({ ai: v }))),
+      )
+    }
+    const canStart = s.mode !== 'pack' || s.packLevels > 0
+    const running = room.state !== 'lobby'
+    const start = host
+      ? this.k('start', button(running ? 'Game running…' : 'Start game', { icon: 'play', class: 'primary big nl-start', disabled: !canStart || running, autofocus: true, onclick: () => this.act(() => this.net.send({ t: 'start' })) }))
+      : h('div.nl-wait', null, running ? 'Game running… you join at the next mission' : 'Waiting for the host to start…')
+    const game = h(
+      'div.card.nl-game',
+      null,
+      h('div.nl-game-head', null, h('div.card-title', null, 'Game'), host ? null : h('span.nl-tag', null, 'Host’s choice')),
+      this.seg('mode', MODES.map((m) => [m.id, m.name]), s.mode, (v) => this.set({ mode: v as RoomSettings['mode'] }), dis),
+      h('div.card-text.nl-desc', null, mode.desc),
+      h('div.nl-opts', null, ...opts),
+      start,
+    )
+    this.body.replaceChildren(
+      codeCard,
+      h('div.nl-two.room', null, h('div.card', null, h('div.records-head', null, `Players · ${room.members.length} / ${room.maxPlayers}`), seats), game),
+    )
+    this.refocus(had)
+  }
+
+  // ---- pieces --------------------------------------------------------------------------------
+
+  /** a labelled settings row */
+  private row(label: string, ctl: HTMLElement, hint?: string) {
+    return h('div.nl-row', null, h('span.row-label', null, label, hint ? h('small', null, hint) : null), ctl)
+  }
+
+  /** a segmented switch (the settings screen's .seg) */
+  private seg(k: string, items: [string, string][], on: string, pick: (v: string) => void, disabled = false) {
+    const box = h('span.seg')
+    for (const [v, label] of items) {
+      const b = h('button.seg-btn', { type: 'button', class: v === on ? 'on' : '', disabled, 'data-k': `${k}-${v}` }, label)
+      b.addEventListener('click', () => {
+        if (b.classList.contains('on')) return
+        this.sound('move')
+        box.querySelectorAll('.seg-btn').forEach((x) => x.classList.toggle('on', x === b))
+        pick(v)
+      })
+      box.append(b)
+    }
+    return box
+  }
+
+  /** − value + ; `show` formats the value (the arena's name) */
+  private stepper(k: string, v: number, min: number, max: number, disabled: boolean, set: (v: number) => void, show: (v: number) => string = String) {
+    const step = (d: number) => {
+      const n = Math.max(min, Math.min(max, v + d))
+      if (n === v) return
+      this.sound('move')
+      set(n)
+    }
+    return h(
+      'span.nl-step',
+      { class: show === String ? '' : 'wide' },
+      h('button.nl-step-btn', { type: 'button', disabled: disabled || v <= min, 'data-k': `${k}-`, 'aria-label': 'Less', onclick: () => step(-1) }, '−'),
+      h('output', null, show(v)),
+      h('button.nl-step-btn', { type: 'button', disabled: disabled || v >= max, 'data-k': `${k}+`, 'aria-label': 'More', onclick: () => step(1) }, '+'),
+    )
+  }
+
+  private toggle(k: string, on: boolean, disabled: boolean, set: (on: boolean) => void) {
+    return h('button.toggle', { type: 'button', class: on ? 'on' : '', disabled, role: 'switch', 'aria-checked': String(on), 'data-k': k, onclick: () => (this.sound('move'), set(!on)) }, h('span.knob'))
+  }
+
+  /** tags a control so its focus survives a re-render */
+  private k<T extends HTMLElement>(k: string, el: T) {
+    el.dataset.k = k
+    return el
+  }
+
+  private focusKey() {
+    const a = document.activeElement as HTMLElement | null
+    return a && this.root.contains(a) ? a.dataset.k : undefined
+  }
+
+  private refocus(k?: string) {
+    const again = k ? this.root.querySelector<HTMLElement>(`[data-k="${k}"]`) : null
+    if (again && !(again as HTMLButtonElement).disabled) again.focus({ preventScroll: true })
+    else if (!this.root.contains(document.activeElement) || (document.activeElement as HTMLButtonElement).disabled) requestAnimationFrame(() => this.nav?.focus())
+  }
+
+  // ---- actions -------------------------------------------------------------------------------
+
+  private act(f: () => void) {
     this.saveName()
-    switch (btn.dataset.act) {
-      case 'back':
-        if (n.room) n.send({ t: 'leave' })
+    this.sound('ok')
+    f()
+  }
+
+  private set(settings: Partial<RoomSettings>) {
+    this.net.send({ t: 'settings', settings })
+  }
+
+  private upload(input: HTMLInputElement) {
+    const f = input.files?.[0]
+    if (!f) return
+    f.text().then(
+      (txt) => {
         try {
-          this.app.toMenu()
+          this.net.send({ t: 'settings', settings: { mode: 'pack' }, pack: JSON.parse(txt) as LevelPack })
         } catch {
-          // no main menu registered (yet): the original pre-game screens
-          this.app.show(null)
+          this.toast('That file is not a level pack')
         }
-        return
-      case 'retry':
-        n.connect().then(() => this.render(), (er) => this.toast(er.message))
-        this.render()
-        return
-      case 'quick':
-        n.send({ t: 'quick' })
-        return
-      case 'create': {
-        const pub = this.root.querySelector('[data-f="vis"] .on')?.getAttribute('data-v') === 'public'
-        n.send({ t: 'create', public: pub, maxPlayers: Number(this.field<HTMLSelectElement>('max')?.value ?? 4) })
-        return
-      }
-      case 'join': {
-        const code = this.field('code')?.value.trim() ?? ''
-        if (code) n.send({ t: 'join', code })
-        return
-      }
-      case 'joinCode':
-        n.send({ t: 'join', code: btn.dataset.code ?? '' })
-        return
-      case 'leave':
-        n.send({ t: 'leave' })
-        return
-      case 'copy': {
-        const link = joinLink(n.room?.code ?? '')
-        navigator.clipboard?.writeText(link).then(
-          () => this.toast('Invite link copied'),
-          () => this.toast(link),
-        ) ?? this.toast(link)
-        return
-      }
-      case 'start':
-        n.send({ t: 'start' })
-        return
-      case 'loadPack': {
-        const id = this.field('packId')?.value.trim() ?? ''
-        if (id) n.send({ t: 'settings', settings: { mode: 'pack', packId: id } })
-        return
-      }
+      },
+      () => this.toast('Could not read the file'),
+    )
+  }
+
+  private async share() {
+    const url = joinLink(this.net.room?.code ?? '')
+    try {
+      await navigator.share({ title: 'Tanks! online', text: 'Join my Tanks! game', url })
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') await this.copy()
     }
   }
 
-  private onChange(e: Event) {
-    const t = e.target as HTMLInputElement
-    const f = t.dataset.f
-    const n = this.net
-    if (f === 'name') return this.saveName()
-    if (f === 'mission') n.send({ t: 'settings', settings: { mission: Number(t.value) - 1 } })
-    else if (f === 'allMissions') n.send({ t: 'settings', settings: { allMissions: t.checked } })
-    else if (f === 'arena' || f === 'rounds' || f === 'ai') n.send({ t: 'settings', settings: { [f]: Number(t.value) } })
-    else if (f === 'packFile' && t.files?.[0]) {
-      t.files[0].text().then(
-        (txt) => {
-          try {
-            n.send({ t: 'settings', settings: { mode: 'pack' }, pack: JSON.parse(txt) as LevelPack })
-          } catch {
-            this.toast('That file is not a level pack')
-          }
-        },
-        () => this.toast('Could not read the file'),
-      )
+  private async copy() {
+    const link = joinLink(this.net.room?.code ?? '')
+    try {
+      await navigator.clipboard.writeText(link)
+      this.toast('Invite link copied')
+    } catch {
+      this.toast(link)
     }
   }
 
   private saveName() {
-    const v = this.field('name')?.value.trim()
+    const el = this.root.querySelector<HTMLInputElement>('[data-k="name"]')
+    const v = el?.value.trim()
     if (v !== undefined && v !== this.net.name) this.net.setName(v)
   }
 }

@@ -16,12 +16,16 @@ export function register(m: ServerModule) {
 await import('./modules/index')
 
 const port = Number(process.env.PORT ?? 3001)
+/** the release (tools/version.ts; the deploy sets it), so clients can tell a new one is out */
+const VERSION = process.env.TANKS_VERSION ?? 'dev'
 
 const server = Bun.serve<WsData, never>({
   port,
   async fetch(req, server) {
     const url = new URL(req.url)
-    if (url.pathname === '/api/health') return json({ ok: true, modules: MODULES.map((m) => m.name) })
+    if (url.pathname === '/api/health') return json({ ok: true, version: VERSION, modules: MODULES.map((m) => m.name) })
+    if (url.pathname === '/api/online')
+      return json({ online: MODULES.reduce((n, m) => n + (m.online?.() ?? 0), 0), version: VERSION }, 200, { 'cache-control': 'no-store' })
     if (url.pathname.startsWith('/ws/')) {
       const name = url.pathname.split('/')[2]
       const m = MODULES.find((x) => x.name === name && x.ws)

@@ -75,6 +75,8 @@ export function endSession() {
   g.quitToTitle()
   g.world = null
   ;(g.presenter as { reset?: () => void }).reset?.()
+  // the attract-mode match behind the lobby again
+  ;(a as { startDemo?: () => void }).startDemo?.()
   a.show('lobby')
 }
 
