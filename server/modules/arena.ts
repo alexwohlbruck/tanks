@@ -10,7 +10,7 @@
 import type { ServerWebSocket } from 'bun'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
-import { ARENA_TPS, EMOTES, FLARE, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, WHITE_REVEAL, sizeOf, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
+import { ARENA_TPS, EMOTES, FLARE, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, sizeOf, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
 import { cleanName } from '../../src/net/protocol'
 import { register } from '../index'
@@ -201,7 +201,7 @@ class Arena {
         const [b, tu] = ArenaSim.headings(t)
         const pw = t.power ? PICKUP_KINDS.indexOf(t.power) + 1 : 0
         // White: enemies only see its tracks, except right after it fires
-        const hidden = t.power === 'white' && s.enemies(p, t.player) && s.tick - t.firedAt > WHITE_REVEAL
+        const hidden = s.hiddenFrom(p, t)
         const flags =
           (t.alive ? TF_ALIVE : 0) |
           (s.tick < t.protectUntil ? TF_PROTECT : 0) |
