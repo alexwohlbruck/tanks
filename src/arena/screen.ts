@@ -503,11 +503,13 @@ class ArenaScreen implements Screen {
       }
       // the arsenal: one slot per weapon, with its key
       const pips = (n: number, max: number, svg: string) => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">${svg}</i>`).join('')
+      // a long row (Yellow's mines) packs its pips tighter
+      const many = (max: number) => (max > 6 ? ' many' : '')
       const key = (a: 'mine' | 'flare' | 'nuke') => esc(settings.keys[a]?.[0] ? keyName(settings.keys[a][0]) : '')
       this.set(
         'ammo',
         `<div class="ar-slot"><div class="pips">${pips(you.shells, you.maxShells, SHELL_SVG)}</div><kbd>Click</kbd></div>` +
-          `<div class="ar-slot"><div class="pips">${pips(you.mines, you.maxMines, MINE_SVG)}</div><kbd>${key('mine')}</kbd></div>` +
+          `<div class="ar-slot"><div class="pips${many(you.maxMines)}">${pips(you.mines, you.maxMines, MINE_SVG)}</div><kbd>${key('mine')}</kbd></div>` +
           `<div class="ar-slot"><div class="pips">${pips(you.flares, you.flareMax, FLARE_SVG)}</div><kbd>${key('flare')}</kbd>${you.flareBack ? `<span class="back">${Math.ceil(you.flareBack / 60)}</span>` : ''}</div>` +
           `<div class="ar-slot nuke ${you.nukes ? '' : 'used'}" title="${you.nukes ? 'Your nuke for this match' : 'Nuke used: you get a new one next match'}"><div class="pips">${NUKE_SVG}</div><kbd>${key('nuke')}</kbd></div>`,
       )

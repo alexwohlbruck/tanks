@@ -117,12 +117,15 @@ export const SPAWN_SIGHT = 620
  * while (its model, and its trick on top of the player tank's rules):
  *   Teal    rockets (shell speed 6, no ricochet)        Green  rockets with 2 ricochets
  *   Black   very fast, rockets                          Pink   fires in bursts of three
- *   Yellow  fast mine layer: 4 mines, short cooldown    Violet aggressive: 8 shells, 3 mines
+ *   Yellow  mine layer: 10 mines                        Violet aggressive: 8 shells, 3 mines
  *   White   invisible to enemies, firing included (only its tracks and shells show)
  */
 //   and two Tanks+ types (src/sim/types):
 //   Hornet  homing rockets (no ricochet)               Sniper very fast shells along a laser
 //                                                      sight everyone can see
+/** Yellow, the mine layer: mines out at once (a kill streak adds its usual +1 / +2) */
+export const YELLOW_MINES = 10
+
 export type PickupKind = 'teal' | 'green' | 'black' | 'pink' | 'yellow' | 'violet' | 'white' | 'hornet' | 'sniper'
 export const PICKUP_KINDS: PickupKind[] = ['teal', 'green', 'black', 'pink', 'yellow', 'violet', 'white', 'hornet', 'sniper']
 /** the enemy type (1-9, Tanks+ 10+) each pickup turns you into */
@@ -133,7 +136,7 @@ export const PICKUP_INFO: Record<PickupKind, { name: string; color: string; dark
   green: { name: 'Green', color: '#5bb046', dark: '#2f6b22', trick: 'Ricochet rockets' },
   black: { name: 'Black', color: '#3a3a3e', dark: '#141416', trick: 'Speed + rockets' },
   pink: { name: 'Pink', color: '#e2676f', dark: '#932a31', trick: 'Triple shot' },
-  yellow: { name: 'Yellow', color: '#e8c33a', dark: '#9b7d14', trick: 'Mine layer' },
+  yellow: { name: 'Yellow', color: '#e8c33a', dark: '#9b7d14', trick: `Mine layer (${YELLOW_MINES} mines)` },
   violet: { name: 'Violet', color: '#9a5ac9', dark: '#5c2f82', trick: '8 shells, 3 mines' },
   white: { name: 'White', color: '#f3f1ea', dark: '#9d9a90', trick: 'Invisible' },
   hornet: { name: 'Hornet', color: '#e0482a', dark: '#7d2212', trick: 'Homing rockets' },
@@ -197,7 +200,7 @@ export function powerStats(p: PickupKind | null, base: { speed: number; shellSpe
   if (p === 'green') Object.assign(s, { shellSpeed: ROCKET_SHELL_SPEED, ricochets: 2, smoke: 2 })
   if (p === 'black') Object.assign(s, { shellSpeed: ROCKET_SHELL_SPEED, ricochets: 0, smoke: 1, speedMul: BLACK_SPEED })
   if (p === 'pink') Object.assign(s, { burst: 3, maxShells: 7 })
-  if (p === 'yellow') Object.assign(s, { maxMines: 4 })
+  if (p === 'yellow') Object.assign(s, { maxMines: YELLOW_MINES })
   if (p === 'violet') Object.assign(s, { maxShells: 8, maxMines: 3 })
   if (p === 'hornet') Object.assign(s, { ricochets: 0, smoke: 1, homing: true, maxShells: 3 })
   if (p === 'sniper') Object.assign(s, { shellSpeed: SNIPER_SHELL_SPEED, ricochets: 1, smoke: 1, maxShells: 3 })
@@ -209,7 +212,6 @@ export function powerStats(p: PickupKind | null, base: { speed: number; shellSpe
     // the trick itself grows
     if (p === 'green') s.ricochets += L
     if (p === 'pink') s.burst += L
-    if (p === 'yellow') s.maxMines += L
     if (p === 'violet') s.maxShells += L
     if (p === 'teal' || p === 'black') s.shellSpeed += 0.7 * L
     if (p === 'hornet') s.homingTurn *= 1 + 0.5 * L
