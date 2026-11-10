@@ -37,6 +37,8 @@ jobs:
     runs-on: [self-hosted, tanks]
     steps:
       - uses: actions/checkout@v4
+      - name: Bun
+        run: echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
       - name: Game assets
         run: mkdir -p public/assets && rsync -a --delete "${{ vars.TANKS_ASSETS }}/" public/assets/
       - run: bun install --frozen-lockfile
@@ -58,6 +60,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Bun
+        run: echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
       - name: Game assets
         run: mkdir -p public/assets && rsync -a --delete "${{ vars.TANKS_ASSETS }}/" public/assets/
       - run: bun install --frozen-lockfile
