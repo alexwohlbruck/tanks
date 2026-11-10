@@ -83,6 +83,8 @@ class ArenaScreen implements Screen {
       e.preventDefault()
       this.sheetHeld = e.type === 'keydown'
     }
+    // knocked out of a one-life round: Enter finds a new game
+    if (e.code === 'Enter' && e.type === 'keydown' && !e.repeat && this.phase === 'play' && !this.menuOpen && this.session?.you?.out) this.newGame()
     // quick chat: 1-6
     const n = /^Digit([1-6])$/.exec(e.code)
     if (n && e.type === 'keydown' && !e.repeat && this.phase === 'play' && !this.menuOpen && this.session) this.session.emote(Number(n[1]) - 1)
@@ -277,13 +279,13 @@ class ArenaScreen implements Screen {
     this.poll = setInterval(refresh, 4000)
   }
 
-  private play(raw: string) {
+  private play(raw: string, not?: string) {
     const name = raw.trim() || 'Player'
     if (this.poll) clearInterval(this.poll)
     this.poll = null
     this.sound('ok')
     this.app.audio.stopMusic()
-    const s = new ArenaSession(this.app.view, this.app.audio, name, this.mode, this.invite, this.size)
+    const s = new ArenaSession(this.app.view, this.app.audio, name, this.mode, this.invite, this.size, not)
     this.invite = null
     s.onPause = () => this.toggleMenu()
     this.session = s
@@ -306,6 +308,7 @@ class ArenaScreen implements Screen {
         <div class="ar-feed"></div>
         <div class="ar-banner band"><span></span></div>
         <div class="ar-respawn band dark"><span></span></div>
+        <button class="ar-newgame btn primary" type="button" hidden><span class="label"><span class="t">Find a new game</span><span class="hint">Enter · jump into one that's starting</span></span></button>
         <div class="ar-dock"><div class="ar-ammo"></div><div class="ar-power"></div></div>
         <div class="ar-mapframe"><canvas class="ar-minimap"></canvas></div>
         <div class="ar-labels"></div>
@@ -315,10 +318,18 @@ class ArenaScreen implements Screen {
         <div class="ar-menu pause-screen" hidden></div>
         <div class="ar-connecting pause-screen"><div class="panel pause">${band('Connecting…', 'dark').outerHTML}</div></div>
       </div>`
-    for (const k of ['timer', 'score', 'board', 'feed', 'banner', 'respawn', 'ammo', 'power', 'labels', 'net', 'sheet', 'menu', 'connecting']) this.els[k] = this.root.querySelector(`.ar-${k}`)!
+    for (const k of ['timer', 'score', 'board', 'feed', 'banner', 'respawn', 'newgame', 'ammo', 'power', 'labels', 'net', 'sheet', 'menu', 'connecting']) this.els[k] = this.root.querySelector(`.ar-${k}`)!
     this.minimap = this.root.querySelector('.ar-minimap')!
     this.last = {}
+    // a fresh HUD for a fresh session: nothing kept from the last arena
+    this.labels.clear()
+    this.youTag = null
+    this.mapVersion = -1
+    this.fx.clear()
+    for (const m of [this.pickupObjs, this.rings, this.lasers, this.missiles, this.nukeRings, this.burstObjs] as Map<unknown, unknown>[]) m.clear()
+    this.youRings = this.zoneObj = null
     this.app.view.root.add(this.fx)
+    this.els.newgame.addEventListener('click', () => this.newGame())
     // quick chat button (touch; keys 1-6 do the same)
     const chat = this.root.querySelector<HTMLElement>('.ar-chat-list')!
     chat.innerHTML = EMOTES.map((t, i) => `<button type="button" data-emote="${i}"><kbd>${i + 1}</kbd>${esc(t)}</button>`).join('')
@@ -429,6 +440,15 @@ class ArenaScreen implements Screen {
     this.app.audio.play(on ? 'RP_COM_GAME_SE_PAUSE_01_TVSP' : 'RP_COMMON_SE_KEY_BACK_01')
   }
 
+  /** out until the next round or match: straight into another game of the same mode and size */
+  private newGame() {
+    const s = this.session
+    if (!s) return
+    this.mode = s.mode
+    this.size = s.size
+    this.play(ArenaSession.savedName(), s.board?.arena)
+  }
+
   private leave() {
     if (this.app.fpvOn) this.app.toggleFpv(false)
     this.session = null
@@ -494,6 +514,7 @@ class ArenaScreen implements Screen {
       const outside = !!you.alive && you.zo > 0
       this.els.respawn.classList.toggle('on', (!you.alive || outside) && b?.state !== 'over')
       this.els.respawn.classList.toggle('zone', outside)
+      this.els.newgame.hidden = !(you.out && b?.state === 'play')
       if (outside) this.set('respawn', `<span>Get back in the zone! ${Math.max(1, Math.ceil((ROYALE.outside - you.zo) / 60))}</span>`)
       else if (!you.alive) {
         const w = s.spectating !== null ? s.nameOf(s.spectating) : undefined
