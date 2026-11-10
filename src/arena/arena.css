@@ -248,7 +248,10 @@ body.touch-play .ar-slot kbd { display: none; }
 .ar-hud .ar-sheet { background: rgba(30, 14, 2, 0.35); backdrop-filter: blur(3px); animation: fade-in 0.12s ease-out; }
 .panel.results.ar-results { width: min(54em, 96vw); max-height: 88vh; }
 .ar-results .kills { min-height: 0; }
-.ar-results .kills-head, .ar-results .kill-row { grid-template-columns: 1.3em minmax(0, 1fr) repeat(3, 2.7em); gap: 0.35em; }
+/* the head shrinks only its text, so its columns are the same width as the rows' */
+.ar-results .kills-head, .ar-results .kill-row { grid-template-columns: 1.3em minmax(0, 1fr) repeat(3, 3.2em); gap: 0.35em; }
+.ar-results .kills-head { font-size: 1em; }
+.ar-results .kills-head span { font-size: 0.72em; }
 .ar-results .kills-head span:nth-child(n + 3) { text-align: right; }
 .ar-results .kill-row .rk { opacity: 0.55; font-weight: 700; }
 .ar-results .kill-row .kname { display: flex; align-items: center; gap: 0.4em; min-width: 0; }
