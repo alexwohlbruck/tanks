@@ -1,7 +1,7 @@
 {
   "name": "Tanks!",
   "short_name": "Tanks!",
-  "description": "Wii Play's Tanks! in the browser: the campaign, online co-op and versus, and a big multiplayer arena.",
+  "description": "Toy tank battles in the browser: the classic campaign, online co-op and versus, and a big multiplayer arena.",
   "start_url": "/",
   "display": "fullscreen",
   "orientation": "landscape",
