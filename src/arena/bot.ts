@@ -8,10 +8,11 @@
 //     coming down, against cork in its way, in a close fight; never near a teammate or on top
 //     of another mine. Shoots mines that have an enemy next to them. Nukes go down where
 //     enemies crowd, then it runs.
+//   - Battle royale: heads back into the zone (the part it's closing to) before anything else
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import { NUKE } from './rules'
+import { NUKE, zoneNext } from './rules'
 import type { AMine, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
@@ -33,13 +34,37 @@ type Brain = {
   /** the way out of a blast, recomputed every 20 frames */
   escape: [number, number][]
   escapeAt: number
+  /** Battle royale: where it's heading to get back into the zone */
+  zone: [number, number] | null
 }
 
 const brains = new WeakMap<Player, Brain>()
 
+/**
+ * Battle royale: outside (or near the edge of) the circle the zone is closing to, a cell well
+ * inside it to drive to (kept until it's reached or falls outside); null when it's safe here.
+ */
+function zoneGoal(sim: ArenaSim, t: ATank, b: Brain): [number, number] | null {
+  const z = sim.zone
+  if (!z) return null
+  const r = Math.min(sim.zoneR(), zoneNext(sim.tick - sim.roundStart, z.r0))
+  const d = (x: number, y: number) => Math.hypot(x - z.x, y - z.z)
+  if (d(t.pos.x, t.pos.z) < r * 0.85) return (b.zone = null)
+  if (b.zone) {
+    const p = cellPos(sim.map, b.zone[0], b.zone[1])
+    if (d(p.x, p.z) < r * 0.6) return b.zone
+  }
+  for (let i = 0; i < 30; i++) {
+    const c = sim.map.open[Math.floor(Math.random() * sim.map.open.length)]
+    const p = cellPos(sim.map, c[0], c[1])
+    if (d(p.x, p.z) < r * 0.5 && sim.field.at(c[0], c[1]) === 0) return (b.zone = c)
+  }
+  return (b.zone = cellOf(sim.map, z.x, z.z))
+}
+
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0 }))
+  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null }))
   return b
 }
 
@@ -296,7 +321,9 @@ export function botThink(sim: ArenaSim, p: Player) {
     const dist = e ? Math.hypot(e.pos.x - t.pos.x, e.pos.z - t.pos.z) : 0
     const seen = e && clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)
     const from = b.fleeFrom ?? e?.pos
-    if (now < b.fleeUntil && from) {
+    const zone = zoneGoal(sim, t, b)
+    if (zone) goal = zone
+    else if (now < b.fleeUntil && from) {
       mx = t.pos.x - from.x
       mz = t.pos.z - from.z
     } else if (e && seen && dist < 260) {

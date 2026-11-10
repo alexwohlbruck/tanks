@@ -10,7 +10,7 @@
 import type { ServerWebSocket } from 'bun'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
-import { ARENA_TPS, EMOTES, FLARE, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, sizeOf, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
+import { ARENA_TPS, EMOTES, FLARE, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, arenaModeOf, isTeamMode, sizeOf, zoneNext, zoneRadius, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
 import { cleanName } from '../../src/net/protocol'
 import { register } from '../index'
@@ -94,13 +94,13 @@ class Arena {
       // the bot on the bigger team leaves (teams), else the lowest scorer
       const n = [0, 0]
       for (const p of s.players) n[p.team]++
-      const pool = s.mode === 'teams' ? bots.filter((b) => b.team === (n[0] > n[1] ? 0 : 1)) : bots
+      const pool = isTeamMode(s.mode) ? bots.filter((b) => b.team === (n[0] > n[1] ? 0 : 1)) : bots
       const out = (pool.length ? pool : bots).sort((a, b) => a.score - b.score)[0]
       s.removePlayer(out)
       bots = s.players.filter((p) => p.bot)
     }
     // keep teams even: move a bot across when one side has two more
-    if (s.mode === 'teams') {
+    if (isTeamMode(s.mode)) {
       const n = [0, 0]
       for (const p of s.players) n[p.team]++
       if (Math.abs(n[0] - n[1]) >= 2) {
@@ -232,7 +232,7 @@ class Arena {
       st: pc.shellTimer,
       mt: pc.mineTimer,
       alive: t.alive ? 1 : 0,
-      respawn: t.alive ? 0 : Math.max(0, t.respawnAt - s.tick),
+      respawn: t.alive || !Number.isFinite(t.respawnAt) ? 0 : Math.max(0, t.respawnAt - s.tick),
       protect: Math.max(0, t.protectUntil - s.tick),
       power: t.power,
       powerLeft: t.power ? t.powerUntil - s.tick : 0,
@@ -248,6 +248,8 @@ class Arena {
       level: s.level(t),
       streak: p.streak,
       spec: !t.alive && p.killedBy?.tank.alive && s.players.includes(p.killedBy) ? p.killedBy.tank.id : 0,
+      out: !t.alive && !Number.isFinite(t.respawnAt) ? 1 : 0,
+      zo: t.outside,
     }
     send(c, { t: 's', k: s.tick, T, S, F, M, K, E: c.pending, you })
     c.pending = []
@@ -259,7 +261,7 @@ class Arena {
     const mm: [number, number, number][] = []
     for (const t of s.tanks) {
       if (!t.alive || !me) continue
-      const friend = t.player === me || (s.mode === 'teams' && t.player.team === me.team)
+      const friend = t.player === me || (isTeamMode(s.mode) && t.player.team === me.team)
       if (friend || s.tick - t.firedAt < 120) mm.push([t.player.pid, Math.round(t.pos.x), Math.round(t.pos.z)])
     }
     return {
@@ -273,7 +275,21 @@ class Arena {
       theme: s.map.theme,
       vote: s.state === 'over' && s.voteOptions.length ? { options: s.voteOptions, counts: s.voteOptions.map((o) => [...s.votes.values()].filter((v) => v === o).length), mine: (me && s.votes.get(me.pid)) || null } : null,
       arena: this.id,
+      ...this.modeInfo(),
     }
+  }
+
+  /** the one-life modes' extras: tanks left, the round, the zone */
+  private modeInfo(): Partial<Board> {
+    const s = this.sim
+    const left = (team?: number) => s.players.filter((p) => p.tank.alive && (team === undefined || p.team === team)).length
+    if (s.mode === 'elim') return { alive: [left(0), left(1)], round: s.round, roundOver: !!s.roundOverAt }
+    if (s.mode === 'royale' && s.zone) {
+      const t = s.tick - s.roundStart
+      const r = zoneRadius(t, s.zone.r0)
+      return { alive: [left()], zone: [Math.round(s.zone.x), Math.round(s.zone.z), Math.round(r), Math.round(zoneNext(t, s.zone.r0)), Math.round((r - zoneRadius(t + ARENA_TPS, s.zone.r0)) * 10) / 10] }
+    }
+    return {}
   }
 
   /** stats: kills / deaths / streaks as they happen, wins and matches at the end */
@@ -312,7 +328,7 @@ class Arena {
     c.emoteAt = now
     const t = p.tank
     for (const o of this.clients)
-      if (o === c || (Math.abs(t.pos.x - o.focus.x) < VIEW.x && Math.abs(t.pos.z - o.focus.z) < VIEW.z) || (this.mode === 'teams' && o.player?.team === p.team)) o.pending.push(['emo', p.pid, i])
+      if (o === c || (Math.abs(t.pos.x - o.focus.x) < VIEW.x && Math.abs(t.pos.z - o.focus.z) < VIEW.z) || (isTeamMode(this.mode) && o.player?.team === p.team)) o.pending.push(['emo', p.pid, i])
   }
 }
 
@@ -342,6 +358,8 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
       return ['brk', e.c, e.r, e.h]
     case 'match':
       return ['match', e.state]
+    case 'round':
+      return ['round', e.n, e.team, e.start ? 1 : 0]
     case 'pickup':
       return ['pick', e.tank, e.kind, r1(e.x), r1(e.z)]
   }
@@ -452,7 +470,7 @@ function onMessage(c: Client, raw: string | Buffer) {
       return send(c, { t: 'pong', c: Number(m.c) || 0 })
     case 'join': {
       if (m.v !== ARENA_PROTO) return send(c, { t: 'error', message: 'The game was updated: reload the page.' })
-      let mode: ArenaMode = m.mode === 'teams' ? 'teams' : 'ffa'
+      let mode: ArenaMode = arenaModeOf(m.mode)
       const size = sizeOf(m.size)
       if (c.arena) c.arena.leave(c)
       c.statId = isStatId(m.id) ? m.id : null
@@ -464,7 +482,7 @@ function onMessage(c: Client, raw: string | Buffer) {
         a = invited
         mode = a.mode
         const host = a.sim.players.find((p) => p.pid === Number(m.with) && !p.bot)
-        if (host && mode === 'teams') team = host.team
+        if (host && isTeamMode(mode)) team = host.team
       }
       a ??= pickArena(mode, size, c.ip)
       if (!a) return send(c, { t: 'error', message: 'Every arena is full. Try again in a minute.' })
@@ -485,6 +503,8 @@ function onMessage(c: Client, raw: string | Buffer) {
       if (!process.env.ARENA_DEV || !t) return
       // 'end': finish the match now (results + map vote)
       if (m.power === 'end') return void (c.arena!.sim.phaseEnd = c.arena!.sim.tick)
+      // 'zone': Battle royale's zone a minute further on
+      if (m.power === 'zone') return void (c.arena!.sim.roundStart -= 60 * 60)
       // items, and a kill streak (+3)
       if (m.power === 'nuke') return void (t.nukes = NUKE.perMatch)
       if (m.power === 'shield') return void (t.shieldUntil = c.arena!.sim.tick + SHIELD.ticks)

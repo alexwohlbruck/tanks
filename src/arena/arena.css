@@ -82,6 +82,14 @@
 .ar-tanks { display: flex; align-items: center; justify-content: center; gap: 0.1em; }
 .ar-tanks .tank-icon { width: 2em; height: 1.25em; margin: 0 -0.15em; }
 .ar-tanks.vs b { margin: 0 0.35em; color: var(--red-dark); font-weight: 900; font-size: 0.9em; }
+/* Battle royale and Elimination: the cards' art, tanks left, the zone warning */
+.ar-tanks.royale { position: relative; width: 4.4em; height: 1.8em; }
+.ar-tanks.royale .ar-ring { position: absolute; inset: 0; border-radius: 50%; border: 0.14em dashed #d8202a; opacity: 0.8; }
+.ar-tanks .tank-icon.down { opacity: 0.3; filter: grayscale(1); }
+.ar-plaque.teams em { font-style: normal; font-size: 0.7em; font-weight: 700; opacity: 0.6; white-space: nowrap; }
+.band.dark.ar-respawn.zone { background: linear-gradient(#e2363e, #a8141c); animation: zone-pulse 0.5s ease-in-out infinite alternate; }
+@keyframes zone-pulse { to { filter: brightness(1.25); } }
+
 .web .tank-icon.flip { transform: scaleX(-1); }
 .web .btn.ar-go { justify-content: center; min-height: 3em; font-size: 1.25em; }
 .ar-online { display: flex; align-items: center; justify-content: center; gap: 0.5em; font-size: 0.75em; font-weight: 600; opacity: 0.85; margin-top: -0.2em; }

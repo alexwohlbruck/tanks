@@ -14,7 +14,7 @@ import { h } from '../ui/web/dom'
 import { Nav } from '../ui/web/nav'
 import { keyName, settings } from '../ui/web/settings'
 import type { Board } from './protocol'
-import { ARENA_SIZES, EMOTES, FFA_COLORS, FLARE, ITEM_INFO, ITEM_KINDS, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SHIELD, SIZES, STREAK_LEVELS, TEAM_COLORS, TEAM_NAMES, THEME_INFO, isItem, pickupInfo, sizeOf, type AnyPickup, type ArenaMode, type ArenaSize, type ItemKind, type MapTheme } from './rules'
+import { ARENA_SIZES, EMOTES, FFA_COLORS, FLARE, ITEM_INFO, ITEM_KINDS, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SHIELD, SIZES, STREAK_LEVELS, TEAM_COLORS, TEAM_NAMES, THEME_INFO, ELIM, MODE_NAMES, ROYALE, isItem, isTeamMode, pickupInfo, sizeOf, type AnyPickup, type ArenaMode, type ArenaSize, type ItemKind, type MapTheme } from './rules'
 import { TANK } from '../sim/consts'
 import type { Tank } from '../sim/world'
 import { ArenaSession } from './session'
@@ -72,6 +72,8 @@ class ArenaScreen implements Screen {
   private nukeRings = new Map<number, THREE.Object3D>()
   /** where you just spawned: rings closing in on the tank, and a bouncing tag over it */
   private youRings: THREE.Object3D | null = null
+  /** Battle royale: the zone's edge, a red wash over everything outside it, and where it's closing to */
+  private zoneObj: THREE.Group | null = null
   private youTag: HTMLElement | null = null
   private burstObjs = new Map<object, THREE.Object3D>()
   private poll: ReturnType<typeof setInterval> | null = null
@@ -174,6 +176,10 @@ class ArenaScreen implements Screen {
     const blue = () => tankIcon(TEAM_COLORS[0], shade(TEAM_COLORS[0]))
     const red = () => flip(tankIcon(TEAM_COLORS[1], shade(TEAM_COLORS[1])))
     const teamArt = h('div.ar-tanks.vs', null, blue(), blue(), h('b', null, 'vs'), red(), red())
+    // the last tank in the circle; Blue and Red with tanks knocked out
+    const royaleArt = h('div.ar-tanks.royale', null, h('i.ar-ring'), tankIcon(FFA_COLORS[3], shade(FFA_COLORS[3])))
+    const down = (el: SVGSVGElement) => (el.classList.add('down'), el)
+    const elimArt = h('div.ar-tanks.vs', null, blue(), down(blue()), h('b', null, 'vs'), down(red()), down(red()))
     const online = h('div.ar-online', null, h('i.dot'), h('span', null, 'Checking the server…'))
     const leaderCard = this.leaderCard()
     const powers = h(
@@ -202,7 +208,7 @@ class ArenaScreen implements Screen {
           h(
             'div.panel-scroll',
             null,
-            h('p.ar-lede', null, 'One huge map and a lot of tanks. Jump in any time; you respawn when you’re hit.'),
+            h('p.ar-lede', null, 'One huge map and a lot of tanks. Jump in any time.'),
             h('label.ar-name', null, h('span', null, 'Your name'), name),
             // an invite picks the arena (and its mode) for you
             this.invite
@@ -212,6 +218,8 @@ class ArenaScreen implements Screen {
                   null,
                   modeCard('ffa', 'Free-for-all', 'Every tank for itself. The top score wins.', ffaArt),
                   modeCard('teams', 'Teams', 'Blue against Red. Watch your fire: shells hit teammates too.', teamArt),
+                  modeCard('royale', 'Battle royale', 'One life each, and the zone closes in. Be the last tank standing.', royaleArt),
+                  modeCard('elim', 'Elimination', `Blue against Red, one life a round. First to ${ELIM.rounds} rounds wins.`, elimArt),
                 ),
             this.invite ? null : h('div.ar-sizes', { role: 'group', 'aria-label': 'Map size' }, h('span.ar-sizes-head', null, 'Map size'), ...ARENA_SIZES.map(sizeButton)),
             button('Play', { icon: 'play', class: 'primary big ar-go', autofocus: true, onclick: () => this.play(name.value) }),
@@ -229,9 +237,11 @@ class ArenaScreen implements Screen {
               h(
                 'ul',
                 null,
-                h('li', null, 'One hit destroys a tank. You’re back 3 seconds later, protected until you fire.'),
-                h('li', null, `Matches last 6 minutes, or until someone reaches the score limit (${ARENA_SIZES.map((z) => `${SIZES[z].name.toLowerCase()}: ${SIZES[z].ffaLimit}, teams ${SIZES[z].teamLimit}`).join('; ')}). Then a new map is built.`),
-                h('li', null, 'You come back near the fighting, out of sight of enemies.'),
+                h('li', null, 'One hit destroys a tank. In Free-for-all and Teams you’re back 3 seconds later, near the fighting but out of sight of enemies, and protected until you fire.'),
+                h('li', null, `Free-for-all and Teams matches last 6 minutes, or until someone reaches the score limit (${ARENA_SIZES.map((z) => `${SIZES[z].name.toLowerCase()}: ${SIZES[z].ffaLimit}, teams ${SIZES[z].teamLimit}`).join('; ')}). Then a new map is built.`),
+                h('li', null, `Battle royale: one life. A red zone closes in on a spot near the middle; ${ROYALE.outside / 60} seconds outside it destroys you. The last tank standing wins.`),
+                h('li', null, `Elimination: Blue against Red with one life a round. Wipe out the other team to win the round (after ${ELIM.roundTicks / 3600} minutes, the team with more tanks left wins it). First to ${ELIM.rounds} rounds wins.`),
+                h('li', null, 'In Battle royale and Elimination, if you join once a round is under way, you watch until the next one starts.'),
                 h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
                 h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. More shells, mines and ricochets, and a stronger special tank, until you're hit.`),
                 h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run: it goes off ${NUKE.fuse / 60} seconds later. You keep it when you're hit; a new one comes with the next match.`),
@@ -250,7 +260,8 @@ class ArenaScreen implements Screen {
         const r = await this.app.api('/arena').then((x) => x.json())
         const by = (m: string) => r.arenas.filter((a: { mode: string }) => a.mode === m).reduce((n: number, a: { humans: number }) => n + a.humans, 0)
         online.classList.add('up')
-        online.querySelector('span')!.textContent = r.online ? `${r.online} playing now · ${by('ffa')} free-for-all · ${by('teams')} teams` : 'Nobody online yet: the bots are ready'
+        const modes = (['ffa', 'teams', 'royale', 'elim'] as const).filter((m) => by(m)).map((m) => `${by(m)} ${MODE_NAMES[m].toLowerCase()}`)
+        online.querySelector('span')!.textContent = r.online ? [`${r.online} playing now`, ...modes].join(' · ') : 'Nobody online yet: the bots are ready'
         // players in each size, for the chosen mode
         for (const el of this.root.querySelectorAll<HTMLElement>('.ar-size')) {
           const n = r.arenas.filter((a: { mode: string; size?: string }) => a.mode === this.mode && sizeOf(a.size) === el.dataset.size).reduce((n: number, a: { humans: number }) => n + a.humans, 0)
@@ -457,8 +468,8 @@ class ArenaScreen implements Screen {
     const b = s.board
     const you = s.you
     if (b) {
-      this.set('timer', `<span>${b.state === 'over' ? 'Match over' : fmt(b.secs)}</span>`)
-      this.els.timer.classList.toggle('hurry', b.state === 'play' && b.secs <= 30)
+      this.set('timer', `<span>${b.state === 'over' ? 'Match over' : b.roundOver ? `Next round ${b.secs}` : fmt(b.secs)}</span>`)
+      this.els.timer.classList.toggle('hurry', b.state === 'play' && !b.roundOver && b.secs <= 30)
       this.set('score', this.scoreHtml(b, s))
       this.set('board', this.boardHtml(b, s))
       const sheet = b.state === 'over' || this.sheetHeld
@@ -479,10 +490,16 @@ class ArenaScreen implements Screen {
     if (s.banner) this.set('banner', `<span>${esc(s.banner.text)}</span>`)
     // own tank
     if (you) {
-      this.els.respawn.classList.toggle('on', !you.alive && b?.state !== 'over')
-      if (!you.alive) {
+      // waiting to respawn (or, in the one-life modes, for the next round), or outside the zone
+      const outside = !!you.alive && you.zo > 0
+      this.els.respawn.classList.toggle('on', (!you.alive || outside) && b?.state !== 'over')
+      this.els.respawn.classList.toggle('zone', outside)
+      if (outside) this.set('respawn', `<span>Get back in the zone! ${Math.max(1, Math.ceil((ROYALE.outside - you.zo) / 60))}</span>`)
+      else if (!you.alive) {
         const w = s.spectating !== null ? s.nameOf(s.spectating) : undefined
-        this.set('respawn', `<span>Back in ${Math.max(1, Math.ceil(you.respawn / 60))}${w ? ` · watching ${esc(w.name)}` : ''}</span>`)
+        const watching = w ? ` · watching ${esc(w.name)}` : ''
+        const wait = !you.out ? `Back in ${Math.max(1, Math.ceil(you.respawn / 60))}` : s.mode === 'elim' ? (b?.roundOver ? `Next round in ${b.secs}` : 'Out until the next round') : 'Out until the next match'
+        this.set('respawn', `<span>${wait}${watching}</span>`)
       }
       // the arsenal: one slot per weapon, with its key
       const pips = (n: number, max: number, svg: string) => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">${svg}</i>`).join('')
@@ -518,10 +535,20 @@ class ArenaScreen implements Screen {
   }
 
   private colorOf(s: ArenaSession, team: number, color: string) {
-    return s.mode === 'teams' ? TEAM_COLORS[team] : color
+    return isTeamMode(s.mode) ? TEAM_COLORS[team] : color
   }
 
   private scoreHtml(b: Board, s: ArenaSession) {
+    if (s.mode === 'elim') {
+      // rounds won, and the tanks each team has left
+      const left = b.alive ?? [0, 0]
+      const lead = b.teams[0] === b.teams[1] ? -1 : b.teams[0] > b.teams[1] ? 0 : 1
+      return `<div class="ar-plaque teams"><span class="t ${lead === 0 ? 'lead' : ''}">${icoHtml(TEAM_COLORS[0])}<b>${b.teams[0]}</b><em>${left[0]} left</em></span><small>round ${b.round ?? 1} · first to ${ELIM.rounds}</small><span class="t ${lead === 1 ? 'lead' : ''}"><em>${left[1]} left</em><b>${b.teams[1]}</b>${icoHtml(TEAM_COLORS[1], undefined, 'tank-icon flip')}</span></div>`
+    }
+    if (s.mode === 'royale') {
+      const me = b.players.find((p) => p[0] === s.pid)
+      return `<div class="ar-plaque">${me ? icoHtml(me[3]) : ''}<b>${b.alive?.[0] ?? 0}</b><small>left of ${b.players.length}</small>${me ? `<span class="rank">${me[4]} kill${me[4] === 1 ? '' : 's'}</span>` : ''}</div>`
+    }
     if (s.mode === 'teams') {
       const lead = b.teams[0] === b.teams[1] ? -1 : b.teams[0] > b.teams[1] ? 0 : 1
       return `<div class="ar-plaque teams"><span class="t ${lead === 0 ? 'lead' : ''}">${icoHtml(TEAM_COLORS[0])}<b>${b.teams[0]}</b></span><small>first to ${SIZES[s.size].teamLimit}</small><span class="t ${lead === 1 ? 'lead' : ''}"><b>${b.teams[1]}</b>${icoHtml(TEAM_COLORS[1], undefined, 'tank-icon flip')}</span></div>`
@@ -556,7 +583,7 @@ class ArenaScreen implements Screen {
     const w = b.winner
     const head = band(over ? (w ? `${w.name} wins!` : 'A draw!') : 'Scores').outerHTML
     const body =
-      s.mode === 'teams'
+      isTeamMode(s.mode)
         ? `<div class="ar-teams">${table(sorted.filter((p) => p[2] === 0), `${TEAM_NAMES[0]} · ${b.teams[0]}`, TEAM_COLORS[0])}${table(sorted.filter((p) => p[2] === 1), `${TEAM_NAMES[1]} · ${b.teams[1]}`, TEAM_COLORS[1])}</div>`
         : table(sorted)
     const vote = over && b.vote
@@ -622,6 +649,32 @@ class ArenaScreen implements Screen {
       g.closePath()
       g.fill()
       g.stroke()
+    }
+    // Battle royale: shade what's outside the zone; a white line where it's closing to
+    const zn = s.zoneNow()
+    if (zn) {
+      const [cx, cy] = toMap(zn.x, zn.z)
+      const k = scale / 35
+      g.save()
+      g.fillStyle = 'rgba(200, 30, 40, 0.28)'
+      g.beginPath()
+      g.rect(0, 0, W, H)
+      g.arc(cx, cy, zn.r * k, 0, Math.PI * 2, true)
+      g.fill('evenodd')
+      g.strokeStyle = '#d8202a'
+      g.lineWidth = 2
+      g.beginPath()
+      g.arc(cx, cy, zn.r * k, 0, Math.PI * 2)
+      g.stroke()
+      if (zn.next < zn.r - 1) {
+        g.strokeStyle = 'rgba(255,255,255,0.9)'
+        g.lineWidth = 1.5
+        g.setLineDash([4, 3])
+        g.beginPath()
+        g.arc(cx, cy, zn.next * k, 0, Math.PI * 2)
+        g.stroke()
+      }
+      g.restore()
     }
     for (const [pid, x, z] of s.board?.mm ?? []) {
       if (pid === s.pid) continue
@@ -917,9 +970,34 @@ class ArenaScreen implements Screen {
         m.opacity = 0.85 * fade * Math.min(1, f * 4)
       })
     } else if (this.youRings) this.youRings.visible = false
+    // Battle royale: the zone
+    const zn = s.zoneNow()
+    if (zn && s.board?.state === 'play') {
+      if (!this.zoneObj) {
+        const g = (this.zoneObj = new THREE.Group())
+        const flat = (geo: THREE.BufferGeometry, color: number, opacity: number, y: number) => {
+          const m = new THREE.Mesh(geo, new THREE.MeshBasicNodeMaterial({ color, transparent: true, opacity, depthWrite: false }))
+          m.rotation.x = -Math.PI / 2
+          m.position.y = y
+          return m
+        }
+        // outside: from the edge out past the map's corners (scaled with the radius)
+        g.add(flat(new THREE.RingGeometry(1, 60, 128, 1), 0xd8202a, 0.22, 0.9))
+        g.add(flat(new THREE.RingGeometry(0.985, 1, 128), 0xff3b30, 0.9, 1))
+        g.add(flat(new THREE.RingGeometry(0.99, 1, 128), 0xffffff, 0.55, 1))
+        this.fx.add(g)
+      }
+      const [wash, edge, next] = this.zoneObj.children as THREE.Mesh[]
+      this.zoneObj.visible = true
+      this.zoneObj.position.set(zn.x, 0, zn.z)
+      wash.scale.setScalar(zn.r)
+      edge.scale.setScalar(zn.r)
+      next.scale.setScalar(zn.next)
+      next.visible = zn.next < zn.r - 1
+    } else if (this.zoneObj) this.zoneObj.visible = false
     // teams: a ring of the team colour under every visible tank
     const shown = new Set<number>()
-    if (s.mode === 'teams')
+    if (isTeamMode(s.mode))
       for (const tk of s.world?.tanks ?? []) {
         const own = tk === s.world?.playerTanks[0]
         const pid = own ? s.pid : (tk.ai?.pid as number | undefined)

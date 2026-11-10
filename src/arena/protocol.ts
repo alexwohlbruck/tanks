@@ -4,7 +4,7 @@
 
 import type { AnyPickup, ArenaMode, ArenaSize, MapTheme, PickupKind } from './rules'
 
-export const ARENA_PROTO = 9
+export const ARENA_PROTO = 10
 
 export type C2S =
   /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team) */
@@ -81,6 +81,10 @@ export type YouRec = {
   maxMines: number
   /** while waiting to respawn: the tank of whoever destroyed you (0: none in sight) */
   spec: number
+  /** one-life modes: out until the next round (Elimination) or match (Battle royale) */
+  out: number
+  /** Battle royale: ticks spent outside the zone (0: inside) */
+  zo: number
 }
 
 /** compact events: kind first (see sim ArenaEvent) */
@@ -101,6 +105,7 @@ export type NetEv =
   | ['spawn', number, number, number]
   | ['emo', number, number] // pid, emote
   | ['match', string]
+  | ['round', number, number, number] // round, winning team (-1: none), started (1) or decided (0)
 
 export type BoardPlayer = [number, string, number, string, number, number, number, number] // pid, name, team, color, kills, deaths, score, bot
 export type Board = {
@@ -117,6 +122,13 @@ export type Board = {
   vote: { options: MapTheme[]; counts: number[]; mine: MapTheme | null } | null
   /** this arena's id (invite links) */
   arena: string
+  /** one-life modes: tanks left (Battle royale: [all]; Elimination: [Blue, Red]) */
+  alive?: number[]
+  /** Elimination: the round, and whether it's decided (the pause before the next one) */
+  round?: number
+  roundOver?: boolean
+  /** Battle royale: the zone [x, z, radius, the radius it's closing to, units per second] */
+  zone?: [number, number, number, number, number]
 }
 
 export type S2C =
