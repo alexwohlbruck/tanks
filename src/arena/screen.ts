@@ -231,7 +231,7 @@ class ArenaScreen implements Screen {
                 h('li', null, 'You come back near the fighting, out of sight of enemies.'),
                 h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
                 h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. More shells, mines and ricochets, and a stronger special tank, until you're hit.`),
-                h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run. You keep it when you're hit; a new one comes with the next match.`),
+                h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run: it goes off ${NUKE.fuse / 60} seconds later. You keep it when you're hit; a new one comes with the next match.`),
                 h('li', null, `A flare launches ${FLARE.swarm[0]}-${FLARE.swarm[1]} tiny homing missiles that shoot down shells and rockets in flight. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
                 h('li', null, 'The minimap shows teammates, and enemies right after they fire.'),
               ),
@@ -820,19 +820,25 @@ class ArenaScreen implements Screen {
       nk.add(n.id)
       let o = this.nukeRings.get(n.id)
       if (!o) {
-        o = ringObject('#ff2a1a', NUKE.blast - 5, NUKE.blast, 0.7)
-        const fill = new THREE.Mesh(new THREE.CircleGeometry(NUKE.blast, 64), new THREE.MeshBasicNodeMaterial({ color: 0xff3a1a, transparent: true, opacity: 0.08, depthWrite: false }))
+        o = ringObject('#ff2a1a', n.r - 5, n.r, 0.7)
+        const fill = new THREE.Mesh(new THREE.CircleGeometry(n.r, 64), new THREE.MeshBasicNodeMaterial({ color: 0xff3a1a, transparent: true, opacity: 0.08, depthWrite: false }))
         fill.rotation.x = -Math.PI / 2
         fill.position.y = 0.6
         o.add(fill)
-        o.userData.born = performance.now()
+        // the time left: a ring closing in from the edge to the nuke
+        const clock = new THREE.Mesh(new THREE.RingGeometry(0.965, 1, 64), new THREE.MeshBasicNodeMaterial({ color: 0xffd23a, transparent: true, opacity: 0.85, depthWrite: false }))
+        clock.rotation.x = -Math.PI / 2
+        clock.position.y = 0.8
+        o.add(clock)
+        o.userData.clock = clock
         this.fx.add(o)
         this.nukeRings.set(n.id, o)
       }
       o.position.set(n.x, 0, n.z)
+      const clock = o.userData.clock as THREE.Mesh
+      clock.scale.setScalar(Math.max(1, n.r * n.left))
       // blinks faster as the fuse burns down
-      const age = (performance.now() - o.userData.born) / 1000
-      o.visible = Math.sin(age * (4 + age * 5)) > -0.3
+      o.visible = Math.sin(performance.now() / 1000 * (4 + (1 - n.left) * 26)) > -0.3
     }
     for (const [k, o] of this.nukeRings) if (!nk.has(k)) (this.fx.remove(o), this.nukeRings.delete(k))
     // bursts: a nuke's shockwave and flash, a flare's ring

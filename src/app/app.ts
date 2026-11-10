@@ -401,7 +401,8 @@ export class App implements AppContext {
     this.show('title')
   }
 
-  private startDemo() {
+  /** the attract-mode match behind the menus (online play returns to it after a game) */
+  startDemo() {
     if (this.session.kind !== 'demo') {
       this.stopHeld()
       this.audio.stopMusic()

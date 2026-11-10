@@ -8,6 +8,8 @@ import { unlock } from '../ui/shared/achievements'
 import { netClient } from './client'
 import { currentSession } from './index'
 import './net.css'
+import { PLAYER_COLORS as TANK_COLORS, tankIcon } from '../ui/web/art'
+import '../ui/web/web.css'
 import { PLAYER_COLOR_NAMES, PLAYER_COLORS, type RoomInfo } from './protocol'
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -21,19 +23,19 @@ class NetHud implements Screen {
   private last: Record<string, string> = {}
 
   mount(root: HTMLElement, _app: AppContext) {
-    root.classList.add('net-ui', 'net-hud')
+    root.classList.add('web', 'net-ui', 'net-hud')
     root.innerHTML = `
       <div class="nh-bar"><span class="nh-dot"></span><span class="nh-ping"></span><span class="nh-room"></span></div>
       <div class="nh-players"></div>
       <div class="nh-vs"></div>
       <div class="nh-banner"></div>
-      <div class="nh-panel nh-end" hidden></div>
-      <div class="nh-panel nh-menu" hidden>
-        <h2>Online game</h2>
+      <div class="panel nh-panel nh-end" hidden></div>
+      <div class="panel nh-panel nh-menu" hidden>
+        <div class="band"><span>Online game</span></div>
         <p>The game keeps running while this is open.</p>
         <div class="nh-buttons">
-          <button class="net-btn" data-act="resume">Resume</button>
-          <button class="net-btn danger" data-act="leave">Leave game</button>
+          ${btn('resume', 'Resume', 'primary')}
+          ${btn('leave', 'Leave game')}
         </div>
       </div>`
     for (const k of ['ping', 'room', 'dot', 'players', 'vs', 'banner', 'end', 'menu']) this.el[k] = root.querySelector(`.nh-${k}`)!
@@ -99,10 +101,10 @@ class NetHud implements Screen {
     let banner = ''
     if (s && s.me < 0 && room && room.state === 'playing') banner = `<div class="nh-spec">Spectating · you join ${vs ? 'next round' : 'at the next mission'}</div>`
     if (vs) {
-      const who = (i: number) => `<b style="color:${PLAYER_COLORS[i]}">${esc(nameOf(room, i))}</b>`
-      if (vs.phase === 'start') banner += `<div class="nh-big">Round ${vs.round}</div>`
-      else if (vs.phase === 'result') banner += `<div class="nh-big">${vs.winner >= 0 ? `${who(vs.winner)} wins the round` : 'Draw'}</div>`
-      else if (vs.phase === 'end') banner += `<div class="nh-big">${vs.winner >= 0 ? `${who(vs.winner)} wins the match!` : 'Match over'}</div>`
+      const who = (i: number) => `<b class="nh-who" style="--c:${PLAYER_COLORS[i]}">${esc(nameOf(room, i))}</b>`
+      if (vs.phase === 'start') banner += `<div class="band nh-big"><span>Round ${vs.round}</span></div>`
+      else if (vs.phase === 'result') banner += `<div class="band nh-big"><span>${vs.winner >= 0 ? `${who(vs.winner)} wins the round` : 'Draw'}</span></div>`
+      else if (vs.phase === 'end') banner += `<div class="band nh-big"><span>${vs.winner >= 0 ? `${who(vs.winner)} wins the match!` : 'Match over'}</span></div>`
     }
     this.set('banner', banner)
     // end of the game: the host decides
@@ -113,10 +115,10 @@ class NetHud implements Screen {
       const title = vs ? 'Match over' : meta && meta.st === 12 ? 'Game over' : 'Game over'
       this.set(
         'end',
-        `<h2>${title}</h2>` +
+        `<div class="band"><span>${title}</span></div>` +
           (me?.host
-            ? `<div class="nh-buttons"><button class="net-btn primary" data-act="again">Play again</button><button class="net-btn" data-act="lobby">Back to room</button></div>`
-            : `<p>Waiting for the host…</p><div class="nh-buttons"><button class="net-btn danger" data-act="leave">Leave</button></div>`),
+            ? `<div class="nh-buttons">${btn('again', 'Play again', 'primary')}${btn('lobby', 'Back to room')}</div>`
+            : `<p>Waiting for the host…</p><div class="nh-buttons">${btn('leave', 'Leave')}</div>`),
       )
     }
   }
@@ -125,7 +127,7 @@ class NetHud implements Screen {
     return room.members
       .map(
         (m) =>
-          `<div class="nh-chip${m.connected ? '' : ' away'}${m.slot === room.you ? ' you' : ''}"><i style="background:${PLAYER_COLORS[m.slot] ?? '#888'}"></i>${esc(m.name)}${m.host ? ' <span class="nh-host" title="host">★</span>' : ''}<small>${m.connected ? `${m.ping} ms` : 'away'}${m.spectating ? ' · next' : ''}</small></div>`,
+          `<div class="nh-chip${m.connected ? '' : ' away'}${m.slot === room.you ? ' you' : ''}">${tank(m.slot)}<b>${esc(m.name)}</b>${m.host ? ' <span class="nh-host" title="host">★</span>' : ''}<small>${m.connected ? `${m.ping} ms` : 'away'}${m.spectating ? ' · next' : ''}</small></div>`,
       )
       .join('')
   }
@@ -135,10 +137,21 @@ class NetHud implements Screen {
     for (let i = 0; i < players; i++) {
       let pips = ''
       for (let k = 0; k < target; k++) pips += `<span class="pip${k < scores[i] ? ' on' : ''}" style="--c:${PLAYER_COLORS[i]}"></span>`
-      rows += `<div class="nh-row"><i style="background:${PLAYER_COLORS[i]}"></i><span class="nm">${esc(nameOf(room, i))}</span>${pips}<small>${frags[i]} ✕</small></div>`
+      rows += `<div class="nh-row">${tank(i)}<span class="nm">${esc(nameOf(room, i))}</span>${pips}<small>${frags[i]} ✕</small></div>`
     }
-    return `<div class="nh-vs-title">Versus · round ${round} · first to ${target}</div>${rows}`
+    return `<div class="records-head">Versus · round ${round} · first to ${target}</div>${rows}`
   }
+}
+
+/** a cream button tile (web.css .btn) */
+function btn(act: string, label: string, cls = '') {
+  return `<button class="btn ${cls}" type="button" data-act="${act}"><span class="label"><span class="t">${label}</span></span></button>`
+}
+
+/** a player's toy tank icon */
+function tank(slot: number) {
+  const c = TANK_COLORS[slot] ?? { body: '#b9b3a6', dark: '#6b665c' }
+  return tankIcon(c.body, c.dark).outerHTML
 }
 
 function nameOf(room: RoomInfo | null, slot: number) {

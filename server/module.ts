@@ -8,6 +8,8 @@ export interface ServerModule {
   name: string
   /** handle /api/<...>; return undefined to pass to the next module */
   http?(req: Request, url: URL, server: Server<WsData>): Response | undefined | Promise<Response | undefined>
+  /** players connected and in a game or lobby right now (the title screen's live count) */
+  online?(): number
   /** WebSocket endpoint at /ws/<name> */
   ws?: {
     /** accept the upgrade (return extra data for ws.data) or reject with a Response */

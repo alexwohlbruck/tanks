@@ -1,0 +1,100 @@
+# Checks every pull request and push; a push to main is also released and deployed:
+#   1. type checks, the classic campaign replays (tools/levels/classic-trace.ts) and the arena
+#      simulation checks
+#   2. picks the next version from the tags (tools/release.sh: patch by default, [minor] or
+#      [major] in a commit message bumps those), builds it into the client and the server
+#   3. deploys (tools/deploy.sh), waits for the live server to report the new version
+#   4. tags the release and publishes it on GitHub with the commits since the last one
+# Runs on a self-hosted runner (label `tanks`): the game assets come from the Wii Play disc and
+# are not in the repository, so the build needs a machine that has them. Repository variables:
+#   TANKS_ASSETS   the runner's public/assets directory (built with `bun run assets`)
+#   DEPLOY_HOST    ssh destination of the Docker host        PROXY_NETWORK  its proxy network
+#   PUBLIC_URL     the live site, to check the deploy
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('check-{0}', github.ref) || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: [self-hosted, tanks]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bun
+        run: echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - name: Game assets
+        run: mkdir -p public/assets && rsync -a --delete "${{ vars.TANKS_ASSETS }}/" public/assets/
+      - run: bun install --frozen-lockfile
+      - name: Type check
+        run: bunx tsc --noEmit && bunx tsc --noEmit -p server/tsconfig.json
+      - name: Classic campaign replays
+        run: bun tools/levels/classic-trace.ts
+      - name: Arena checks
+        run: bun tools/arena/minecredit.ts && bun tools/arena/themes.ts
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, tanks]
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bun
+        run: echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - name: Game assets
+        run: mkdir -p public/assets && rsync -a --delete "${{ vars.TANKS_ASSETS }}/" public/assets/
+      - run: bun install --frozen-lockfile
+      - name: Version
+        id: version
+        run: |
+          v=$(tools/release.sh "${{ inputs.bump || 'auto' }}")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "### $v" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deploy
+        run: tools/deploy.sh
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
+          TANKS_VERSION: ${{ steps.version.outputs.version }}
+      - name: Check the live server
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for i in $(seq 45); do
+            live=$(curl -fsS "${{ vars.PUBLIC_URL }}/api/health" | jq -r .version) || live=unreachable
+            [ "$live" = "$VERSION" ] && { echo "live: $live"; exit 0; }
+            sleep 2
+          done
+          echo "::error::the live server reports $live, expected $VERSION"
+          exit 1
+      - name: Tag and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          prev=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -n "$prev" ]; then git log --format='- %s' "$prev..HEAD" > notes.md; else echo 'The first versioned release.' > notes.md; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' tag -a "$VERSION" -m "$VERSION"
+          git push origin "$VERSION"
+          gh release create "$VERSION" --title "$VERSION" --notes-file notes.md --verify-tag

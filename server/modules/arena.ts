@@ -213,7 +213,7 @@ class Arena {
       })
     const S = s.shells.filter((x) => near(x.pos.x, x.pos.z)).map((x) => [x.id, r1(x.pos.x), r1(x.pos.z), r1(x.vel.x * 10) / 10, r1(x.vel.z * 10) / 10, x.smoke] as [number, number, number, number, number, number])
     const F = s.flareShots.filter((f) => near(f.pos.x, f.pos.z)).map((f) => [f.id, r1(f.pos.x), r1(f.pos.z), r1(f.vel.x), r1(f.vel.z)] as [number, number, number, number, number])
-    const M = s.mines.filter((m) => m.state !== 2 && near(m.pos.x, m.pos.z)).map((m) => [m.id, r1(m.pos.x), r1(m.pos.z), m.fuseLit ? 1 : 0, m.nuke ? 1 : 0] as [number, number, number, number, number])
+    const M = s.mines.filter((m) => m.state !== 2 && near(m.pos.x, m.pos.z)).map((m) => [m.id, r1(m.pos.x), r1(m.pos.z), m.fuseLit ? 1 : 0, m.nuke ? Math.round(m.blastMax) : 0, m.nuke ? m.timer : 0] as [number, number, number, number, number, number])
     const K = s.pickups.map((k) => [k.id, k.x, k.z, k.kind] as [number, number, number, (typeof k)['kind']])
     const t = p.tank
     const pc = t.pc
@@ -360,7 +360,7 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
     case 'mineFuse':
       return ['fuse', e.id, r1(e.x), r1(e.z)]
     case 'boom':
-      return ['boom', r1(e.x), r1(e.z), e.nuke ? 1 : 0]
+      return ['boom', r1(e.x), r1(e.z), e.nuke ? Math.round(e.r) : 0]
     case 'shieldPop':
       return ['shpop', e.tank, r1(e.x), r1(e.z)]
     case 'flare':
@@ -510,6 +510,7 @@ function onMessage(c: Client, raw: string | Buffer) {
 
 register({
   name: 'arena',
+  online: totalHumans,
   http(req, url) {
     if (req.method !== 'GET') return
     if (url.pathname === '/api/arena')

@@ -89,7 +89,7 @@ export class ArenaSession implements Session {
   private pickups: { id: number; x: number; z: number; kind: AnyPickup }[] = []
   /** live nukes (their danger rings) and recent big moments for the screen to draw:
    * nuke blasts and flare launches, by start time (ms); flare missiles in flight */
-  nukes: { id: number; x: number; z: number; lit: boolean }[] = []
+  nukes: { id: number; x: number; z: number; r: number; left: number }[] = []
   bursts: { kind: 'nuke' | 'flare'; x: number; z: number; r: number; at: number }[] = []
   flareShots: { id: number; x: number; z: number; vx: number; vz: number }[] = []
   /** a short camera shake (a nuke nearby), in world units, decaying */
@@ -584,7 +584,7 @@ export class ArenaSession implements Session {
     })
     // a nuke is drawn as a big mine
     w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : 1 }) as unknown as Mine)
-    this.nukes = A.M.filter((m) => m[4]).map((m) => ({ id: m[0], x: m[1], z: m[2], lit: !!m[3] }))
+    this.nukes = A.M.filter((m) => m[4]).map((m) => ({ id: m[0], x: m[1], z: m[2], r: m[4], left: m[5] / NUKE.fuse }))
     w.explosions = []
     w.checkMarks = this.marks.map((m) => ({ id: m.id, pos: v3(m.x, 0.2, m.z), color: m.color }) as unknown as World['checkMarks'][number])
     this.pickups = A.K.map((k) => ({ id: k[0], x: k[1], z: k[2], kind: k[3] }))
@@ -711,10 +711,10 @@ export class ArenaSession implements Session {
             // a nuke: a ring of blasts and a shockwave, the view shakes
             for (let i = 0; i < 8; i++) {
               const a = (i / 8) * Math.PI * 2
-              sim.push({ t: 'mineExplode', mine: { pos: v3(e[1] + Math.cos(a) * NUKE.blast * 0.55, 0, e[2] + Math.sin(a) * NUKE.blast * 0.55), arenaScale: 1.2 } as unknown as Mine })
+              sim.push({ t: 'mineExplode', mine: { pos: v3(e[1] + Math.cos(a) * e[3] * 0.55, 0, e[2] + Math.sin(a) * e[3] * 0.55), arenaScale: 1.2 } as unknown as Mine })
             }
-            this.bursts.push({ kind: 'nuke', x: e[1], z: e[2], r: NUKE.blast, at: performance.now() })
-            this.view.scorch(e[1], e[2], NUKE.blast)
+            this.bursts.push({ kind: 'nuke', x: e[1], z: e[2], r: e[3], at: performance.now() })
+            this.view.scorch(e[1], e[2], e[3])
             this.sound('RP_TNK_SE_HIT', e[1], e[2], 1)
             const f = this.view.follow ?? { x: 0, z: 0 }
             this.shake = Math.max(this.shake, 14 * Math.max(0, 1 - Math.hypot(e[1] - f.x, e[2] - f.z) / 1400))

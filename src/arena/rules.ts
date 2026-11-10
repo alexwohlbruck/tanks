@@ -92,8 +92,9 @@ export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, 
 
 /** Nuke: a mine with a long fuse that no tank sets off (a shell or a blast can), and a blast
  * almost four times a mine's that breaks every block in reach (wood too) and scorches the
- * floor. Every player gets `perMatch` a match, kept through respawns. */
-export const NUKE = { fuse: 240, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+ * floor. Every player gets `perMatch` a match, kept through respawns. The fuse (7 s) gives a
+ * tank time to drive clear of even a streak-boosted blast through a maze. */
+export const NUKE = { fuse: 420, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
 /** Shield: lasts this long or until it takes a hit (then a moment of protection) */
 export const SHIELD = { ticks: 25 * 60, afterHit: 40 }
 /**

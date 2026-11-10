@@ -40,6 +40,17 @@ missions 21-100 (normally requires the Tanks gold medal), `?webgl` force WebGL2,
 original Wii Play screens in a 16:9 picture (also Settings > Classic Wii UI),
 `?quality=classic|high|ultra` render quality (see below).
 
+## Releases and deploys
+
+Every push to `main` is checked, given the next version and deployed by GitHub Actions
+(`.github/workflows/deploy.yml`, on a self-hosted runner that has the built assets). Versions are
+git tags `vMAJOR.MINOR.PATCH` (`tools/release.sh`): a push bumps the patch number; put `[minor]` or
+`[major]` in a commit message to bump those, or run the workflow by hand and pick the bump. The
+version is built into the client (`src/version.ts`, shown on the title screen) and the server
+(`/api/health`, `/api/online`); a title screen left open across a deploy offers a reload.
+Pull requests run the same checks without deploying. `tools/deploy.sh` still deploys a checkout by
+hand.
+
 ## Render quality
 
 `app.view.setQuality('classic' | 'high' | 'ultra', overrides?)` (`src/render/quality.ts`):
