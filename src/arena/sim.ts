@@ -303,7 +303,7 @@ export type ArenaEvent =
   | { t: 'flareHit'; x: number; z: number }
   | { t: 'mineSet'; x: number; z: number }
   | { t: 'mineFuse'; id: number; x: number; z: number }
-  | { t: 'boom'; x: number; z: number; nuke: boolean }
+  | { t: 'boom'; x: number; z: number; nuke: boolean; r: number }
   | { t: 'break'; c: number; r: number; h: number }
   | { t: 'pickup'; tank: number; kind: AnyPickup; x: number; z: number }
   | { t: 'spawn'; tank: number; x: number; z: number }
@@ -858,7 +858,7 @@ export class ArenaSim {
     m.state = 2
     m.fuseLit = true
     m.timer = 0
-    this.events.push({ t: 'boom', x: m.pos.x, z: m.pos.z, nuke: m.nuke })
+    this.events.push({ t: 'boom', x: m.pos.x, z: m.pos.z, nuke: m.nuke, r: m.blastMax })
   }
 
   /** RPTnkMine: arm once the owner is clear, fuse, blast (kills, breaks cork, chains) */
