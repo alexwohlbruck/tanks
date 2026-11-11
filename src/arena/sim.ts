@@ -47,6 +47,7 @@ import {
   type ArenaMode,
   type PickupKind,
   ELIM,
+  RECOIL,
   ROYALE,
   isOneLife,
   isTeamMode,
@@ -77,6 +78,8 @@ export type TankBody = {
   intent: { moveX: number; moveZ: number; analog: boolean; aimX: number; aimZ: number }
   pc: PlayerController
   acc: Accum
+  /** the push from firing (RECOIL), added to the driving velocity and fading */
+  recoil: V3
 }
 
 export function newBody(): TankBody {
@@ -87,6 +90,7 @@ export function newBody(): TankBody {
     turretRot: identityAxes(),
     intent: { moveX: 0, moveZ: 0, analog: false, aimX: 0, aimZ: 0 },
     acc: accum(),
+    recoil: v3(),
   } as TankBody
   // the controller only reads `tank.intent` for driving and aiming
   b.pc = new PlayerController(b as never, null as never)
@@ -214,6 +218,12 @@ export function driveTank(b: TankBody, inp: ArenaInput, speedMul: number) {
   const base = paramsFor(0).speed
   b.pc.maxSpeed = base * speedMul
   b.pc.calcMoveVelocity(b.rot, b.vel)
+  // the kick from the last shots, fading
+  b.vel.x += b.recoil.x
+  b.vel.z += b.recoil.z
+  b.recoil.x *= RECOIL.decay
+  b.recoil.z *= RECOIL.decay
+  if (Math.abs(b.recoil.x) + Math.abs(b.recoil.z) < 0.02) b.recoil.x = b.recoil.z = 0
 }
 
 /** field collision for one frame (pos already advanced by vel) */
@@ -582,6 +592,7 @@ export class ArenaSim {
     t.power = null
     t.burst = 0
     t.speed = 0
+    t.recoil = v3()
     t.shieldUntil = 0
     t.flares = Math.max(t.flares, FLARE.base)
     // presses made while waiting to respawn don't carry over
@@ -787,7 +798,7 @@ export class ArenaSim {
         // Pink: the rest of the burst follows every 6 frames
         t.burst = st.burst - 1
         pc.shellTimer = pc.fireCooldown
-        pc.freeze = pc.fireFreeze
+        // (no stop as in the campaign: the recoil in fire() pushes the tank back instead)
       }
     } else if (t.burst > 0 && pc.shellTimer === 0) {
       t.burst--
@@ -821,6 +832,9 @@ export class ArenaSim {
     this.events.push({ t: 'shot', tank: t.id, x: at.x, z: at.z, smoke: st.smoke, type: t.power ? PICKUP_TYPE[t.power] : 0 })
     t.firedAt = this.tick
     t.protectUntil = 0
+    // recoil: a push back from the shot
+    t.recoil.x -= dir.x * RECOIL.kick
+    t.recoil.z -= dir.z * RECOIL.kick
     return true
   }
 
@@ -958,7 +972,12 @@ export class ArenaSim {
     for (const m of this.mines) {
       m.age++
       if (m.state === 1 && m.nuke) {
-        // a nuke: only its fuse, a shell or another blast
+        // a nuke: its fuse, a shell or another blast; once armed, an enemy of its owner driving
+        // close cuts the fuse short
+        if (m.age >= NUKE.arm && m.timer > NUKE.near && live.some((t) => this.enemies(m.owner.player, t.player) && Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) <= TANK.mineRadius + NUKE.trigger)) {
+          m.timer = NUKE.near
+          this.events.push({ t: 'mineFuse', id: m.id, x: m.pos.x, z: m.pos.z })
+        }
         for (const o of this.mines)
           if (o !== m && o.state === 2 && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) <= o.blast + NUKE.bodyRadius) {
             this.explodeMine(m, this.detonator(o), o.chain + 1)

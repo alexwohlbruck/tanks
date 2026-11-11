@@ -17,7 +17,7 @@ import { cellHeight, cellKind, World, type Mine, type Shell, type SimEvent, Tank
 import * as THREE from 'three/webgpu'
 import { generateMap, type ArenaMap } from './map'
 import { ARENA_PROTO, TF_ALIVE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
-import { EMOTE_TICKS, ITEM_INFO, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, TEAM_NAMES, isItem, isTeamMode, type AnyPickup, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
+import { EMOTE_TICKS, RECOIL, ITEM_INFO, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, TEAM_NAMES, isItem, isTeamMode, type AnyPickup, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
 import { paramsFor } from '../sim/stats'
 import type { BaseModel } from '../render/registry'
 import { tankIcon } from '../ui/web/art'
@@ -395,7 +395,18 @@ export class ArenaSession implements Session {
     b.vel.x += b.acc.v[0].x + b.acc.v[1].x
     b.vel.z += b.acc.v[0].z + b.acc.v[1].z
     driveTank(b, inp, powerStats(this.you?.power ?? null, paramsFor(0)).speedMul)
+    // the recoil of a shot the server will fire too (a shell to spare, the cooldown over)
+    if (this.shotTimer > 0) this.shotTimer--
+    else if (inp.fire && this.shotsLeft > 0) {
+      b.recoil.x -= b.turretRot.z.x * RECOIL.kick
+      b.recoil.z -= b.turretRot.z.z * RECOIL.kick
+      this.shotsLeft--
+      this.shotTimer = b.pc.fireCooldown
+    }
   }
+  /** for predicting a shot's recoil: shells left and frames of cooldown, as of the last replay */
+  private shotsLeft = 0
+  private shotTimer = 0
 
   /** server state of the own tank after input `you.a`: replay what came after */
   private reconcile(you: YouRec) {
@@ -409,6 +420,10 @@ export class ArenaSession implements Session {
     b.pos.z = you.z
     b.vel.x = you.vx
     b.vel.z = you.vz
+    b.recoil.x = you.rx ?? 0
+    b.recoil.z = you.rz ?? 0
+    this.shotsLeft = you.shells
+    this.shotTimer = you.st
     axesFromForward(b.rot, v3(you.fx, 0, you.fz))
     b.pc.speed = you.sp
     b.pc.sign = you.sg
