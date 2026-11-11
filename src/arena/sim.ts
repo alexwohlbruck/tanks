@@ -503,10 +503,11 @@ export class ArenaSim {
     return n[0] <= n[1] ? 0 : 1
   }
 
+  /** a name no one in the arena has (players keep theirs; a clash just repeats a name) */
   botName() {
     const used = new Set(this.players.map((p) => p.name))
-    for (const n of BOT_NAMES) if (!used.has(`${n} Bot`)) return `${n} Bot`
-    return `Bot ${this.players.length}`
+    const free = BOT_NAMES.filter((n) => !used.has(n))
+    return free.length ? free[Math.floor(this.rnd() * free.length)] : `Bot ${this.players.length}`
   }
 
   enemies(a: Player, b: Player) {
@@ -691,12 +692,23 @@ export class ArenaSim {
     return streakLevel(t.player.streak)
   }
 
-  /** flare missiles: lock on to an enemy shell in flight, chase it, destroy both on contact */
+  /** a shell on course for the tank: moving toward it and passing within FLARE.threat of it */
+  private threatens(s: AShell, t: ATank) {
+    const dx = t.pos.x - s.pos.x
+    const dz = t.pos.z - s.pos.z
+    const sp = Math.hypot(s.vel.x, s.vel.z)
+    if (!sp || dx * s.vel.x + dz * s.vel.z <= 0) return false
+    return Math.abs(dx * s.vel.z - dz * s.vel.x) / sp < FLARE.threat
+  }
+
+  /** flare missiles: lock on to a shell heading for their tank (anyone's, its own after a
+   * ricochet), chase it, destroy both on contact */
   private stepFlares() {
     const locked = new Set<AShell>(this.flareShots.map((f) => f.target).filter((x): x is AShell => !!x && !x.dead))
     for (const f of this.flareShots) {
       f.age++
-      if (f.target?.dead) f.target = null
+      // a shell that's gone, or no longer coming this way (it bounced off), is dropped
+      if (f.target && (f.target.dead || !this.threatens(f.target, f.owner))) f.target = null
       if (!f.target && f.age > 4) {
         // the nearest shell not yet locked on to (else the nearest)
         let best: AShell | null = null
@@ -704,7 +716,7 @@ export class ArenaSim {
         let bd = f.range
         let bdFree = f.range
         for (const s of this.shells) {
-          if (s.dead || !this.enemies(f.owner.player, s.owner.player)) continue
+          if (s.dead || !this.threatens(s, f.owner)) continue
           const d = Math.hypot(s.pos.x - f.pos.x, s.pos.z - f.pos.z)
           if (d < bd) (bd = d), (best = s)
           if (d < bdFree && !locked.has(s)) (bdFree = d), (bestFree = s)

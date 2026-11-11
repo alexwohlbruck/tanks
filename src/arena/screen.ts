@@ -248,7 +248,7 @@ class ArenaScreen implements Screen {
                 h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
                 h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. More shells, mines and ricochets, and a stronger special tank, until you're hit.`),
                 h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run: it goes off ${NUKE.fuse / 60} seconds later, or after ${NUKE.arm / 60} seconds as soon as an enemy drives up to it. You keep it when you're hit; a new one comes with the next match.`),
-                h('li', null, `A flare launches ${FLARE.swarm[0]}-${FLARE.swarm[1]} tiny homing missiles that shoot down shells and rockets in flight. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
+                h('li', null, `A flare launches ${FLARE.swarm[0]}-${FLARE.swarm[1]} tiny homing missiles that shoot down shells and rockets heading for you, yours too if one bounces back. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
                 h('li', null, 'The minimap shows teammates, and enemies right after they fire.'),
               ),
             ),
@@ -591,7 +591,7 @@ class ArenaScreen implements Screen {
     const mine = sorted.find((p) => p[0] === s.pid)
     if (mine && !rows.includes(mine)) rows.push(mine)
     return `<div class="records-head">Leaders</div>${rows
-      .map((p) => `<div class="ar-row ${p[0] === s.pid ? 'me' : ''}"><i>${sorted.indexOf(p) + 1}</i>${icoHtml(this.colorOf(s, p[2], p[3]))}<span>${esc(p[1])}</span><b>${p[6]}</b></div>`)
+      .map((p) => `<div class="ar-row ${p[0] === s.pid ? 'me' : ''}"><i>${sorted.indexOf(p) + 1}</i>${icoHtml(this.colorOf(s, p[2], p[3]))}<span>${esc(p[1])}${p[7] ? '<small class="bot">BOT</small>' : ''}</span><b>${p[6]}</b></div>`)
       .join('')}`
   }
 
@@ -768,10 +768,22 @@ class ArenaScreen implements Screen {
         const color = this.colorOf(s, p.team, p.color)
         const power = s.powerOf(t)
         const lv = s.levelOf(t)
-        const key = p.name + color + (power ?? '') + saying + lv
+        // the score and whether it's a bot come with the board
+        const row = s.board?.players.find((q) => q[0] === pid2)
+        const score = row?.[6] ?? 0
+        const bot = !!row?.[7]
+        const teams = isTeamMode(s.mode)
+        const key = p.name + color + (power ?? '') + saying + lv + score + bot + teams
         if (el.dataset.k !== key) {
           el.dataset.k = key
-          el.innerHTML = `${saying ? `<q>${esc(saying)}</q>` : ''}<i style="background:${color}"></i>${esc(p.name)}${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}${lv ? `<b class="lv">×${lv + 1}</b>` : ''}`
+          // team modes: the whole tag in the team colour; otherwise a dot of the player's colour
+          el.classList.toggle('team', teams)
+          el.style.setProperty('--team', teams ? color : '')
+          el.innerHTML =
+            `${saying ? `<q>${esc(saying)}</q>` : ''}${teams ? '' : `<i style="background:${color}"></i>`}<span class="nm">${esc(p.name)}</span>` +
+            `${bot ? '<small class="bot">BOT</small>' : ''}` +
+            `${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}` +
+            `${lv ? `<b class="lv">×${lv + 1}</b>` : ''}<b class="sc">${score}</b>`
         }
         v.set(t.pos.x, 52, t.pos.z).project(view.camera)
         el.style.transform = `translate(${((v.x + 1) / 2) * rect.width}px, ${((1 - v.y) / 2) * rect.height}px) translate(-50%, -100%)`

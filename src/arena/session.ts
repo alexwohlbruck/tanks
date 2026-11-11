@@ -132,6 +132,8 @@ export class ArenaSession implements Session {
     this.ws.onmessage = (e) => this.onMessage(JSON.parse(String(e.data)) as S2C)
     this.pingTimer = setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000)
     view.tankLook = (t) => this.lookOf(t)
+    // White: a tank invisible to its enemies (yours, or a teammate's) pulses see-through for you
+    view.tankOpacity = (t) => (this.powerOf(t) === 'white' && !this.hidden(t) ? 0.55 + 0.25 * Math.sin(performance.now() / 260) : 1)
   }
 
   /** this browser's stats id (server/arena/stats.ts), made once */
@@ -189,6 +191,7 @@ export class ArenaSession implements Session {
     this.ws.close()
     this.view.follow = null
     this.view.tankLook = null
+    this.view.tankOpacity = null
     this.view.fpv = null
     this.audio.stopMusic(0.5)
     for (const k of this.loops) void this.audio.loop(k, '', 0)
