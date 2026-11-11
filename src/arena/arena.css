@@ -183,7 +183,8 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 .ar-banner { top: 24%; }
 .ar-respawn { top: 58%; font-size: 1.3em; }
 /* knocked out of a one-life round: into another game (screen.ts newGame) */
-.web .btn.ar-newgame { position: absolute; left: 50%; top: calc(58% + 3.4em); transform: translateX(-50%); width: auto; min-height: 0; padding: 0.5em 1.2em; animation: pop-in 0.25s ease-out; }
+/* centred with margins, not a transform: the buttons' hover lift sets transform */
+.web .btn.ar-newgame { position: absolute; left: 0; right: 0; margin: 0 auto; top: calc(58% + 3.4em); width: max-content; min-height: 0; padding: 0.5em 1.2em; animation: pop-in 0.25s ease-out; }
 .web .btn.ar-newgame[hidden] { display: none; }
 .ar-banner.on, .ar-respawn.on { opacity: 1; transform: translateX(-50%) scale(1); }
 

@@ -232,7 +232,7 @@ class Editor implements Screen {
     const tb = (t: (typeof TOOLS)[number]) =>
       h(
         'button',
-        { class: `tk-btn ed-tool ${this.tool === t.id ? 'tk-on' : ''}`, title: `${t.label} (${t.key}) — ${t.hint}`, on: { click: () => this.setTool(t.id) } },
+        { class: `tk-btn ed-tool ${this.tool === t.id ? 'tk-on' : ''}`, title: `${t.label} (${t.key}): ${t.hint}`, on: { click: () => this.setTool(t.id) } },
         h('span', { class: 'ed-ico' }, t.icon),
         h('span', null, t.label),
       )
@@ -481,7 +481,7 @@ class Editor implements Screen {
           }),
         ),
         field('Pack description', text(this.pack.description ?? '', 400, (s) => (this.pack.description = s || undefined), true)),
-        this.draft.storeId ? h('p', { class: 'ed-mini' }, 'Published — ', h('a', { href: '#', on: { click: (e: Event) => (e.preventDefault(), this.app.show('store', { id: this.draft.storeId })) } }, 'view in the store')) : null,
+        this.draft.storeId ? h('p', { class: 'ed-mini' }, 'Published: ', h('a', { href: '#', on: { click: (e: Event) => (e.preventDefault(), this.app.show('store', { id: this.draft.storeId })) } }, 'view in the store')) : null,
       ),
     )
   }
@@ -891,7 +891,7 @@ class Editor implements Screen {
       M.trimEnemies(this.level)
       if (M.commit(this.level, before)) this.changed()
     }
-    toast(this.root, `${cut ? 'Cut' : 'Copied'} ${this.clip.w} × ${this.clip.h} — Ctrl+V to paste`)
+    toast(this.root, `${cut ? 'Cut' : 'Copied'} ${this.clip.w} × ${this.clip.h}. Ctrl+V to paste`)
     this.renderLeft()
   }
 

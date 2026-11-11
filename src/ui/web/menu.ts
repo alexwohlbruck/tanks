@@ -76,7 +76,7 @@ class MenuScreen extends WebScreen {
               'div.card',
               null,
               h('div.card-title', null, 'Classic'),
-              h('div.card-text', null, 'The original 20 missions — 100 once the gold medal is won.'),
+              h('div.card-text', null, 'The original 20 missions, and all 100 once the gold medal is won.'),
               h(
                 'div.card-stats',
                 null,

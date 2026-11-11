@@ -124,7 +124,7 @@ class SettingsScreen extends WebScreen {
               this.renderKeys()
             },
           },
-          listening ? 'Press a key…' : k[id].map(keyName).join(' / ') || '—',
+          listening ? 'Press a key…' : k[id].map(keyName).join(' / ') || 'None',
         )
         return h('div.row', null, h('span.row-label', null, label), b)
       }),

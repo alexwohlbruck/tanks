@@ -18,7 +18,7 @@ const PAGE = 24
 
 function stars(rating: number, count: number) {
   const full = Math.round(rating)
-  return h('span', { class: 'st-rating', title: count ? `${rating.toFixed(1)} from ${count} rating${count > 1 ? 's' : ''}` : 'Not rated yet' }, h('span', { class: 'st-stars' }, '★'.repeat(full), h('span', { class: 'st-dim' }, '★'.repeat(5 - full))), h('span', { class: 'st-n' }, count ? rating.toFixed(1) : '—'))
+  return h('span', { class: 'st-rating', title: count ? `${rating.toFixed(1)} from ${count} rating${count > 1 ? 's' : ''}` : 'Not rated yet' }, h('span', { class: 'st-stars' }, '★'.repeat(full), h('span', { class: 'st-dim' }, '★'.repeat(5 - full))), h('span', { class: 'st-n' }, count ? rating.toFixed(1) : ''))
 }
 
 class Store implements Screen {
@@ -363,7 +363,7 @@ class Store implements Screen {
           onClick: async () => {
             try {
               await this.api.report(d.id, note.value.trim() ? `${reason}: ${note.value.trim()}` : reason)
-              toast(this.root, 'Thanks — the pack has been reported', 'ok')
+              toast(this.root, 'Thanks, the pack has been reported', 'ok')
             } catch (e) {
               toast(this.root, (e as Error).message, 'error')
             }

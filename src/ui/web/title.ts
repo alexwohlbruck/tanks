@@ -31,7 +31,6 @@ class TitleScreen extends WebScreen {
         'div.title-screen',
         { onclick: () => this.go() },
         h('div.title-logo', null, logo()),
-        h('div.title-sub', null, 'Web edition'),
         h('button.press', { type: 'button', autofocus: true }, touch() ? 'Tap to start' : 'Press start'),
         this.count,
         this.newer,
