@@ -13,6 +13,9 @@
 //     royale is cautious while many are left (fights only what's close, backs off when
 //     outnumbered, takes pickups) and hunts once few are; Elimination moves as a pack, holds
 //     when ahead late in a round and pushes when behind
+//   - plays at human speed: the aim swings over like a hand on a mouse (HUMAN.turn), a shell is
+//     only noticed after a reaction time, and it drives with eight keys, changing them takes a
+//     moment
 //   - the nuke is a trap: laid where enemies are or are heading, then it runs out of the blast
 //     and shoots it once enemies are inside; also a last stand in one-life modes (a shell is
 //     about to hit, enemies close), a wall against a push when outnumbered, and spent near the
@@ -21,7 +24,7 @@
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
 import { ELIM, isOneLife, nukeBlast, zoneNext } from './rules'
-import type { AMine, ArenaSim, ATank, Player } from './sim'
+import type { AMine, AShell, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
   path: [number, number][]
@@ -48,9 +51,28 @@ type Brain = {
   style: Style | null
   /** a shell is about to hit this tick (too close to dodge) */
   doomed: boolean
+  /** HUMAN: where the aim points now (radians, null until the first frame), this bot's reaction
+   * time and key-change time, the direction held (0-7, -1: none) and the one it's changing to */
+  aim: number | null
+  react: number
+  keyDelay: number
+  held: number
+  next: { dir: number; at: number } | null
+  /** when each shell in flight was first noticed */
+  noticed: Map<AShell, number>
 }
 
 const brains = new WeakMap<Player, Brain>()
+
+/**
+ * Human limits. `turn`: the most the aim swings in a frame (radians, about 240° a second), and
+ * `ease` the share of the remaining turn it covers (fast at first, slowing as it closes in);
+ * `react`: frames before a shell is noticed (each bot gets its own in that range); `keys`:
+ * frames it takes to change the keys held (the same); `shoot`: frames a target has to be in
+ * sight before the first shot (plus the reaction time).
+ */
+const HUMAN = { turn: 0.07, ease: 0.2, shake: 0.006, react: [14, 26], keys: [5, 11], shoot: 14 }
+const between = ([a, b]: number[]) => a + Math.floor(Math.random() * (b - a + 1))
 
 /** how a bot plays the mode it's in (worked out every think) */
 type Style = {
@@ -109,7 +131,7 @@ function zoneGoal(sim: ArenaSim, t: ATank, b: Brain): [number, number] | null {
 
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false }))
+  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map() }))
   return b
 }
 
@@ -282,7 +304,7 @@ export function botThink(sim: ArenaSim, p: Player) {
       // reaction time: a target has to be in sight for a moment first
       if (!clear) b.seenSince = -1
       else if (b.seenSince < 0) b.seenSince = now
-      const reacted = clear && now - b.seenSince > 24 + (e.player.bot ? 0 : 18)
+      const reacted = clear && now - b.seenSince > b.react + HUMAN.shoot + (e.player.bot ? 0 : 10)
       // no teammate in the way
       const blocked = friends.some((f) => {
         const fx = f.pos.x - t.pos.x, fz = f.pos.z - t.pos.z
@@ -307,6 +329,18 @@ export function botThink(sim: ArenaSim, p: Player) {
     inp.ax = t.pos.x + t.rot.z.x * 200
     inp.az = t.pos.z + t.rot.z.z * 200
   }
+  // ---- the aim swings over at a human pace (the turret follows it; fire waits for the turret)
+  {
+    const want = Math.atan2(inp.az - t.pos.z, inp.ax - t.pos.x)
+    const far = Math.max(60, Math.hypot(inp.ax - t.pos.x, inp.az - t.pos.z))
+    if (b.aim === null) b.aim = want
+    let d = want - b.aim
+    while (d > Math.PI) d -= 2 * Math.PI
+    while (d < -Math.PI) d += 2 * Math.PI
+    b.aim += Math.max(-HUMAN.turn, Math.min(HUMAN.turn, d * HUMAN.ease)) + (Math.random() - 0.5) * HUMAN.shake
+    inp.ax = t.pos.x + Math.cos(b.aim) * far
+    inp.az = t.pos.z + Math.sin(b.aim) * far
+  }
   p.wantFire ||= fire
   // ---- where to go
   let mx = 0
@@ -314,8 +348,13 @@ export function botThink(sim: ArenaSim, p: Player) {
   // threats first: shells heading this way, armed mines nearby
   let incoming = 0
   b.doomed = false
+  for (const [s] of b.noticed) if (s.dead) b.noticed.delete(s)
   for (const s of sim.shells) {
     if (s.owner === t && s.age < 30) continue
+    // a shell is only noticed after the reaction time
+    let first = b.noticed.get(s)
+    if (first === undefined) b.noticed.set(s, (first = now))
+    if (now - first < b.react) continue
     const dx = t.pos.x - s.pos.x, dz = t.pos.z - s.pos.z
     const d = Math.hypot(dx, dz)
     if (d > 180) continue
@@ -431,9 +470,18 @@ export function botThink(sim: ArenaSim, p: Player) {
     b.mineAt = now + 12
     mineSense(sim, p, b, enemies, friends, e)
   }
-  const l = Math.hypot(mx, mz)
-  inp.mx = l > 0.01 ? mx / l : 0
-  inp.mz = l > 0.01 ? mz / l : 0
+  // ---- eight keys, and a moment to change them
+  const want = Math.hypot(mx, mz) > 0.01 ? Math.round(Math.atan2(mz, mx) / (Math.PI / 4)) & 7 : -1
+  if (want === b.held) b.next = null
+  else {
+    if (!b.next || b.next.dir !== want) b.next = { dir: want, at: now + b.keyDelay }
+    if (now >= b.next.at) {
+      b.held = want
+      b.next = null
+    }
+  }
+  inp.mx = b.held < 0 ? 0 : Math.cos((b.held * Math.PI) / 4)
+  inp.mz = b.held < 0 ? 0 : Math.sin((b.held * Math.PI) / 4)
   inp.analog = false
 }
 
