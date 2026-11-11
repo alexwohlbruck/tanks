@@ -13,10 +13,12 @@
 //   - pickups around the map turn you into one of the disc's special tanks for a while, or
 //     give an item: a shield (takes one hit) or flares
 //   - the arsenal: shells, mines, flares, and one nuke per player per match (a huge mine on
-//     its own button; it isn't given back when you respawn)
+//     its own button; it isn't given back when you respawn). Its fuse is long, but once armed an
+//     enemy driving up to it sets it off like a mine
+//   - firing kicks your tank back (RECOIL) instead of stopping it as in the campaign
 //   - flares: the third weapon. Every tank carries one (it comes back after FLARE.recharge);
 //     a flare launches a swarm of 10-15 tiny homing missiles that hunt down shells and rockets
-//     in flight (never tanks)
+//     heading for you, whoever fired them (never tanks)
 //   - bots fill an arena up to its size's bot count and leave as players arrive
 //
 // Modes
@@ -149,7 +151,7 @@ export type AnyPickup = PickupKind | ItemKind
 export const isItem = (k: string): k is ItemKind => (ITEM_KINDS as string[]).includes(k)
 export const ITEM_INFO: Record<ItemKind, { name: string; color: string; dark: string; trick: string }> = {
   shield: { name: 'Shield', color: '#7fe0c2', dark: '#2a8a6e', trick: 'Takes one hit for you' },
-  flares: { name: 'Flares', color: '#ff7a2a', dark: '#9b3a0a', trick: '+2 flares: missiles that shoot down shells' },
+  flares: { name: 'Flares', color: '#ff7a2a', dark: '#9b3a0a', trick: '+2 flares: missiles that shoot down shells coming at you' },
 }
 /** name / colours / what it does, for any pickup */
 export const pickupInfo = (k: AnyPickup) => (isItem(k) ? ITEM_INFO[k] : PICKUP_INFO[k])
@@ -160,17 +162,25 @@ export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, 
  * almost four times a mine's that breaks every block in reach (wood too) and scorches the
  * floor. Every player gets `perMatch` a match, kept through respawns. The fuse (7 s) gives a
  * tank time to drive clear of even a streak-boosted blast through a maze. */
-export const NUKE = { fuse: 420, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+/** the nuke: a `fuse`-tick fuse; after `arm` ticks (time for its owner to clear out) an enemy of
+ * its owner coming within `trigger` of it cuts the fuse to `near` ticks, like a mine's */
+export const NUKE = { fuse: 420, arm: 150, trigger: 80, near: 50, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+/** firing kicks the tank back from the shot (`kick` units a frame, fading by `decay` a frame):
+ * firing ahead checks your speed, firing behind gives a little boost */
+export const RECOIL = { kick: 2, decay: 0.8 }
 /** Shield: lasts this long or until it takes a hit (then a moment of protection) */
 export const SHIELD = { ticks: 25 * 60, afterHit: 40 }
 /**
  * Flares: one launches `swarm` (10-15) tiny missiles fanned out around the tank. Each locks
- * on to the nearest shell in flight within `range` that isn't its tank's own (one not yet
- * locked on to first), turns up to `turn` degrees a frame at up to `speed`, and destroys it
+ * on to the nearest shell within `range` that is heading for its tank, whoever fired it (one
+ * not yet locked on to first): moving toward the tank and passing within `threat` of it. Your
+ * own shells only count once a ricochet turns them back at you. A missile
+ * turns up to `turn` degrees a frame at up to `speed`, drops a shell that stops being a
+ * threat, and destroys the one it reaches
  * on contact (`hit`); it burns out after `life` frames. Every tank has `base` flares
  * (recharged one at a time every `recharge` ticks); a pickup adds `pickup`, up to `max`.
  */
-export const FLARE = { swarm: [10, 15], speed: 6.5, launch: 2.5, turn: 16, range: 320, hit: 10, life: 90, cooldown: 40, recharge: 22 * 60, base: 1, pickup: 2, max: 3 }
+export const FLARE = { swarm: [10, 15], speed: 6.5, launch: 2.5, turn: 16, range: 320, threat: 45, hit: 10, life: 90, cooldown: 40, recharge: 22 * 60, base: 1, pickup: 2, max: 3 }
 
 /**
  * Kill streaks: level 1 (x2) at 3 kills in a row, level 2 (x3) at 6; lost when destroyed.
@@ -258,4 +268,11 @@ export const FFA_COLORS = [
   '#5f6a78', '#7a4a2a', '#9ad13a', '#e0e0e0', '#33405a', '#ff7a59', '#4f7d2f', '#b03a5b',
 ]
 
-export const BOT_NAMES = ['Brown', 'Grey', 'Teal', 'Yellow', 'Pink', 'Green', 'Violet', 'White', 'Black', 'Ash', 'Cork', 'Felt', 'Moss', 'Rust', 'Slate', 'Plum']
+/** bots' names (picked at random among the unused ones; the tag over a bot says BOT) */
+export const BOT_NAMES = [
+  'Sarge', 'Rusty', 'Dozer', 'Bolt', 'Boomer', 'Gunner', 'Rivet', 'Sprocket', 'Cannonball', 'Clank',
+  'Biscuit', 'Pickles', 'Tinker', 'Mortar', 'Howitzer', 'Brick', 'Nutmeg', 'Corky', 'Splinter', 'Sawdust',
+  'Plank', 'Dynamo', 'Rumble', 'Ricochet', 'Kaboom', 'Fuse', 'Shrapnel', 'Bunker', 'Gizmo', 'Tumbleweed',
+  'Major Mayhem', 'Captain Crumble', 'General Chaos', 'Private Pickle', 'Colonel Kettle', 'Sergeant Sprocket',
+  'Lady Lugnut', 'Duchess Dynamite', 'Baron von Boom', 'Admiral Ack',
+]

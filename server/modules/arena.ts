@@ -226,6 +226,8 @@ class Arena {
       z: t.pos.z,
       vx: t.vel.x,
       vz: t.vel.z,
+      rx: t.recoil.x,
+      rz: t.recoil.z,
       fx: t.rot.z.x,
       fz: t.rot.z.z,
       sp: pc.speed,

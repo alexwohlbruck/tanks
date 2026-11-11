@@ -9,11 +9,22 @@
 //     of another mine. Shoots mines that have an enemy next to them. Nukes go down where
 //     enemies crowd, then it runs.
 //   - Battle royale: heads back into the zone (the part it's closing to) before anything else
+//   - plays to the mode (styleOf): Free-for-all hunts; Teams sticks near teammates; Battle
+//     royale is cautious while many are left (fights only what's close, backs off when
+//     outnumbered, takes pickups) and hunts once few are; Elimination moves as a pack, holds
+//     when ahead late in a round and pushes when behind
+//   - plays at human speed: the aim swings over like a hand on a mouse (HUMAN.turn), a shell is
+//     only noticed after a reaction time, and it drives with eight keys, changing them takes a
+//     moment
+//   - the nuke is a trap: laid where enemies are or are heading, then it runs out of the blast
+//     and shoots it once enemies are inside; also a last stand in one-life modes (a shell is
+//     about to hit, enemies close), a wall against a push when outnumbered, and spent near the
+//     end of a match rather than wasted
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import { NUKE, zoneNext } from './rules'
-import type { AMine, ArenaSim, ATank, Player } from './sim'
+import { ELIM, isOneLife, nukeBlast, zoneNext } from './rules'
+import type { AMine, AShell, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
   path: [number, number][]
@@ -36,9 +47,65 @@ type Brain = {
   escapeAt: number
   /** Battle royale: where it's heading to get back into the zone */
   zone: [number, number] | null
+  /** the mode's play style (styleOf), refreshed with the target */
+  style: Style | null
+  /** a shell is about to hit this tick (too close to dodge) */
+  doomed: boolean
+  /** HUMAN: where the aim points now (radians, null until the first frame), this bot's reaction
+   * time and key-change time, the direction held (0-7, -1: none) and the one it's changing to */
+  aim: number | null
+  react: number
+  keyDelay: number
+  held: number
+  next: { dir: number; at: number } | null
+  /** when each shell in flight was first noticed */
+  noticed: Map<AShell, number>
 }
 
 const brains = new WeakMap<Player, Brain>()
+
+/**
+ * Human limits. `turn`: the most the aim swings in a frame (radians, about 240° a second), and
+ * `ease` the share of the remaining turn it covers (fast at first, slowing as it closes in);
+ * `react`: frames before a shell is noticed (each bot gets its own in that range); `keys`:
+ * frames it takes to change the keys held (the same); `shoot`: frames a target has to be in
+ * sight before the first shot (plus the reaction time).
+ */
+const HUMAN = { turn: 0.07, ease: 0.2, shake: 0.006, react: [14, 26], keys: [5, 11], shoot: 14 }
+const between = ([a, b]: number[]) => a + Math.floor(Math.random() * (b - a + 1))
+
+/** how a bot plays the mode it's in (worked out every think) */
+type Style = {
+  /** looks for a fight within this distance (a target further off is left alone) */
+  hunt: number
+  /** without a fight, drives back toward the nearest teammate when further than this (0: never) */
+  regroup: number
+  /** backs off when more enemies than friends are close */
+  cautious: boolean
+  /** how far it will detour for a pickup, as a share of the fight's distance */
+  loot: number
+}
+
+function styleOf(sim: ArenaSim, p: Player): Style {
+  const left = (team?: number) => sim.players.filter((q) => q.tank.alive && (team === undefined || q.team === team)).length
+  if (sim.mode === 'royale') {
+    // many left: survive (stay out of fights that aren't close, take pickups); few: hunt
+    const late = left() <= 3 || sim.zoneR() < 450
+    return late ? { hunt: 2000, regroup: 0, cautious: false, loot: 0.7 } : { hunt: 420, regroup: 0, cautious: true, loot: 1.2 }
+  }
+  if (sim.mode === 'elim') {
+    const mine = left(p.team)
+    const theirs = left(1 - p.team)
+    const late = sim.phaseEnd - sim.tick < 40 * 60 && !sim.roundOverAt
+    // ahead late in the round: hold (the timer decides for the team with more left); behind
+    // late: push; otherwise move as a pack and take fights near it
+    if (late && mine > theirs) return { hunt: 320, regroup: 260, cautious: true, loot: 0.3 }
+    if (late && mine < theirs) return { hunt: 3000, regroup: 0, cautious: false, loot: 0.2 }
+    return { hunt: 700, regroup: 300, cautious: mine < theirs, loot: 0.5 }
+  }
+  if (sim.mode === 'teams') return { hunt: 900, regroup: 360, cautious: false, loot: 0.7 }
+  return { hunt: 900, regroup: 0, cautious: false, loot: 0.7 }
+}
 
 /**
  * Battle royale: outside (or near the edge of) the circle the zone is closing to, a cell well
@@ -64,7 +131,7 @@ function zoneGoal(sim: ArenaSim, t: ATank, b: Brain): [number, number] | null {
 
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null }))
+  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map() }))
   return b
 }
 
@@ -109,7 +176,8 @@ function escapePath(sim: ArenaSim, from: [number, number], mines: AMine[]): [num
   const start = from[1] * cols + from[0]
   const prev = new Map<number, number>([[start, start]])
   const q = [start]
-  for (let h = 0; h < q.length && h < 600; h++) {
+  // (far enough to get out of a nuke's blast, about 8-12 cells away)
+  for (let h = 0; h < q.length && h < 3000; h++) {
     const i = q[h]
     const x = i % cols, y = (i / cols) | 0
     if (i !== start && safe(x, y)) {
@@ -180,8 +248,9 @@ export function botThink(sim: ArenaSim, p: Player) {
   // ---- pick a target (every 10 frames) and bank shots (every 20)
   if (now >= b.thinkAt) {
     b.thinkAt = now + 10
+    b.style = styleOf(sim, p)
     let best: ATank | null = null
-    let bd = 900
+    let bd = b.style.hunt
     for (const e of enemies) {
       const d = Math.hypot(e.pos.x - t.pos.x, e.pos.z - t.pos.z)
       const seen = clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)
@@ -235,7 +304,7 @@ export function botThink(sim: ArenaSim, p: Player) {
       // reaction time: a target has to be in sight for a moment first
       if (!clear) b.seenSince = -1
       else if (b.seenSince < 0) b.seenSince = now
-      const reacted = clear && now - b.seenSince > 24 + (e.player.bot ? 0 : 18)
+      const reacted = clear && now - b.seenSince > b.react + HUMAN.shoot + (e.player.bot ? 0 : 10)
       // no teammate in the way
       const blocked = friends.some((f) => {
         const fx = f.pos.x - t.pos.x, fz = f.pos.z - t.pos.z
@@ -260,14 +329,32 @@ export function botThink(sim: ArenaSim, p: Player) {
     inp.ax = t.pos.x + t.rot.z.x * 200
     inp.az = t.pos.z + t.rot.z.z * 200
   }
+  // ---- the aim swings over at a human pace (the turret follows it; fire waits for the turret)
+  {
+    const want = Math.atan2(inp.az - t.pos.z, inp.ax - t.pos.x)
+    const far = Math.max(60, Math.hypot(inp.ax - t.pos.x, inp.az - t.pos.z))
+    if (b.aim === null) b.aim = want
+    let d = want - b.aim
+    while (d > Math.PI) d -= 2 * Math.PI
+    while (d < -Math.PI) d += 2 * Math.PI
+    b.aim += Math.max(-HUMAN.turn, Math.min(HUMAN.turn, d * HUMAN.ease)) + (Math.random() - 0.5) * HUMAN.shake
+    inp.ax = t.pos.x + Math.cos(b.aim) * far
+    inp.az = t.pos.z + Math.sin(b.aim) * far
+  }
   p.wantFire ||= fire
   // ---- where to go
   let mx = 0
   let mz = 0
   // threats first: shells heading this way, armed mines nearby
   let incoming = 0
+  b.doomed = false
+  for (const [s] of b.noticed) if (s.dead) b.noticed.delete(s)
   for (const s of sim.shells) {
     if (s.owner === t && s.age < 30) continue
+    // a shell is only noticed after the reaction time
+    let first = b.noticed.get(s)
+    if (first === undefined) b.noticed.set(s, (first = now))
+    if (now - first < b.react) continue
     const dx = t.pos.x - s.pos.x, dz = t.pos.z - s.pos.z
     const d = Math.hypot(dx, dz)
     if (d > 180) continue
@@ -280,6 +367,8 @@ export function botThink(sim: ArenaSim, p: Player) {
     // then a bot is too slow)
     const along = dx * vx + dz * vz
     incoming++
+    // too close to dodge: the last moment to do anything (a last-stand nuke)
+    if (along / sp < 8 && Math.abs(side) < 16) b.doomed = true
     if ((along / sp < 40 || incoming >= 2) && t.flares > 0 && now >= t.flareReady && Math.random() < 0.3) p.wantFlare = true
     // step out of the line, away from the side it would pass
     const k = side >= 0 ? 1 : -1
@@ -322,6 +411,25 @@ export function botThink(sim: ArenaSim, p: Player) {
     const seen = e && clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)
     const from = b.fleeFrom ?? e?.pos
     const zone = zoneGoal(sim, t, b)
+    const style = b.style ?? styleOf(sim, p)
+    // outnumbered close by (a cautious mode): back away from the enemies' middle for a moment
+    const near = (l: ATank[]) => l.filter((o) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z) < 330)
+    const foes = style.cautious ? near(enemies) : []
+    if (foes.length && foes.length > near(friends).length + 1 && now >= b.fleeUntil) {
+      b.fleeFrom = { x: foes.reduce((a, o) => a + o.pos.x, 0) / foes.length, z: foes.reduce((a, o) => a + o.pos.z, 0) / foes.length }
+      b.fleeUntil = now + 45
+    }
+    // the nearest teammate, when the pack has drifted apart
+    let mate: ATank | null = null
+    if (style.regroup && !(e && seen && dist < 400))
+      for (const f of friends) {
+        const d = Math.hypot(f.pos.x - t.pos.x, f.pos.z - t.pos.z)
+        if (d > style.regroup && (!mate || d < Math.hypot(mate.pos.x - t.pos.x, mate.pos.z - t.pos.z))) mate = f
+        if (d <= style.regroup) {
+          mate = null
+          break
+        }
+      }
     if (zone) goal = zone
     else if (now < b.fleeUntil && from) {
       mx = t.pos.x - from.x
@@ -332,7 +440,8 @@ export function botThink(sim: ArenaSim, p: Player) {
       mx = -uz * b.strafe - ux * (dist < 150 ? 1 : 0)
       mz = ux * b.strafe - uz * (dist < 150 ? 1 : 0)
       if (Math.random() < 0.01) b.strafe = -b.strafe
-    } else if ((loot = pickupNear(sim, t, e ? dist : 1e9))) goal = [loot.c, loot.r]
+    } else if ((loot = pickupNear(sim, t, e ? dist : 1e9, style.loot))) goal = [loot.c, loot.r]
+    else if (mate) goal = cellOf(sim.map, mate.pos.x, mate.pos.z)
     else if (e) goal = cellOf(sim.map, e.pos.x, e.pos.z)
     else if (!b.goal || !b.path.length) {
       const o = sim.map.open[Math.floor(Math.random() * sim.map.open.length)]
@@ -361,9 +470,18 @@ export function botThink(sim: ArenaSim, p: Player) {
     b.mineAt = now + 12
     mineSense(sim, p, b, enemies, friends, e)
   }
-  const l = Math.hypot(mx, mz)
-  inp.mx = l > 0.01 ? mx / l : 0
-  inp.mz = l > 0.01 ? mz / l : 0
+  // ---- eight keys, and a moment to change them
+  const want = Math.hypot(mx, mz) > 0.01 ? Math.round(Math.atan2(mz, mx) / (Math.PI / 4)) & 7 : -1
+  if (want === b.held) b.next = null
+  else {
+    if (!b.next || b.next.dir !== want) b.next = { dir: want, at: now + b.keyDelay }
+    if (now >= b.next.at) {
+      b.held = want
+      b.next = null
+    }
+  }
+  inp.mx = b.held < 0 ? 0 : Math.cos((b.held * Math.PI) / 4)
+  inp.mz = b.held < 0 ? 0 : Math.sin((b.held * Math.PI) / 4)
   inp.analog = false
 }
 
@@ -395,16 +513,13 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   const st = sim.stats(t)
   if (t.pc.mineTimer > 0) return
   const safe = (r: number) => !friends.some((f) => dist(f) < r + 30)
-  // ---- the match's one nuke: saved for two enemies in reach (rarely one), then run
-  if (t.nukes > 0) {
-    const R = NUKE.blast * 0.8
-    const near = enemies.filter((o) => dist(o) < R).length
-    if ((near >= 2 || (near === 1 && Math.random() < 0.02)) && safe(NUKE.blast)) {
-      p.wantNuke = true
-      b.fleeUntil = now + NUKE.fuse - 10
-      b.fleeFrom = { x: t.pos.x, z: t.pos.z }
-      return
-    }
+  // ---- the match's one nuke (nukeNow); the blast escape and shooting it once enemies are in
+  // take over from there
+  if (t.nukes > 0 && nukeNow(sim, p, b, enemies, friends, e)) {
+    p.wantNuke = true
+    b.fleeUntil = 0
+    b.fleeFrom = null
+    return
   }
   const mine = sim.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines
   if (!mine || !safe(MINE.blastMax) || sim.mines.some((m) => m.state !== 2 && dist(m) < 90)) return
@@ -439,13 +554,66 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   }
 }
 
+/**
+ * Whether to lay the nuke here and now. It's a trap more than a bomb: the fuse gives everyone
+ * time to leave, so it goes where enemies are or are heading, and the bot shoots it once it's
+ * clear and they're inside (the mine to shoot, in mineSense).
+ */
+function nukeNow(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: ATank[], e: ATank | null) {
+  const t = p.tank
+  const R = nukeBlast(sim.level(t)) * 0.85
+  const dist = (o: ATank) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z)
+  const inside = enemies.filter((o) => dist(o) < R)
+  if (!inside.length && !enemies.some((o) => dist(o) < R + 260)) return false
+  // a last stand (one-life modes): a shell is about to hit and enemies are close; it goes off
+  // after we're gone and the kills are still ours
+  if (b.doomed && isOneLife(sim.mode) && inside.length) return true
+  // teammates in reach: an enemy shooting it would catch them
+  if (friends.some((f) => dist(f) < R + 30)) return false
+  // Battle royale: no room left to get out of the blast
+  if (sim.zone && sim.zoneR() < R * 1.7) return false
+  // enemies closing in on us (they'll drive into it)
+  const coming = enemies.filter((o) => {
+    const d = dist(o)
+    if (d > R + 260 || d < 1) return false
+    return (o.vel.x * (t.pos.x - o.pos.x) + o.vel.z * (t.pos.z - o.pos.z)) / d > 0.4
+  })
+  // only with a way out of the blast that's short enough to drive before the fuse runs out
+  // (about 18 cells; it's searched only when there's a reason to lay it)
+  const out = () => {
+    const blast = { pos: t.pos, blastMax: nukeBlast(sim.level(t)) } as unknown as AMine
+    const path = escapePath(sim, cellOf(sim.map, t.pos.x, t.pos.z), [blast])
+    if (!path.length || path.length >= 18) return false
+    // Battle royale: and one that ends inside the zone
+    if (!sim.zone) return true
+    const end = cellPos(sim.map, ...path[path.length - 1])
+    return Math.hypot(end.x - sim.zone.x, end.z - sim.zone.z) < sim.zoneR() * 0.9
+  }
+  // a crowd: two in reach, or two in reach and on the way
+  if (inside.length >= 2) return out()
+  if (inside.length + coming.filter((o) => dist(o) >= R).length >= 2 && Math.random() < 0.3) return out()
+  const left = (team: number) => sim.players.filter((q) => q.tank.alive && q.team === team).length
+  // Elimination, outnumbered: a wall in front of their push
+  if (sim.mode === 'elim' && coming.length && left(p.team) < left(1 - p.team) && Math.random() < 0.25) return out()
+  // chased: whoever is on our tail drives over it
+  if (e && dist(e) < R && coming.includes(e) && t.speed > 1 && Math.random() < 0.12) return out()
+  // use it or lose it: the match is nearly over
+  const ending =
+    sim.mode === 'royale'
+      ? sim.players.filter((q) => q.tank.alive).length <= 4
+      : sim.mode === 'elim'
+        ? sim.teamScore.some((s) => s === ELIM.rounds - 1)
+        : sim.phaseEnd - sim.tick < 45 * 60
+  return ending && inside.length > 0 && Math.random() < 0.3 && out()
+}
+
 /** a pickup worth the detour: one closer than the fight */
-function pickupNear(sim: ArenaSim, t: ATank, fight: number) {
+function pickupNear(sim: ArenaSim, t: ATank, fight: number, share = 0.7) {
   let best: { c: number; r: number } | null = null
   let bd = Infinity
   for (const k of sim.pickups) {
     const d = Math.hypot(k.x - t.pos.x, k.z - t.pos.z)
-    const reach = Math.min(450, fight * 0.7)
+    const reach = Math.min(450 * share, fight * share)
     if (d < reach && d < bd) (bd = d), (best = k)
   }
   return best
