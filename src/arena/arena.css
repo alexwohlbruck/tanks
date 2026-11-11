@@ -244,22 +244,26 @@ body.touch-play .ar-slot kbd { display: none; }
 .ar-labels { position: absolute; inset: 0; overflow: hidden; }
 .ar-tag {
   position: absolute; left: 0; top: 0;
-  display: flex; align-items: center; gap: 0.3em;
-  padding: 0.05em 0.5em 0.05em 0.3em;
+  --tag-bg: rgba(255, 250, 238, 0.86);
+  display: flex; align-items: center; gap: 0.25em;
+  padding: 0 0.25em 0 0.3em;
   border-radius: 99em;
-  background: rgba(255, 250, 238, 0.86);
+  background: var(--tag-bg);
   box-shadow: 0 0.1em 0 rgba(90, 55, 20, 0.45);
-  font-size: 0.72em; font-weight: 800; white-space: nowrap;
+  font-size: 0.62em; font-weight: 800; white-space: nowrap;
 }
+/* long names trail off rather than stretching the tag */
+.ar-tag .nm { max-width: 8.5em; overflow: hidden; text-overflow: ellipsis; }
 .ar-tag i { width: 0.75em; height: 0.75em; border-radius: 50%; box-shadow: 0 0 0 0.1em rgba(60, 30, 0, 0.35); }
 .ar-tag em { font-style: normal; font-size: 0.8em; padding: 0 0.45em; border-radius: 99em; margin-left: 0.15em; }
-.ar-tag .bot { font-size: 0.62em; font-weight: 900; letter-spacing: 0.06em; padding: 0.1em 0.4em; border-radius: 0.4em; background: rgba(60, 35, 10, 0.16); color: rgba(60, 35, 10, 0.75); }
+.ar-tag .bot { width: 0.9em; height: 0.9em; flex: none; fill: rgba(60, 35, 10, 0.55); }
 .ar-tag .lv { font-size: 0.85em; color: #c45a10; }
 /* the score, at the end */
-.ar-tag .sc { min-width: 1.2em; padding: 0 0.35em; margin-left: 0.1em; border-radius: 99em; text-align: center; font-variant-numeric: tabular-nums; background: rgba(60, 35, 10, 0.12); }
+.ar-tag .sc { min-width: 1.1em; padding: 0 0.3em; border-radius: 99em; text-align: center; font-variant-numeric: tabular-nums; background: rgba(60, 35, 10, 0.12); }
 /* team modes: the tag in the team's colour */
-.ar-tag.team { background: color-mix(in srgb, var(--team) 88%, white); color: #fff; text-shadow: 0 0.06em 0 rgba(0, 0, 0, 0.3); box-shadow: 0 0.1em 0 color-mix(in srgb, var(--team) 60%, black); padding-left: 0.5em; }
-.ar-tag.team .bot, .ar-tag.team .sc { background: rgba(255, 255, 255, 0.24); color: #fff; }
+.ar-tag.team { --tag-bg: color-mix(in srgb, var(--team) 88%, white); color: #fff; text-shadow: 0 0.06em 0 rgba(0, 0, 0, 0.3); box-shadow: 0 0.1em 0 color-mix(in srgb, var(--team) 60%, black); padding-left: 0.5em; }
+.ar-tag.team .sc { background: rgba(255, 255, 255, 0.24); color: #fff; }
+.ar-tag.team .bot { fill: #fff; }
 .ar-tag.team .lv { color: #ffe08a; }
 
 .ar-net { position: absolute; right: 0.7em; bottom: 0.45em; font-size: 0.7em; font-weight: 700; color: rgba(255, 247, 230, 0.85); text-shadow: 0 0.1em 0.2em rgba(0, 0, 0, 0.6); }

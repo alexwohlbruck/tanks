@@ -39,6 +39,9 @@ const FLARE_SVG = '<svg viewBox="0 0 24 24" class="ar-item ar-flare"><path d="M1
 const ITEM_SVG: Record<ItemKind, string> = { shield: SHIELD_SVG, flares: FLARE_SVG }
 const MINE_SVG = '<svg viewBox="0 0 24 24" class="ar-mine"><circle cx="12" cy="13" r="9.5" fill="#e8c33a" stroke="#5b3a19" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="#cf2a31" stroke="#5b3a19" stroke-width="1.2"/></svg>'
 
+/** a little robot head marking a bot on its name tag */
+const BOT_ICON =
+  '<svg class="bot" viewBox="0 0 16 16" aria-label="Bot"><rect x="7" y="0.5" width="2" height="3.5" rx="1"/><rect x="1.5" y="3.5" width="13" height="11" rx="3.5"/><circle cx="5.6" cy="9" r="1.6" fill="var(--tag-bg)"/><circle cx="10.4" cy="9" r="1.6" fill="var(--tag-bg)"/></svg>'
 const SIZE_KEY = 'tanks-arena-size'
 function savedSize(): ArenaSize {
   try {
@@ -781,7 +784,7 @@ class ArenaScreen implements Screen {
           el.style.setProperty('--team', teams ? color : '')
           el.innerHTML =
             `${saying ? `<q>${esc(saying)}</q>` : ''}${teams ? '' : `<i style="background:${color}"></i>`}<span class="nm">${esc(p.name)}</span>` +
-            `${bot ? '<small class="bot">BOT</small>' : ''}` +
+            `${bot ? BOT_ICON : ''}` +
             `${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}` +
             `${lv ? `<b class="lv">×${lv + 1}</b>` : ''}<b class="sc">${score}</b>`
         }
