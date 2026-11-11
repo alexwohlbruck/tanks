@@ -29,6 +29,13 @@ body.modern #stage { background:
 #pause-btn:hover { opacity: 1; }
 #pause-btn[hidden] { display: none; }
 #pause-btn svg { width: 55%; height: 55%; display: block; }
+/* classic UI: back to the web menus, shown while one of its menus is up (App.setupClassicExit) */
+#classic-exit { position: absolute; z-index: 1; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
+  padding: 0.45em 0.9em; border: 0; border-radius: 99em; font: 700 14px/1 system-ui, sans-serif; cursor: pointer; opacity: 0.85;
+  color: #6b4320; background: linear-gradient(#fffaf0, #eedbb5);
+  box-shadow: 0 0 0 2px rgba(110, 70, 25, 0.6), 0 3px 0 rgba(90, 55, 20, 0.8), 0 5px 10px rgba(0, 0, 0, 0.3); }
+#classic-exit:hover { opacity: 1; }
+#classic-exit[hidden] { display: none; }
 /* first-person crosshair (App.setupFpv) */
 #fpv-cross { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 3; }
 #fpv-cross.on { display: block; }

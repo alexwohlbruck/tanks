@@ -28,7 +28,7 @@ import { achievementToasts } from '../ui/web/achievementToast'
 import { DemoSession } from '../ui/web/demo'
 import { applyModernMessages } from '../ui/web/messages'
 import { feedMenuPad } from '../ui/web/nav'
-import { classicUi, onSettings, settings, type Settings } from '../ui/web/settings'
+import { classicUi, onSettings, settings, updateSettings, type Settings } from '../ui/web/settings'
 import { loadVectorFont } from '../ui/web/vectorText'
 import { TouchControls } from '../ui/touch'
 import '../ui/web/screens'
@@ -133,6 +133,22 @@ export class App implements AppContext {
     this.pauseBtn?.addEventListener('pointerdown', (e) => e.stopPropagation())
     // online and arena sessions and the classic UI handle + themselves (their own menus)
     this.pauseBtn?.addEventListener('click', () => (this.session.hudInput || this.classic ? this.input.queuePause() : this.pause()))
+    if (this.classic) this.setupClassicExit()
+  }
+
+  /** the classic UI has no Settings screen of its own: a corner button switches back to the web
+   * menus (saved, then a reload, as switching it on does) */
+  private classicExit: HTMLElement | null = null
+  private setupClassicExit() {
+    const b = (this.classicExit = document.getElementById('classic-exit'))
+    if (!b) return
+    b.addEventListener('pointerdown', (e) => e.stopPropagation())
+    b.addEventListener('click', () => {
+      updateSettings({ classicUi: false })
+      const url = new URL(location.href)
+      url.searchParams.delete('classic')
+      location.replace(url)
+    })
   }
 
   async start() {
@@ -390,6 +406,8 @@ export class App implements AppContext {
       ? !this.router.modal && !own.inputBlocked && !demo
       : playing && local && !this.game.paused && !this.router.modal && !this.hud?.wantsPointer && !this.hud?.preGame.active
     this.touch.setActive(touchPlay)
+    // classic: the way back to the web menus, while one of its own menus is up
+    if (this.classicExit) this.classicExit.hidden = !this.hud?.wantsPointer || !!own.hudInput
     if (this.pauseBtn) this.pauseBtn.hidden = own.hudInput || this.classic ? !this.touch.visible : !playing || !local || !this.presenter.pauseEnabled
   }
 
