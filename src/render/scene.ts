@@ -110,6 +110,8 @@ export class SceneView {
   private camBase = new THREE.Vector3()
   /** [arena] per-tank livery: the 1p / 2p model, or the 1p model recoloured */
   tankLook: ((t: Tank) => { base: BaseModel; color?: string } | { type: number } | null) | null = null
+  /** [arena] how opaque a tank is drawn (1: solid), e.g. your own tank while it's invisible to enemies */
+  tankOpacity: ((t: Tank) => number) | null = null
   private lookVersion = -1
   private frame = 0
 
@@ -589,6 +591,7 @@ export class SceneView {
       // the first-person tank is the camera: its own model would fill the view
       o.root.visible = t.alive && !t.invisible && !(this.fpv && !t.isEnemy && t.index === this.fpv.player)
       this.models.poseTank(o, t.pos.x, t.pos.z, yaw(t.body), yaw(t.turret))
+      setOpacity(o.root, this.tankOpacity?.(t) ?? 1)
     }
     for (const [t, o] of this.tankObjs)
       if (!seen.has(t)) {
@@ -746,4 +749,38 @@ function syncSet<T extends { id: number }>(
       parent.remove(o)
       map.delete(id)
     }
+}
+
+/**
+ * Draw a model see-through (`a` < 1) or solid again. The models share their materials, so a
+ * see-through one gets its own transparent copies (kept on the object while it needs them) and
+ * the shared ones back once it's solid.
+ */
+function setOpacity(root: THREE.Object3D, a: number) {
+  const ud = root.userData as { ghost?: Map<THREE.Mesh, THREE.Material | THREE.Material[]> }
+  if (a >= 1) {
+    if (!ud.ghost) return
+    for (const [m, orig] of ud.ghost) {
+      for (const c of [m.material].flat()) c.dispose()
+      m.material = orig
+    }
+    ud.ghost = undefined
+    return
+  }
+  if (!ud.ghost) {
+    ud.ghost = new Map()
+    root.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      ud.ghost!.set(m, m.material)
+      m.material = [m.material].flat().map((c) => {
+        const g = c.clone()
+        g.transparent = true
+        g.needsUpdate = true
+        return g
+      }) as THREE.Material[]
+      if (!Array.isArray(ud.ghost!.get(m))) m.material = (m.material as THREE.Material[])[0]
+    })
+  }
+  for (const m of ud.ghost.keys()) for (const c of [m.material].flat()) c.opacity = a
 }
