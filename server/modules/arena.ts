@@ -10,7 +10,7 @@
 import type { ServerWebSocket } from 'bun'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
-import { ARENA_TPS, EMOTES, FLARE, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, arenaModeOf, isTeamMode, sizeOf, zoneNext, zoneRadius, type ArenaMode, type ArenaSize } from '../../src/arena/rules'
+import { ARENA_TPS, EMOTES, FLARE, MAP_THEMES, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, arenaModeOf, isTeamMode, sizeOf, zoneNext, zoneRadius, type ArenaMode, type ArenaSize, type MapTheme } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
 import { cleanName } from '../../src/net/protocol'
 import { register } from '../index'
@@ -509,6 +509,13 @@ function onMessage(c: Client, raw: string | Buffer) {
       if (!process.env.ARENA_DEV || !t) return
       // 'end': finish the match now (results + map vote)
       if (m.power === 'end') return void (c.arena!.sim.phaseEnd = c.arena!.sim.tick)
+      // 'map:<theme>': a new match on that theme now
+      if (m.power.startsWith('map:') && (MAP_THEMES as string[]).includes(m.power.slice(4))) {
+        const s = c.arena!.sim
+        s.newMatch(undefined, m.power.slice(4) as MapTheme)
+        for (const o of c.arena!.clients) send(o, { t: 'map', seed: s.map.seed, theme: s.map.theme, tick: s.tick })
+        return
+      }
       // 'score': five points (to win the match 'end' finishes)
       if (m.power === 'score') return void (c.player!.score += 5)
       // 'zone': Battle royale's zone a minute further on
