@@ -16,7 +16,7 @@
 //     its own button; it isn't given back when you respawn)
 //   - flares: the third weapon. Every tank carries one (it comes back after FLARE.recharge);
 //     a flare launches a swarm of 10-15 tiny homing missiles that hunt down shells and rockets
-//     in flight (never tanks)
+//     heading for you, whoever fired them (never tanks)
 //   - bots fill an arena up to its size's bot count and leave as players arrive
 //
 // Modes
@@ -149,7 +149,7 @@ export type AnyPickup = PickupKind | ItemKind
 export const isItem = (k: string): k is ItemKind => (ITEM_KINDS as string[]).includes(k)
 export const ITEM_INFO: Record<ItemKind, { name: string; color: string; dark: string; trick: string }> = {
   shield: { name: 'Shield', color: '#7fe0c2', dark: '#2a8a6e', trick: 'Takes one hit for you' },
-  flares: { name: 'Flares', color: '#ff7a2a', dark: '#9b3a0a', trick: '+2 flares: missiles that shoot down shells' },
+  flares: { name: 'Flares', color: '#ff7a2a', dark: '#9b3a0a', trick: '+2 flares: missiles that shoot down shells coming at you' },
 }
 /** name / colours / what it does, for any pickup */
 export const pickupInfo = (k: AnyPickup) => (isItem(k) ? ITEM_INFO[k] : PICKUP_INFO[k])
@@ -165,12 +165,15 @@ export const NUKE = { fuse: 420, blast: 290, growFrames: 14, killFrames: 34, fra
 export const SHIELD = { ticks: 25 * 60, afterHit: 40 }
 /**
  * Flares: one launches `swarm` (10-15) tiny missiles fanned out around the tank. Each locks
- * on to the nearest shell in flight within `range` that isn't its tank's own (one not yet
- * locked on to first), turns up to `turn` degrees a frame at up to `speed`, and destroys it
+ * on to the nearest shell within `range` that is heading for its tank, whoever fired it (one
+ * not yet locked on to first): moving toward the tank and passing within `threat` of it. Your
+ * own shells only count once a ricochet turns them back at you. A missile
+ * turns up to `turn` degrees a frame at up to `speed`, drops a shell that stops being a
+ * threat, and destroys the one it reaches
  * on contact (`hit`); it burns out after `life` frames. Every tank has `base` flares
  * (recharged one at a time every `recharge` ticks); a pickup adds `pickup`, up to `max`.
  */
-export const FLARE = { swarm: [10, 15], speed: 6.5, launch: 2.5, turn: 16, range: 320, hit: 10, life: 90, cooldown: 40, recharge: 22 * 60, base: 1, pickup: 2, max: 3 }
+export const FLARE = { swarm: [10, 15], speed: 6.5, launch: 2.5, turn: 16, range: 320, threat: 45, hit: 10, life: 90, cooldown: 40, recharge: 22 * 60, base: 1, pickup: 2, max: 3 }
 
 /**
  * Kill streaks: level 1 (x2) at 3 kills in a row, level 2 (x3) at 6; lost when destroyed.
