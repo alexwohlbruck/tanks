@@ -54,6 +54,9 @@ export type YouRec = {
   /** body forward x / z */
   fx: number
   fz: number
+  /** the push from firing, still fading (x / z) */
+  rx: number
+  rz: number
   /** controller: speed, sign, freeze, shell / mine timers */
   sp: number
   sg: number

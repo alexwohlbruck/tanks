@@ -247,7 +247,7 @@ class ArenaScreen implements Screen {
                 h('li', null, 'In Battle royale and Elimination, if you join once a round is under way, you watch until the next one starts.'),
                 h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
                 h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. More shells, mines and ricochets, and a stronger special tank, until you're hit.`),
-                h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run: it goes off ${NUKE.fuse / 60} seconds later. You keep it when you're hit; a new one comes with the next match.`),
+                h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run: it goes off ${NUKE.fuse / 60} seconds later, or after ${NUKE.arm / 60} seconds as soon as an enemy drives up to it. You keep it when you're hit; a new one comes with the next match.`),
                 h('li', null, `A flare launches ${FLARE.swarm[0]}-${FLARE.swarm[1]} tiny homing missiles that shoot down shells and rockets in flight. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
                 h('li', null, 'The minimap shows teammates, and enemies right after they fire.'),
               ),

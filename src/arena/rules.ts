@@ -13,7 +13,9 @@
 //   - pickups around the map turn you into one of the disc's special tanks for a while, or
 //     give an item: a shield (takes one hit) or flares
 //   - the arsenal: shells, mines, flares, and one nuke per player per match (a huge mine on
-//     its own button; it isn't given back when you respawn)
+//     its own button; it isn't given back when you respawn). Its fuse is long, but once armed an
+//     enemy driving up to it sets it off like a mine
+//   - firing kicks your tank back (RECOIL) instead of stopping it as in the campaign
 //   - flares: the third weapon. Every tank carries one (it comes back after FLARE.recharge);
 //     a flare launches a swarm of 10-15 tiny homing missiles that hunt down shells and rockets
 //     in flight (never tanks)
@@ -160,7 +162,12 @@ export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, 
  * almost four times a mine's that breaks every block in reach (wood too) and scorches the
  * floor. Every player gets `perMatch` a match, kept through respawns. The fuse (7 s) gives a
  * tank time to drive clear of even a streak-boosted blast through a maze. */
-export const NUKE = { fuse: 420, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+/** the nuke: a `fuse`-tick fuse; after `arm` ticks (time for its owner to clear out) an enemy of
+ * its owner coming within `trigger` of it cuts the fuse to `near` ticks, like a mine's */
+export const NUKE = { fuse: 420, arm: 150, trigger: 80, near: 50, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+/** firing kicks the tank back from the shot (`kick` units a frame, fading by `decay` a frame):
+ * firing ahead checks your speed, firing behind gives a little boost */
+export const RECOIL = { kick: 2, decay: 0.8 }
 /** Shield: lasts this long or until it takes a hit (then a moment of protection) */
 export const SHIELD = { ticks: 25 * 60, afterHit: 40 }
 /**

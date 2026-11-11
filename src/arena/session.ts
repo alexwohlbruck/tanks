@@ -406,6 +406,8 @@ export class ArenaSession implements Session {
     b.pos.z = you.z
     b.vel.x = you.vx
     b.vel.z = you.vz
+    b.recoil.x = you.rx ?? 0
+    b.recoil.z = you.rz ?? 0
     axesFromForward(b.rot, v3(you.fx, 0, you.fz))
     b.pc.speed = you.sp
     b.pc.sign = you.sg
