@@ -226,13 +226,17 @@ export const flareSwarm = (level: number, rnd: number) => FLARE.swarm[0] + Math.
 export const flareRange = (level: number) => FLARE.range * (1 + 0.25 * level)
 
 /** map themes (src/arena/map.ts); between matches everyone votes for the next one */
-export type MapTheme = 'mixed' | 'cork' | 'pits' | 'maze'
-export const MAP_THEMES: MapTheme[] = ['mixed', 'cork', 'pits', 'maze']
+export type MapTheme = 'mixed' | 'cork' | 'pits' | 'maze' | 'spiral' | 'rings' | 'labyrinth' | 'zigzag'
+export const MAP_THEMES: MapTheme[] = ['mixed', 'cork', 'pits', 'maze', 'spiral', 'rings', 'labyrinth', 'zigzag']
 export const THEME_INFO: Record<MapTheme, { name: string; text: string }> = {
   mixed: { name: 'Toy box', text: 'A bit of everything' },
   cork: { name: 'Cork forest', text: 'Cork everywhere: mine your way through' },
   pits: { name: 'Sinkholes', text: 'Holes stop tanks, shells fly over' },
   maze: { name: 'Maze', text: 'Long walls and tight corridors' },
+  spiral: { name: 'Spiral', text: 'Two arms winding out from the middle' },
+  rings: { name: 'Bullseye', text: 'Rings within rings, a gap here and there' },
+  labyrinth: { name: 'Labyrinth', text: 'A real maze: find your way' },
+  zigzag: { name: 'Zigzag', text: 'Rows of chevrons and diamond rooms' },
 }
 
 /** quick chat (keys 1-6) */

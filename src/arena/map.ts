@@ -1,4 +1,6 @@
 // Procedural arena maps: the field is cut into sectors, each gets a small structure built from
+// (the pattern themes instead draw one big shape over the whole field: see PATTERNS below)
+//
 // the original pieces (wood blocks, cork blocks, holes). Sectors keep a one-cell margin, so the
 // gutters between them always form connected two-cell corridors; anything a structure closes
 // off is filled with cork. Teams maps are mirrored left/right with an open base on each side.
@@ -117,6 +119,143 @@ const PIECES: [number, Piece][] = [
     for (let y = 0; y < INNER; y += 2) for (let x = 0; x < INNER; x += 2) put(x, y, (x + y) % 4 === 0 ? 200 : cork())
   }],
 ]
+// ---- whole-map patterns ------------------------------------------------------------------------
+// The pattern themes skip the sectors and draw one big shape over the whole field (Teams: over
+// one half, mirrored). Corridors are three cells wide (room to turn, a roomy middle row to spawn
+// on); walls change material every few cells (mostly wood, some cork to blast through, a few
+// holes that shells fly over) and have doorways, so nothing takes forever to get around.
+
+/** `put` draws a wall cell at (x, y) in the pattern's w x h area; `mat` picks a wall material */
+type Pattern = (put: (x: number, y: number, code: number) => void, w: number, h: number, rnd: () => number, mat: () => number) => void
+
+const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+
+/** a wall along a path of cells, with a three-cell doorway every `min` to `min + spread` cells */
+function walker(put: (x: number, y: number, code: number) => void, rnd: () => number, mat: () => number, min = 10, spread = 12) {
+  let run = 0
+  let gap = 0
+  let next = min + Math.floor(rnd() * spread)
+  let code = mat()
+  return (x: number, y: number) => {
+    if (gap > 0) return void gap--
+    if (++run >= next) {
+      run = 0
+      next = min + Math.floor(rnd() * spread)
+      gap = 2
+      return
+    }
+    if (run % 6 === 0) code = mat()
+    put(x, y, code)
+  }
+}
+
+/** a solid line through successive points: each new cell joins the last one side-on (a diagonal
+ * step gets a corner cell), so no wall is only held together at its corners */
+function stroke(draw: (x: number, y: number) => void) {
+  let px = NaN, py = NaN
+  return (x: number, y: number) => {
+    if (x === px && y === py) return
+    if (px === px && x !== px && y !== py) draw(x, py)
+    draw(x, y)
+    px = x
+    py = y
+  }
+}
+
+const PATTERNS: Partial<Record<MapTheme, Pattern>> = {
+  // two arms winding out from the middle (an Archimedean spiral), a corridor between them
+  spiral: (put, w, h, rnd, mat) => {
+    const cx = (w - 1) / 2, cy = (h - 1) / 2
+    const far = Math.hypot(w, h) / 2 + 4
+    // a turn adds 10 cells to an arm's radius; the other arm runs halfway between (corridors
+    // four cells wide), with fewer doorways than the other patterns so the arms read as arms
+    const pitch = 10 / (Math.PI * 2)
+    for (const arm of [0, Math.PI]) {
+      const line = stroke(walker(put, rnd, mat, 18, 14))
+      for (let t = 0; ; t += 0.25 / Math.max(2, 2 + pitch * t)) {
+        const r = 2 + pitch * t
+        if (r > far) break
+        line(Math.round(cx + Math.cos(t + arm) * r), Math.round(cy + Math.sin(t + arm) * r))
+      }
+    }
+  },
+  // concentric rings with a few gaps each, joined by short spokes
+  rings: (put, w, h, rnd, mat) => {
+    const cx = (w - 1) / 2, cy = (h - 1) / 2
+    const far = Math.hypot(w, h) / 2
+    const rings: { r: number; gaps: number[]; code: number[] }[] = []
+    for (let r = 3; r < far; r += 5) {
+      const n = 2 + Math.floor(r / 10) + Math.floor(rnd() * 2)
+      const gaps = Array.from({ length: n }, (_, i) => ((i + rnd() * 0.6) / n) * Math.PI * 2)
+      rings.push({ r, gaps, code: Array.from({ length: 12 }, mat) })
+    }
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const d = Math.hypot(x - cx, y - cy)
+        const a = (Math.atan2(y - cy, x - cx) + Math.PI * 2) % (Math.PI * 2)
+        for (const g of rings) {
+          if (Math.abs(d - g.r) >= 0.55) continue
+          // a gap is about three cells of arc
+          const open = g.gaps.some((ga) => Math.abs(((a - ga + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 1.6 / g.r)
+          if (!open) put(x, y, g.code[Math.floor((a / (Math.PI * 2)) * 12)])
+        }
+      }
+    // spokes between neighbouring rings
+    for (let i = 0; i + 1 < rings.length; i++) {
+      const n = 2 + Math.floor(rnd() * 3)
+      for (let k = 0; k < n; k++) {
+        const a = rnd() * Math.PI * 2
+        const code = mat()
+        for (let d = rings[i].r; d <= rings[i + 1].r; d += 0.5) put(Math.round(cx + Math.cos(a) * d), Math.round(cy + Math.sin(a) * d), code)
+      }
+    }
+  },
+  // a real maze on a 4-cell grid (walls every fourth line), with extra openings for loops
+  labyrinth: (put, w, h, rnd, mat) => {
+    const gw = Math.floor((w - 1) / 4), gh = Math.floor((h - 1) / 4)
+    const ox = Math.floor((w - 1 - gw * 4) / 2), oy = Math.floor((h - 1 - gh * 4) / 2)
+    // walls between maze cells: right of (i, j), and below (i, j); the outside stays open
+    const right = Array.from({ length: gh }, () => new Array<boolean>(gw).fill(true))
+    const below = Array.from({ length: gh }, () => new Array<boolean>(gw).fill(true))
+    const seen = Array.from({ length: gh }, () => new Array<boolean>(gw).fill(false))
+    const stack: [number, number][] = [[Math.floor(rnd() * gw), Math.floor(rnd() * gh)]]
+    seen[stack[0][1]][stack[0][0]] = true
+    while (stack.length) {
+      const [i, j] = stack[stack.length - 1]
+      const next = DIRS.map(([dx, dy]) => [i + dx, j + dy]).filter(([a, b]) => a >= 0 && b >= 0 && a < gw && b < gh && !seen[b][a])
+      if (!next.length) {
+        stack.pop()
+        continue
+      }
+      const [a, b] = next[Math.floor(rnd() * next.length)]
+      if (a > i) right[j][i] = false
+      else if (a < i) right[j][a] = false
+      else if (b > j) below[j][i] = false
+      else below[b][i] = false
+      seen[b][a] = true
+      stack.push([a, b])
+    }
+    for (let j = 0; j < gh; j++)
+      for (let i = 0; i < gw; i++) {
+        // knock out about a quarter of the remaining walls: loops, and the odd bigger room
+        if (rnd() < 0.22) right[j][i] = false
+        if (rnd() < 0.22) below[j][i] = false
+        const x0 = ox + i * 4, y0 = oy + j * 4
+        const code = mat()
+        if (right[j][i] && i < gw - 1) for (let k = 0; k <= 4; k++) put(x0 + 4, y0 + k, code)
+        if (below[j][i] && j < gh - 1) for (let k = 0; k <= 4; k++) put(x0 + k, y0 + 4, code)
+      }
+  },
+  // rows of big chevrons, every other row shifted half a period: diamonds between them
+  zigzag: (put, w, h, rnd, mat) => {
+    for (let band = 0, y0 = 4; y0 < h - 4; band++, y0 += 9) {
+      const line = stroke(walker(put, rnd, mat))
+      const phase = band % 2 ? 8 : 0
+      for (let x = 0; x < w; x++) line(x, y0 + Math.round((Math.abs(((x + phase) % 16) - 8) * 5) / 8) - 2)
+    }
+  },
+}
+
 /** per theme: weight multipliers for PIECES (same order), cork share of walls, gutter extras */
 const THEMES: Record<MapTheme, { weights: number[]; corkWalls: number; gutterCork: number; gutterHoles: number; longWalls: number }> = {
   mixed: { weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], corkWalls: 0, gutterCork: 0, gutterHoles: 0, longWalls: 1 },
@@ -126,6 +265,11 @@ const THEMES: Record<MapTheme, { weights: number[]; corkWalls: number; gutterCor
   pits: { weights: [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 5, 0.6, 0.6, 1, 3], corkWalls: 0.1, gutterCork: 0, gutterHoles: 0.05, longWalls: 1 },
   // walls, Ls and Us, and many long walls across the corridors
   maze: { weights: [0.2, 0.4, 3, 2.5, 1.2, 0.4, 0.3, 1.2, 2.5, 0.4, 0.2], corkWalls: 0.1, gutterCork: 0, gutterHoles: 0, longWalls: 3.5 },
+  // whole-map patterns (PATTERNS): the sector settings are unused
+  spiral: { weights: [], corkWalls: 0, gutterCork: 0, gutterHoles: 0, longWalls: 0 },
+  rings: { weights: [], corkWalls: 0, gutterCork: 0, gutterHoles: 0, longWalls: 0 },
+  labyrinth: { weights: [], corkWalls: 0, gutterCork: 0, gutterHoles: 0, longWalls: 0 },
+  zigzag: { weights: [], corkWalls: 0, gutterCork: 0, gutterHoles: 0, longWalls: 0 },
 }
 
 export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mixed', size: ArenaSize = 'medium'): ArenaMap {
@@ -148,6 +292,22 @@ export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mi
   const ox = 1 + Math.floor((cols - 2 - sx * SECTOR) / 2)
   const oy = 1 + Math.floor((rows - 2 - sy * SECTOR) / 2)
   const half = teams ? Math.ceil(sx / 2) : sx
+  const pattern = PATTERNS[theme]
+  if (pattern) {
+    // the whole interior (Teams: the left half), less a two-cell road along its edges; Teams
+    // also keep a base clear on the outside and a lane down the middle
+    const w = (teams ? Math.ceil(cols / 2) : cols - 1) - 1
+    const h = rows - 2
+    const mat = () => {
+      const r = rnd()
+      return r < 0.07 ? 200 : r < 0.27 ? cork() : rnd() < 0.7 ? 201 : rnd() < 0.7 ? 202 : 203
+    }
+    pattern((x, y, code) => {
+      if (x < 2 || y < 2 || y >= h - 2 || x >= w - 2) return
+      if (teams && x < 6) return
+      cells[1 + y][1 + x] = code
+    }, w, h, rnd, mat)
+  } else {
   for (let j = 0; j < sy; j++)
     for (let i = 0; i < half; i++) {
       // teams: the outermost sector column is the base (light cover only)
@@ -192,6 +352,7 @@ export function generateMap(seed: number, mode: ArenaMode, theme: MapTheme = 'mi
       const y = oy + Math.floor(rnd() * sy) * SECTOR + 1
       if (x > 0 && x < cols - 1) for (let i = 0; i < 3; i++) if (cells[y + 1 + i]?.[x] === 0) cells[y + 1 + i][x] = h
     }
+  }
   }
   if (teams) for (let y = 0; y < rows; y++) for (let x = 0; x < cols / 2; x++) cells[y][cols - 1 - x] = cells[y][x]
   // fill whatever the structures closed off: keep the largest connected open area
