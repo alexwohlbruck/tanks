@@ -51,6 +51,7 @@ import {
   isOneLife,
   isTeamMode,
   zoneRadius,
+  mineScale,
 } from './rules'
 
 export type ArenaInput = { seq: number; mx: number; mz: number; analog: boolean; ax: number; az: number; fire: boolean; mine: boolean; flare?: boolean; nuke?: boolean }
@@ -764,7 +765,7 @@ export class ArenaSim {
       t.protectUntil = 0
     } else if (mine) {
       if (pc.mineTimer === 0 && this.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines) {
-        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null, chain: 0, nuke: false, blastMax: MINE.blastMax })
+        this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: false, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null, chain: 0, nuke: false, blastMax: MINE.blastMax * mineScale(this.level(t)) })
         this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
         pc.mineTimer = pc.mineCooldown
         pc.freeze = pc.mineFreeze

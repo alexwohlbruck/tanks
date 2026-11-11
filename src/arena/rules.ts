@@ -174,8 +174,9 @@ export const FLARE = { swarm: [10, 15], speed: 6.5, launch: 2.5, turn: 16, range
 
 /**
  * Kill streaks: level 1 (x2) at 3 kills in a row, level 2 (x3) at 6; lost when destroyed.
- * Each level: +1 shell, +1 mine, +1 ricochet (shells that already ricochet), and the special
- * tank's trick grows (see powerStats); a nuke's blast and a flare's swarm grow too.
+ * Each level: +2 shells, +1 mine, +1 ricochet (shells that already ricochet), shells 10% faster,
+ * mine blasts 20% wider (STREAK_MINE: the mine is drawn bigger too), and the special tank's
+ * trick grows (see powerStats); a nuke's blast and a flare's swarm grow too.
  */
 export const STREAK_LEVELS = [3, 6]
 export const streakLevel = (streak: number) => STREAK_LEVELS.filter((n) => streak >= n).length
@@ -206,7 +207,7 @@ export function powerStats(p: PickupKind | null, base: { speed: number; shellSpe
   if (p === 'sniper') Object.assign(s, { shellSpeed: SNIPER_SHELL_SPEED, ricochets: 1, smoke: 1, maxShells: 3 })
   if (level) {
     const L = level
-    s.maxShells += L
+    s.maxShells += 2 * L
     s.maxMines += L
     if (s.ricochets > 0) s.ricochets += L
     // the trick itself grows
@@ -217,11 +218,16 @@ export function powerStats(p: PickupKind | null, base: { speed: number; shellSpe
     if (p === 'hornet') s.homingTurn *= 1 + 0.5 * L
     if (p === 'sniper') s.shellSpeed += 1.2 * L
   }
+  // faster shells (on top of the special tank's own speed)
+  if (level) s.shellSpeed *= 1 + 0.1 * level
   return s
 }
 
 /** a nuke's blast, a flare's swarm size and missile range at a streak level */
 export const nukeBlast = (level: number) => NUKE.blast * (1 + 0.2 * level)
+/** a mine's blast grows with the streak level (×1.2, ×1.4 of the disc's 80 units) */
+export const STREAK_MINE = 0.2
+export const mineScale = (level: number) => 1 + STREAK_MINE * level
 export const flareSwarm = (level: number, rnd: number) => FLARE.swarm[0] + Math.floor(rnd * (FLARE.swarm[1] - FLARE.swarm[0] + 1)) + 3 * level
 export const flareRange = (level: number) => FLARE.range * (1 + 0.25 * level)
 

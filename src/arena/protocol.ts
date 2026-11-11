@@ -25,8 +25,8 @@ export type C2S =
 export type TankRec = [number, number, number, number, number, number, number]
 /** [id, x, z, vx, vz, smoke] */
 export type ShellRec = [number, number, number, number, number, number]
-/** [id, x, z, fuseLit 0/1, nuke blast radius (0: a mine), nuke fuse ticks left] */
-export type MineRec = [number, number, number, number, number, number]
+/** [id, x, z, fuseLit 0/1, nuke blast radius (0: a mine), nuke fuse ticks left, a mine's size in % (100: the disc's; a streak makes it bigger)] */
+export type MineRec = [number, number, number, number, number, number, number]
 /** a flare missile: [id, x, z, vx, vz] */
 export type FlareRec = [number, number, number, number, number]
 /** [id, x, z, kind] */
@@ -100,7 +100,7 @@ export type NetEv =
   | ['fhit', number, number]
   | ['mset', number, number]
   | ['fuse', number, number, number]
-  | ['boom', number, number, number] // x, z, nuke blast radius (0: a mine)
+  | ['boom', number, number, number, number] // x, z, nuke blast radius (0: a mine), a mine's size in %
   | ['brk', number, number, number]
   | ['pick', number, string, number, number]
   | ['spawn', number, number, number]

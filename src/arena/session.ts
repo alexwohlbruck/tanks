@@ -601,7 +601,7 @@ export class ArenaSession implements Session {
       return { id: f[0], x: near ? lerp(f[1], n![1]) : f[1], z: near ? lerp(f[2], n![2]) : f[2], vx: near ? n![3] : f[3], vz: near ? n![4] : f[4] }
     })
     // a nuke is drawn as a big mine
-    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : 1 }) as unknown as Mine)
+    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : (m[6] ?? 100) / 100 }) as unknown as Mine)
     this.nukes = A.M.filter((m) => m[4]).map((m) => ({ id: m[0], x: m[1], z: m[2], r: m[4], left: m[5] / NUKE.fuse }))
     w.explosions = []
     w.checkMarks = this.marks.map((m) => ({ id: m.id, pos: v3(m.x, 0.2, m.z), color: m.color }) as unknown as World['checkMarks'][number])
@@ -725,7 +725,7 @@ export class ArenaSession implements Session {
         case 'fuse':
           break
         case 'boom':
-          sim.push({ t: 'mineExplode', mine: { pos: v3(e[1], 0, e[2]), arenaScale: e[3] ? NUKE_SCALE : 1 } as unknown as Mine })
+          sim.push({ t: 'mineExplode', mine: { pos: v3(e[1], 0, e[2]), arenaScale: e[3] ? NUKE_SCALE : (e[4] ?? 100) / 100 } as unknown as Mine })
           this.sound('RP_TNK_SE_JIRAI_EXP', e[1], e[2])
           if (e[3]) {
             // a nuke: a ring of blasts and a shockwave, the view shakes

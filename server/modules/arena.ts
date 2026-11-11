@@ -18,6 +18,7 @@ import { json, type WsData } from '../module'
 import { ipOf, loadGameData } from './rooms'
 import { addStats, emptyDelta, isStatId, leaders, playerStats, type StatDelta } from '../arena/stats'
 import { TF_ALIVE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH } from '../../src/arena/protocol'
+import { MINE } from '../../src/sim/consts'
 
 const MAX_ARENAS = Number(process.env.ARENAS_MAX ?? 16)
 const MAX_QUEUE = 6
@@ -214,7 +215,7 @@ class Arena {
       })
     const S = s.shells.filter((x) => near(x.pos.x, x.pos.z)).map((x) => [x.id, r1(x.pos.x), r1(x.pos.z), r1(x.vel.x * 10) / 10, r1(x.vel.z * 10) / 10, x.smoke] as [number, number, number, number, number, number])
     const F = s.flareShots.filter((f) => near(f.pos.x, f.pos.z)).map((f) => [f.id, r1(f.pos.x), r1(f.pos.z), r1(f.vel.x), r1(f.vel.z)] as [number, number, number, number, number])
-    const M = s.mines.filter((m) => m.state !== 2 && near(m.pos.x, m.pos.z)).map((m) => [m.id, r1(m.pos.x), r1(m.pos.z), m.fuseLit ? 1 : 0, m.nuke ? Math.round(m.blastMax) : 0, m.nuke ? m.timer : 0] as [number, number, number, number, number, number])
+    const M = s.mines.filter((m) => m.state !== 2 && near(m.pos.x, m.pos.z)).map((m) => [m.id, r1(m.pos.x), r1(m.pos.z), m.fuseLit ? 1 : 0, m.nuke ? Math.round(m.blastMax) : 0, m.nuke ? m.timer : 0, mineSize(m)] as [number, number, number, number, number, number, number])
     const K = s.pickups.map((k) => [k.id, k.x, k.z, k.kind] as [number, number, number, (typeof k)['kind']])
     const t = p.tank
     const pc = t.pc
@@ -350,6 +351,9 @@ function flushStats(c: Client) {
   c.stats = emptyDelta()
 }
 
+/** a mine's size on the wire, in % of the disc's (its blast; a streak makes it bigger) */
+const mineSize = (m: { nuke: boolean; blastMax: number }) => (m.nuke ? 100 : Math.round((m.blastMax / MINE.blastMax) * 100))
+
 /** sim event -> wire, if this client should hear about it */
 function toNet(e: ArenaEvent, c: Client): NetEv | null {
   const near = (x: number, z: number) => Math.abs(x - c.focus.x) < VIEW.x + 200 && Math.abs(z - c.focus.z) < VIEW.z + 200
@@ -380,7 +384,7 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
     case 'mineFuse':
       return ['fuse', e.id, r1(e.x), r1(e.z)]
     case 'boom':
-      return ['boom', r1(e.x), r1(e.z), e.nuke ? Math.round(e.r) : 0]
+      return ['boom', r1(e.x), r1(e.z), e.nuke ? Math.round(e.r) : 0, e.nuke ? 100 : Math.round((e.r / MINE.blastMax) * 100)]
     case 'shieldPop':
       return ['shpop', e.tank, r1(e.x), r1(e.z)]
     case 'flare':
