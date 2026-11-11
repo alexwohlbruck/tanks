@@ -591,7 +591,7 @@ class ArenaScreen implements Screen {
     const mine = sorted.find((p) => p[0] === s.pid)
     if (mine && !rows.includes(mine)) rows.push(mine)
     return `<div class="records-head">Leaders</div>${rows
-      .map((p) => `<div class="ar-row ${p[0] === s.pid ? 'me' : ''}"><i>${sorted.indexOf(p) + 1}</i>${icoHtml(this.colorOf(s, p[2], p[3]))}<span>${esc(p[1])}</span><b>${p[6]}</b></div>`)
+      .map((p) => `<div class="ar-row ${p[0] === s.pid ? 'me' : ''}"><i>${sorted.indexOf(p) + 1}</i>${icoHtml(this.colorOf(s, p[2], p[3]))}<span>${esc(p[1])}${p[7] ? '<small class="bot">BOT</small>' : ''}</span><b>${p[6]}</b></div>`)
       .join('')}`
   }
 
@@ -768,10 +768,22 @@ class ArenaScreen implements Screen {
         const color = this.colorOf(s, p.team, p.color)
         const power = s.powerOf(t)
         const lv = s.levelOf(t)
-        const key = p.name + color + (power ?? '') + saying + lv
+        // the score and whether it's a bot come with the board
+        const row = s.board?.players.find((q) => q[0] === pid2)
+        const score = row?.[6] ?? 0
+        const bot = !!row?.[7]
+        const teams = isTeamMode(s.mode)
+        const key = p.name + color + (power ?? '') + saying + lv + score + bot + teams
         if (el.dataset.k !== key) {
           el.dataset.k = key
-          el.innerHTML = `${saying ? `<q>${esc(saying)}</q>` : ''}<i style="background:${color}"></i>${esc(p.name)}${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}${lv ? `<b class="lv">×${lv + 1}</b>` : ''}`
+          // team modes: the whole tag in the team colour; otherwise a dot of the player's colour
+          el.classList.toggle('team', teams)
+          el.style.setProperty('--team', teams ? color : '')
+          el.innerHTML =
+            `${saying ? `<q>${esc(saying)}</q>` : ''}${teams ? '' : `<i style="background:${color}"></i>`}<span class="nm">${esc(p.name)}</span>` +
+            `${bot ? '<small class="bot">BOT</small>' : ''}` +
+            `${power ? `<em style="background:${PICKUP_INFO[power].color};color:${power === 'white' || power === 'yellow' ? '#3b2512' : '#fff'}">${PICKUP_INFO[power].name}</em>` : ''}` +
+            `${lv ? `<b class="lv">×${lv + 1}</b>` : ''}<b class="sc">${score}</b>`
         }
         v.set(t.pos.x, 52, t.pos.z).project(view.camera)
         el.style.transform = `translate(${((v.x + 1) / 2) * rect.width}px, ${((1 - v.y) / 2) * rect.height}px) translate(-50%, -100%)`

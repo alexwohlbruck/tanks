@@ -493,10 +493,11 @@ export class ArenaSim {
     return n[0] <= n[1] ? 0 : 1
   }
 
+  /** a name no one in the arena has (players keep theirs; a clash just repeats a name) */
   botName() {
     const used = new Set(this.players.map((p) => p.name))
-    for (const n of BOT_NAMES) if (!used.has(`${n} Bot`)) return `${n} Bot`
-    return `Bot ${this.players.length}`
+    const free = BOT_NAMES.filter((n) => !used.has(n))
+    return free.length ? free[Math.floor(this.rnd() * free.length)] : `Bot ${this.players.length}`
   }
 
   enemies(a: Player, b: Player) {

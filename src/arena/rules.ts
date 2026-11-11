@@ -252,4 +252,11 @@ export const FFA_COLORS = [
   '#5f6a78', '#7a4a2a', '#9ad13a', '#e0e0e0', '#33405a', '#ff7a59', '#4f7d2f', '#b03a5b',
 ]
 
-export const BOT_NAMES = ['Brown', 'Grey', 'Teal', 'Yellow', 'Pink', 'Green', 'Violet', 'White', 'Black', 'Ash', 'Cork', 'Felt', 'Moss', 'Rust', 'Slate', 'Plum']
+/** bots' names (picked at random among the unused ones; the tag over a bot says BOT) */
+export const BOT_NAMES = [
+  'Sarge', 'Rusty', 'Dozer', 'Bolt', 'Boomer', 'Gunner', 'Rivet', 'Sprocket', 'Cannonball', 'Clank',
+  'Biscuit', 'Pickles', 'Tinker', 'Mortar', 'Howitzer', 'Brick', 'Nutmeg', 'Corky', 'Splinter', 'Sawdust',
+  'Plank', 'Dynamo', 'Rumble', 'Ricochet', 'Kaboom', 'Fuse', 'Shrapnel', 'Bunker', 'Gizmo', 'Tumbleweed',
+  'Major Mayhem', 'Captain Crumble', 'General Chaos', 'Private Pickle', 'Colonel Kettle', 'Sergeant Sprocket',
+  'Lady Lugnut', 'Duchess Dynamite', 'Baron von Boom', 'Admiral Ack',
+]
