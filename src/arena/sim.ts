@@ -15,6 +15,7 @@ import {
   ARENA_TPS,
   BOT_NAMES,
   FFA_COLORS,
+  GHOST,
   INTERMISSION_TICKS,
   MATCH_TICKS,
   PICKUP_KINDS,
@@ -252,6 +253,8 @@ export type Player = {
   wantMine: boolean
   wantFlare: boolean
   wantNuke: boolean
+  /** knocked out (one-life modes): the tick its next ghost mine is ready (GHOST) */
+  ghostAt: number
   /** where a bot drops its nuke (players drop theirs on the aim point) */
   nukeAt: { x: number; z: number } | null
   joinedAt: number
@@ -486,7 +489,7 @@ export class ArenaSim {
       flareReady: 0,
       outside: 0,
     }) as ATank
-    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, wantNuke: false, nukeAt: null, joinedAt: this.tick, killedBy: null, wins: 0 }
+    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, wantNuke: false, nukeAt: null, ghostAt: 0, joinedAt: this.tick, killedBy: null, wins: 0 }
     tank.player = p
     this.players.push(p)
     this.tanks.push(tank)
@@ -821,6 +824,24 @@ export class ArenaSim {
     if (--pc.mineTimer < 0) pc.mineTimer = 0
   }
 
+  /** a ghost: knocked out for the rest of the round or match (one-life modes, while it's on) */
+  isGhost(p: Player) {
+    return !p.tank.alive && !Number.isFinite(p.tank.respawnAt) && this.state === 'play' && !this.roundOverAt
+  }
+
+  /** a ghost drops a mine at x, z (when it's ready, on an open cell, clear of every tank) */
+  ghostMine(p: Player, x: number, z: number) {
+    if (!this.isGhost(p) || this.tick < p.ghostAt) return false
+    const [c, r] = cellOf(this.map, x, z)
+    if (this.field.at(c, r) !== 0) return false
+    if (this.tanks.some((t) => t.alive && Math.hypot(t.pos.x - x, t.pos.z - z) < GHOST.clear)) return false
+    if (this.mines.some((m) => m.state !== 2 && Math.hypot(m.pos.x - x, m.pos.z - z) < 40)) return false
+    p.ghostAt = this.tick + GHOST.every
+    this.mines.push({ id: this.id(), owner: p.tank, pid: p.pid, team: p.team, pos: v3(x, 0, z), age: 0, state: 1, armed: true, fuseLit: false, timer: 0, blast: MINE.blastIdle, dead: false, by: null, chain: 0, nuke: false, blastMax: MINE.blastMax })
+    this.events.push({ t: 'mineSet', x, z })
+    return true
+  }
+
   /** a round's opening is over: nukes can drop (NUKE.grace) */
   nukeReady() {
     return this.tick - this.roundStart >= NUKE.grace
@@ -1082,6 +1103,7 @@ export class ArenaSim {
     v.deaths++
     v.streak = 0
     v.killedBy = by === v ? null : by
+    v.ghostAt = this.tick + GHOST.first
     let killer = by.pid
     // a teammate's shell (or blast): scores nothing, costs the shooter a point
     const tk = by !== v && this.players.includes(by) && !this.enemies(by, v)

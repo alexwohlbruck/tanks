@@ -56,6 +56,8 @@ type Client = {
   statsAt: number
   playSince: number
   emoteAt: number
+  /** the player watched while waiting to respawn or knocked out (null: whoever destroyed you) */
+  watch: number | null
 }
 
 let nextArena = 1
@@ -177,11 +179,12 @@ class Arena {
     this.tally(ev)
     for (const c of this.clients) {
       const t = c.player?.tank
-      if (t?.alive) c.focus = { x: t.pos.x, z: t.pos.z }
+      // (a fresh death starts watching whoever did it)
+      if (t?.alive) (c.focus = { x: t.pos.x, z: t.pos.z }), (c.watch = null)
       else {
-        // waiting to respawn: the view follows whoever destroyed you
-        const k = c.player?.killedBy?.tank
-        if (k?.alive && s.players.includes(k.player)) c.focus = { x: k.pos.x, z: k.pos.z }
+        // waiting to respawn or knocked out: the view follows the player watched
+        const k = this.watched(c)
+        if (k) c.focus = { x: k.pos.x, z: k.pos.z }
       }
       for (const e of ev) {
         const n = toNet(e, c)
@@ -190,6 +193,40 @@ class Arena {
     }
     if (s.tick % SNAPSHOT_EVERY === 0) for (const c of this.clients) this.snapshot(c)
     if (s.tick % 30 === 0) for (const c of this.clients) send(c, this.board(c))
+  }
+
+  /**
+   * Whose tank a client without one watches: the one it picked (watch), else whoever
+   * destroyed it; when that one goes too, whoever got them, else the leader still in.
+   */
+  watched(c: Client) {
+    const s = this.sim
+    const me = c.player
+    if (!me || me.tank.alive) return null
+    const live = (q: Player | null | undefined) => (q && q !== me && q.tank.alive && s.players.includes(q) ? q : null)
+    let w = live(s.players.find((q) => q.pid === c.watch)) ?? null
+    if (!w && c.watch !== null) {
+      // the one watched was destroyed: follow whoever did it
+      const was = s.players.find((q) => q.pid === c.watch)
+      w = live(was?.killedBy)
+    }
+    w ??= live(me.killedBy) ?? this.watchList(c)[0] ?? null
+    c.watch = w?.pid ?? null
+    return w?.tank ?? null
+  }
+
+  /** players to watch, in turn: the ones still in, top score first */
+  watchList(c: Client) {
+    return this.sim.players.filter((q) => q !== c.player && q.tank.alive).sort((a, b) => b.score - a.score || a.pid - b.pid)
+  }
+
+  /** the next (d = 1) or previous (-1) player to watch */
+  watchNext(c: Client, d: number) {
+    if (!c.player || c.player.tank.alive) return
+    const list = this.watchList(c)
+    if (!list.length) return
+    const i = list.findIndex((q) => q.pid === c.watch)
+    c.watch = list[(i + (d < 0 ? -1 : 1) + list.length) % list.length].pid
   }
 
   private snapshot(c: Client) {
@@ -253,9 +290,10 @@ class Arena {
       shield: Math.max(0, t.shieldUntil - s.tick),
       level: s.level(t),
       streak: p.streak,
-      spec: !t.alive && p.killedBy?.tank.alive && s.players.includes(p.killedBy) ? p.killedBy.tank.id : 0,
+      spec: t.alive ? 0 : (this.watched(c)?.id ?? 0),
       out: !t.alive && !Number.isFinite(t.respawnAt) ? 1 : 0,
       zo: t.outside,
+      gh: s.isGhost(p) ? Math.max(0, p.ghostAt - s.tick) : -1,
     }
     send(c, { t: 's', k: s.tick, T, S, F, M, K, E: c.pending, you })
     c.pending = []
@@ -509,6 +547,11 @@ function onMessage(c: Client, raw: string | Buffer) {
     }
     case 'emote':
       return c.arena?.emote(c, Number(m.i))
+    case 'watch':
+      return c.arena?.watchNext(c, Number(m.d))
+    case 'ghost':
+      if (c.arena && c.player) c.arena.sim.ghostMine(c.player, num(m.x, -5000, 5000), num(m.z, -5000, 5000))
+      return
     case 'vote':
       if (c.arena && c.player && typeof m.theme === 'string') c.arena.sim.vote(c.player, m.theme)
       return
@@ -537,6 +580,9 @@ function onMessage(c: Client, raw: string | Buffer) {
         t.pos.z = at.z
         return
       }
+      // 'die': out now (the zone gets you); 'ghost': a ghost's mine ready now
+      if (m.power === 'die') return void (t.alive && (c.arena!.sim as unknown as { kill(t: unknown, by: Player, cause: string): void }).kill(t, c.player!, 'zone'))
+      if (m.power === 'ghost') return void (c.player!.ghostAt = 0)
       // 'score': five points (to win the match 'end' finishes)
       if (m.power === 'score') return void (c.player!.score += 5)
       // 'zone': Battle royale's zone a minute further on
@@ -584,7 +630,7 @@ register({
     open(ws) {
       const ip = String(ws.data.ip ?? 'local')
       perIp.set(ip, (perIp.get(ip) ?? 0) + 1)
-      clients.set(ws, { ws, ip, arena: null, player: null, queue: [], last: { ...IDLE_INPUT }, lastRecv: -1, ack: 0, empty: 0, minQueue: 99, window: 0, pending: [], focus: { x: 0, z: 0 }, tokens: 240, tokenAt: performance.now(), statId: null, stats: emptyDelta(), statsAt: Date.now(), playSince: Date.now(), emoteAt: 0 })
+      clients.set(ws, { ws, ip, arena: null, player: null, queue: [], last: { ...IDLE_INPUT }, lastRecv: -1, ack: 0, empty: 0, minQueue: 99, window: 0, pending: [], focus: { x: 0, z: 0 }, tokens: 240, tokenAt: performance.now(), statId: null, stats: emptyDelta(), statsAt: Date.now(), playSince: Date.now(), emoteAt: 0, watch: null })
     },
     message(ws, msg) {
       const c = clients.get(ws)

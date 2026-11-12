@@ -4,7 +4,7 @@
 
 import type { AnyPickup, ArenaMode, ArenaSize, MapTheme, PickupKind } from './rules'
 
-export const ARENA_PROTO = 11
+export const ARENA_PROTO = 12
 
 export type C2S =
   /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team);
@@ -16,6 +16,10 @@ export type C2S =
   | { t: 'vote'; theme: string }
   /** input for one tick: seq, move x/z, analog, aim x/z, fire / mine / flare / nuke pressed this tick (0/1) */
   | { t: 'i'; s: number; mx: number; mz: number; an: number; ax: number; az: number; f: number; m: number; fl?: number; nk?: number }
+  /** waiting to respawn or knocked out: watch the next (1) or previous (-1) player */
+  | { t: 'watch'; d: number }
+  /** knocked out (one-life modes): drop a ghost mine here */
+  | { t: 'ghost'; x: number; z: number }
   | { t: 'ping'; c: number }
   | { t: 'leave' }
   /** development servers only (ARENA_DEV=1): become a special tank */
@@ -91,6 +95,8 @@ export type YouRec = {
   out: number
   /** Battle royale: ticks spent outside the zone (0: inside) */
   zo: number
+  /** a ghost (knocked out): ticks until its next mine is ready (-1: not a ghost) */
+  gh: number
 }
 
 /** compact events: kind first (see sim ArenaEvent) */
