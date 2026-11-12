@@ -23,7 +23,7 @@
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import { ELIM, isOneLife, nukeBlast, zoneNext } from './rules'
+import { ELIM, isOneLife, isTeamMode, nukeBlast, zoneNext } from './rules'
 import type { AMine, AShell, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
@@ -60,6 +60,9 @@ type Brain = {
   next: { dir: number; at: number } | null
   /** when each shell in flight was first noticed */
   noticed: Map<AShell, number>
+  /** seconds into a round before this bot thinks about its nuke (on top of NUKE_AI.grace; -1:
+   * not picked yet) */
+  nukeWait: number
 }
 
 const brains = new WeakMap<Player, Brain>()
@@ -72,6 +75,16 @@ const brains = new WeakMap<Player, Brain>()
  * sight before the first shot (plus the reaction time).
  */
 const HUMAN = { turn: 0.07, ease: 0.2, shake: 0.006, react: [14, 26], keys: [5, 11], shoot: 14 }
+/**
+ * When bots go for their nuke. `grace`: seconds into a round (the match start, outside
+ * Elimination) before any bot lays one, by mode; `wait`: a further spread of seconds, each bot
+ * its own and by mode, so they don't all go at once; `gap`: seconds after a bot's nuke before the next bot
+ * lays one (and never while one is on the map). A last stand and the end of the match skip the
+ * waits.
+ */
+const NUKE_AI = { grace: { ffa: 60, teams: 60, royale: 25, elim: 20 }, wait: { ffa: [0, 60], teams: [0, 60], royale: [0, 25], elim: [0, 30] }, gap: { ffa: 25, teams: 25, royale: 20, elim: 12 } }
+/** the tick each arena's last bot nuke went down */
+const lastNuke = new WeakMap<ArenaSim, number>()
 const between = ([a, b]: number[]) => a + Math.floor(Math.random() * (b - a + 1))
 
 /** how a bot plays the mode it's in (worked out every think) */
@@ -131,7 +144,7 @@ function zoneGoal(sim: ArenaSim, t: ATank, b: Brain): [number, number] | null {
 
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map() }))
+  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map(), nukeWait: -1 }))
   return b
 }
 
@@ -567,36 +580,14 @@ function nukeNow(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: 
   if (!inside.length && !enemies.some((o) => dist(o) < R + 260)) return false
   // a last stand (one-life modes): a shell is about to hit and enemies are close; it goes off
   // after we're gone and the kills are still ours
-  if (b.doomed && isOneLife(sim.mode) && inside.length) return true
+  if (b.doomed && isOneLife(sim.mode) && inside.length) return lay()
+  // one at a time: never while another nuke is on the map, nor right after a bot's last one
+  if (sim.mines.some((m) => m.nuke && !m.dead)) return false
+  if (sim.tick - (lastNuke.get(sim) ?? -1e9) < NUKE_AI.gap[sim.mode] * 60) return false
   // teammates in reach: an enemy shooting it would catch them
   if (friends.some((f) => dist(f) < R + 30)) return false
   // Battle royale: no room left to get out of the blast
   if (sim.zone && sim.zoneR() < R * 1.7) return false
-  // enemies closing in on us (they'll drive into it)
-  const coming = enemies.filter((o) => {
-    const d = dist(o)
-    if (d > R + 260 || d < 1) return false
-    return (o.vel.x * (t.pos.x - o.pos.x) + o.vel.z * (t.pos.z - o.pos.z)) / d > 0.4
-  })
-  // only with a way out of the blast that's short enough to drive before the fuse runs out
-  // (about 18 cells; it's searched only when there's a reason to lay it)
-  const out = () => {
-    const blast = { pos: t.pos, blastMax: nukeBlast(sim.level(t)) } as unknown as AMine
-    const path = escapePath(sim, cellOf(sim.map, t.pos.x, t.pos.z), [blast])
-    if (!path.length || path.length >= 18) return false
-    // Battle royale: and one that ends inside the zone
-    if (!sim.zone) return true
-    const end = cellPos(sim.map, ...path[path.length - 1])
-    return Math.hypot(end.x - sim.zone.x, end.z - sim.zone.z) < sim.zoneR() * 0.9
-  }
-  // a crowd: two in reach, or two in reach and on the way
-  if (inside.length >= 2) return out()
-  if (inside.length + coming.filter((o) => dist(o) >= R).length >= 2 && Math.random() < 0.3) return out()
-  const left = (team: number) => sim.players.filter((q) => q.tank.alive && q.team === team).length
-  // Elimination, outnumbered: a wall in front of their push
-  if (sim.mode === 'elim' && coming.length && left(p.team) < left(1 - p.team) && Math.random() < 0.25) return out()
-  // chased: whoever is on our tail drives over it
-  if (e && dist(e) < R && coming.includes(e) && t.speed > 1 && Math.random() < 0.12) return out()
   // use it or lose it: the match is nearly over
   const ending =
     sim.mode === 'royale'
@@ -604,7 +595,46 @@ function nukeNow(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: 
       : sim.mode === 'elim'
         ? sim.teamScore.some((s) => s === ELIM.rounds - 1)
         : sim.phaseEnd - sim.tick < 45 * 60
-  return ending && inside.length > 0 && Math.random() < 0.3 && out()
+  // early on everyone is still spreading out from the bases: it waits for the fight to form
+  if (b.nukeWait < 0) b.nukeWait = between(NUKE_AI.wait[sim.mode])
+  if (!ending && sim.tick - sim.roundStart < (NUKE_AI.grace[sim.mode] + b.nukeWait) * 60) return false
+  // enemies closing in on us (they'll drive into it)
+  const coming = enemies.filter((o) => {
+    const d = dist(o)
+    if (d > R + 260 || d < 1) return false
+    return (o.vel.x * (t.pos.x - o.pos.x) + o.vel.z * (t.pos.z - o.pos.z)) / d > 0.4
+  })
+  // what a catch is worth: a tank, more for the leader or one on a kill streak (worth ending
+  // early), more again for one driving into it
+  const top = Math.max(...sim.players.filter((q) => q.team !== p.team || !isTeamMode(sim.mode)).map((q) => q.score))
+  const worth = (o: ATank) => 1 + (o.player.score >= top && top > 0 ? 1 : 0) + (sim.level(o) > 0 ? 1 : 0) + (coming.includes(o) ? 0.5 : 0)
+  const value = inside.reduce((v, o) => v + worth(o), 0) + coming.filter((o) => dist(o) >= R).reduce((v, o) => v + worth(o) * 0.5, 0)
+  // a crowd, or a prize (the leader or a streak) closing in
+  if (value >= 3) return lay()
+  if (value >= 2.5 && Math.random() < 0.3) return lay()
+  const left = (team: number) => sim.players.filter((q) => q.tank.alive && q.team === team).length
+  // Elimination, outnumbered: a wall in front of their push
+  if (sim.mode === 'elim' && coming.length >= 2 && left(p.team) < left(1 - p.team) && Math.random() < 0.25) return lay()
+  // chased by someone worth it: they drive over it
+  if (e && dist(e) < R && coming.includes(e) && worth(e) >= 2.5 && t.speed > 1 && Math.random() < 0.12) return lay()
+  return ending && inside.length > 0 && Math.random() < 0.3 && lay()
+
+  // only with a way out of the blast that's short enough to drive before the fuse runs out
+  // (about 18 cells; it's searched only when there's a reason to lay it)
+  function lay() {
+    const blast = { pos: t.pos, blastMax: nukeBlast(sim.level(t)) } as unknown as AMine
+    const path = escapePath(sim, cellOf(sim.map, t.pos.x, t.pos.z), [blast])
+    if (!b.doomed || !isOneLife(sim.mode)) {
+      if (!path.length || path.length >= 18) return false
+      // Battle royale: and one that ends inside the zone
+      if (sim.zone) {
+        const end = cellPos(sim.map, ...path[path.length - 1])
+        if (Math.hypot(end.x - sim.zone.x, end.z - sim.zone.z) >= sim.zoneR() * 0.9) return false
+      }
+    }
+    lastNuke.set(sim, sim.tick)
+    return true
+  }
 }
 
 /** a pickup worth the detour: one closer than the fight */

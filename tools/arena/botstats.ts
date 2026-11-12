@@ -1,5 +1,5 @@
 // Bot behaviour by mode: nukes laid / kills by nukes / self-nukes, kills, how long one-life
-// rounds last. bun tools/arena/botstats.ts [seconds=240] [seeds=4]
+// rounds last. [MODES=ffa,royale] bun tools/arena/botstats.ts [seconds=240] [seeds=4]
 import { readFileSync } from 'node:fs'
 import { normalizeData } from '../../src/data'
 import { setTankRecords } from '../../src/sim/stats'
@@ -11,10 +11,10 @@ const maps = JSON.parse(readFileSync('public/assets/data/maps.json', 'utf8'))
 setTankRecords(normalizeData({ params, maps }).params.tanks)
 const secs = Number(process.argv[2] ?? 240)
 const seeds = Number(process.argv[3] ?? 4)
-for (const mode of ARENA_MODES) {
+for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof ARENA_MODES) {
   let spread = 0
   let spreadN = 0
-  const n = { nukes: 0, nukeKills: 0, nukeVictims: 0, selfNuke: 0, teamNuke: 0, kills: 0, matches: 0, rounds: 0 }
+  const n = { early: 0, at: 0, nukes: 0, nukeKills: 0, nukeVictims: 0, selfNuke: 0, teamNuke: 0, kills: 0, matches: 0, rounds: 0 }
   for (let seed = 1; seed <= seeds; seed++) {
     const sim = new ArenaSim(mode, seed * 101, 'medium')
     for (let i = 0; i < 14; i++) sim.addPlayer(sim.botName(), true)
@@ -36,7 +36,15 @@ for (const mode of ARENA_MODES) {
         if (e.t === 'round' && !e.start) n.rounds++
       }
       sim.events = []
-      for (const m of sim.mines) if (m.nuke && !booms.has(m.id)) (booms.set(m.id, 1), n.nukes++)
+      for (const m of sim.mines)
+        if (m.nuke && !booms.has(m.id)) {
+          booms.set(m.id, 1)
+          n.nukes++
+          // when in the round it went down, and whether it was in the first 30 seconds
+          const since = (sim.tick - sim.roundStart) / 60
+          n.at += since
+          if (since < 30) n.early++
+        }
       // team modes: how far a tank is from its nearest teammate (every second)
       if (i % 60 === 0 && (mode === 'teams' || mode === 'elim'))
         for (const t of sim.tanks) {
@@ -49,5 +57,5 @@ for (const mode of ARENA_MODES) {
     }
   }
   const per = (k: number) => (k / seeds).toFixed(1)
-  console.log(`${mode.padEnd(6)} per ${secs}s match-time: nukes laid ${per(n.nukes)}, enemies killed by nukes ${per(n.nukeKills)}, self-nuked ${per(n.selfNuke)}, team-nuked ${per(n.teamNuke)}, kills ${per(n.kills)}, matches over ${per(n.matches)}${mode === 'elim' ? `, rounds ${per(n.rounds)}` : ''}${spreadN ? `, nearest teammate ${Math.round(spread / spreadN)} units` : ''}`)
+  console.log(`${mode.padEnd(6)} per ${secs}s match-time: nukes laid ${per(n.nukes)} (${per(n.early)} in a round's first 30s, on average ${n.nukes ? Math.round(n.at / n.nukes) : '-'}s in), enemies killed by nukes ${per(n.nukeKills)}, self-nuked ${per(n.selfNuke)}, team-nuked ${per(n.teamNuke)}, kills ${per(n.kills)}, matches over ${per(n.matches)}${mode === 'elim' ? `, rounds ${per(n.rounds)}` : ''}${spreadN ? `, nearest teammate ${Math.round(spread / spreadN)} units` : ''}`)
 }
