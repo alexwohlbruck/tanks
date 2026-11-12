@@ -108,6 +108,7 @@ export class ArenaSession implements Session {
   private lastMine = false
   private lastFlare = false
   private lastNuke = false
+  private lastSpecX = 0
 
   /** `invite`: join that arena, on that player's team (an invite link) */
   constructor(
@@ -163,6 +164,10 @@ export class ArenaSession implements Session {
 
   emote(i: number) {
     this.send({ t: 'emote', i })
+  }
+  /** without a tank: watch the next (1) or previous (-1) player */
+  watch(d: number) {
+    if (this.you && !this.you.alive) this.send({ t: 'watch', d })
   }
   vote(theme: string) {
     this.send({ t: 'vote', theme })
@@ -377,6 +382,13 @@ export class ArenaSession implements Session {
     this.lastFlare = pad.flare
     const nuke = !blocked && pad.nuke && !this.lastNuke
     this.lastNuke = pad.nuke
+    // without a tank: left / right switch who to watch, and a ghost's click drops its mine
+    if (you && !you.alive && !blocked) {
+      const sx = mv.moveX > 0.5 ? 1 : mv.moveX < -0.5 ? -1 : 0
+      if (sx && sx !== this.lastSpecX) this.watch(sx)
+      this.lastSpecX = sx
+      if (fire && you.gh === 0) this.send({ t: 'ghost', x: Math.round(this.aim.x), z: Math.round(this.aim.z) })
+    } else this.lastSpecX = 0
     const inp: ArenaInput = { seq: ++this.seq, mx: mv.moveX, mz: mv.moveY, analog: mv.analog, ax: this.aim.x, az: this.aim.z, fire, mine, flare, nuke }
     this.send({ t: 'i', s: inp.seq, mx: r3(inp.mx), mz: r3(inp.mz), an: inp.analog ? 1 : 0, ax: Math.round(inp.ax), az: Math.round(inp.az), f: fire ? 1 : 0, m: mine ? 1 : 0, fl: flare ? 1 : 0, nk: nuke ? 1 : 0 })
     if (!alive || !this.field) {

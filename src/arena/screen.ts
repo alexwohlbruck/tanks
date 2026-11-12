@@ -314,6 +314,7 @@ class ArenaScreen implements Screen {
         <div class="ar-banner band"><span></span></div>
         <div class="ar-respawn band dark"><span></span></div>
         <button class="ar-newgame btn primary" type="button" hidden><span class="label"><span class="t">Find a new game</span><span class="hint">Enter · jump into one that's starting</span></span></button>
+        <div class="ar-spec panel" hidden><button type="button" class="ar-spec-prev" aria-label="Watch the previous player">◀</button><div class="ar-spec-who"></div><button type="button" class="ar-spec-next" aria-label="Watch the next player">▶</button><div class="ar-spec-hint"></div></div>
         <div class="ar-dock"><div class="ar-ammo"></div><div class="ar-power"></div></div>
         <div class="ar-mapframe"><canvas class="ar-minimap"></canvas></div>
         <div class="ar-labels"></div>
@@ -323,7 +324,7 @@ class ArenaScreen implements Screen {
         <div class="ar-menu pause-screen" hidden></div>
         <div class="ar-connecting pause-screen"><div class="panel pause">${band('Connecting…', 'dark').outerHTML}</div></div>
       </div>`
-    for (const k of ['timer', 'score', 'board', 'feed', 'banner', 'respawn', 'newgame', 'ammo', 'power', 'labels', 'net', 'sheet', 'menu', 'connecting']) this.els[k] = this.root.querySelector(`.ar-${k}`)!
+    for (const k of ['timer', 'score', 'board', 'feed', 'banner', 'respawn', 'spec', 'newgame', 'ammo', 'power', 'labels', 'net', 'sheet', 'menu', 'connecting']) this.els[k] = this.root.querySelector(`.ar-${k}`)!
     this.minimap = this.root.querySelector('.ar-minimap')!
     this.last = {}
     // a fresh HUD for a fresh session: nothing kept from the last arena
@@ -345,6 +346,15 @@ class ArenaScreen implements Screen {
       this.session?.emote(Number(b.dataset.emote))
       chat.hidden = true
     })
+    // without a tank: the arrows switch who to watch (and the click doesn't reach the map)
+    for (const [sel, d] of [['.ar-spec-prev', -1], ['.ar-spec-next', 1]] as const) {
+      const btn = this.root.querySelector(sel)!
+      btn.addEventListener('pointerdown', (e) => e.stopPropagation())
+      btn.addEventListener('click', () => {
+        this.session?.watch(d)
+        this.sound('move')
+      })
+    }
     // votes for the next map (results sheet)
     this.els.sheet.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-theme]')
@@ -528,11 +538,10 @@ class ArenaScreen implements Screen {
       this.els.newgame.hidden = !(you.out && b?.state === 'play')
       if (outside) this.set('respawn', `<span>Get back in the zone! ${Math.max(1, Math.ceil((ROYALE.outside - you.zo) / 60))}</span>`)
       else if (!you.alive) {
-        const w = s.spectating !== null ? s.nameOf(s.spectating) : undefined
-        const watching = w ? ` · watching ${esc(w.name)}` : ''
         const wait = !you.out ? `Back in ${Math.max(1, Math.ceil(you.respawn / 60))}` : s.mode === 'elim' ? (b?.roundOver ? `Next round in ${b.secs}` : 'Out until the next round') : 'Out until the next match'
-        this.set('respawn', `<span>${wait}${watching}</span>`)
+        this.set('respawn', `<span>${wait}</span>`)
       }
+      this.drawSpec(s, you, b)
       // the arsenal: one slot per weapon, with its key
       const pips = (n: number, max: number, svg: string) => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">${svg}</i>`).join('')
       // a long row (Yellow's mines) packs its pips tighter
@@ -566,6 +575,29 @@ class ArenaScreen implements Screen {
     this.drawMinimap(s)
     this.drawLabels(s)
     this.syncFx(s)
+  }
+
+  /** without a tank: a card for the player watched (switch with the arrows or left / right),
+   * and a ghost's mine (knocked out of a one-life mode: click the map to drop it) */
+  private drawSpec(s: ArenaSession, you: NonNullable<ArenaSession['you']>, b: Board | null) {
+    const on = !you.alive && b?.state === 'play'
+    this.els.spec.hidden = !on
+    if (!on) return
+    const pid = s.spectating
+    const p = pid !== null ? s.nameOf(pid) : undefined
+    const row = pid !== null ? b.players.find((q) => q[0] === pid) : undefined
+    const level = pid !== null ? s.world?.tanks.find((t) => t.ai?.pid === pid) : undefined
+    const lv = level ? s.levelOf(level) : 0
+    const who = p
+      ? `<small>Watching</small><div class="nm">${icoHtml(this.colorOf(s, p.team, p.color))}<b>${esc(p.name)}</b>${row?.[7] ? `<em title="${PERSONA_INFO[personaOf(p.name)].text}">${PERSONA_INFO[personaOf(p.name)].name} bot</em>` : ''}</div><div class="st">${row ? `${row[6]} pts · ${row[4]} kills` : ''}${lv ? ` · <b class="lv">×${lv + 1}</b>` : ''}</div>`
+      : '<small>Nobody left to watch</small>'
+    const keys = `${esc(keyName(settings.keys.left?.[0] ?? 'KeyA'))} / ${esc(keyName(settings.keys.right?.[0] ?? 'KeyD'))} to switch`
+    const ghost = you.gh < 0 ? '' : you.gh === 0 ? `<b class="ready">Click the map to drop a ghost mine</b>` : `Ghost mine in ${Math.ceil(you.gh / 60)} s`
+    const whoEl = this.els.spec.querySelector('.ar-spec-who')!
+    const hintEl = this.els.spec.querySelector('.ar-spec-hint')!
+    if (whoEl.innerHTML !== who) whoEl.innerHTML = who
+    const hint = [keys, ghost].filter(Boolean).join(' · ')
+    if (hintEl.innerHTML !== hint) hintEl.innerHTML = hint
   }
 
   private colorOf(s: ArenaSession, team: number, color: string) {

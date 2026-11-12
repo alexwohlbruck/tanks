@@ -168,6 +168,12 @@ export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, 
  * zone's radius (it can't wipe out the last circle).
  */
 export const NUKE = { fall: 120, range: 480, grace: 15 * 60, zoneShare: 0.5, blast: 150, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+/**
+ * Knocked out of a one-life mode (Battle royale, Elimination): a ghost can drop a mine on the
+ * map for fun, the first `first` ticks after going out and then every `every`. It lands armed,
+ * so never within `clear` of a tank (no mine dropped on someone's head).
+ */
+export const GHOST = { first: 10 * 60, every: 40 * 60, clear: 120 }
 /** firing kicks the tank back from the shot (`kick` units a frame, fading by `decay` a frame):
  * firing ahead checks your speed, firing behind gives a little boost */
 export const RECOIL = { kick: 2, decay: 0.8 }

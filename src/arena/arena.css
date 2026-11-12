@@ -182,6 +182,29 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 }
 .ar-banner { top: 24%; }
 .ar-respawn { top: 58%; font-size: 1.3em; }
+/* without a tank: the player watched, arrows to switch, and a ghost's mine */
+.ar-spec {
+  position: absolute; left: 50%; bottom: 3.6em; transform: translateX(-50%);
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.2em 0.6em;
+  min-width: 17em; padding: 0.4em 0.5em; border-radius: 0.8em;
+  background: rgba(255, 250, 238, 0.94);
+  box-shadow: inset 0 0 0 0.12em rgba(140, 90, 40, 0.35), 0 0.2em 0 rgba(90, 55, 20, 0.55), 0 0.4em 0.8em rgba(40, 15, 0, 0.25);
+  animation: pop-in 0.2s ease-out;
+}
+.ar-spec[hidden] { display: none; }
+.ar-spec button { font: inherit; font-size: 1.1em; width: 1.9em; height: 1.9em; border: 0; border-radius: 50%; cursor: pointer; background: rgba(110, 70, 25, 0.12); color: var(--wood-dark, #5b3a19); }
+.ar-spec button:hover { background: rgba(110, 70, 25, 0.24); }
+.ar-spec-who { text-align: center; min-width: 0; }
+.ar-spec-who small { display: block; font-size: 0.62em; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.55; }
+.ar-spec-who .nm { display: flex; align-items: center; justify-content: center; gap: 0.35em; font-size: 1.05em; }
+.ar-spec-who .nm b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-spec-who .nm em { font-style: normal; font-size: 0.6em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.1em 0.45em; border-radius: 0.4em; background: rgba(60, 35, 10, 0.12); color: rgba(60, 35, 10, 0.7); }
+.ar-spec-who .st { font-size: 0.75em; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.ar-spec-who .lv { color: #c45a10; }
+.ar-spec-hint { grid-column: 1 / -1; text-align: center; font-size: 0.68em; opacity: 0.75; }
+.ar-spec-hint .ready { color: #b4231b; opacity: 1; animation: ar-pulse-text 1s ease-in-out infinite alternate; }
+@keyframes ar-pulse-text { to { opacity: 0.6; } }
+
 /* knocked out of a one-life round: into another game (screen.ts newGame) */
 /* centred with margins, not a transform: the buttons' hover lift sets transform */
 .web .btn.ar-newgame { position: absolute; left: 0; right: 0; margin: 0 auto; top: calc(58% + 3.4em); width: max-content; min-height: 0; padding: 0.5em 1.2em; animation: pop-in 0.25s ease-out; }
