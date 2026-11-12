@@ -284,7 +284,9 @@ export type ATank = TankBody & {
   outside: number
 }
 
-export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean; homing: boolean; turn: number }
+export type AShell = { id: number; owner: ATank; pid: number; team: number; pos: V3; vel: V3; age: number; bounces: number; smoke: number; acc: Accum; hitWall: boolean; dead: boolean; homing: boolean; turn: number
+  /** fired before its owner's last powerup: still in play, but no longer counted against its ammo */
+  spent?: boolean }
 export type AMine = {
   id: number
   owner: ATank
@@ -809,11 +811,16 @@ export class ArenaSim {
     if (--pc.mineTimer < 0) pc.mineTimer = 0
   }
 
+  /** the shells a tank has in play that count against its ammo */
+  loaded(t: ATank) {
+    return this.shells.filter((s) => s.owner === t && !s.spent).length
+  }
+
   private fire(t: ATank, st: ReturnType<typeof powerStats>) {
     const p = t.player
     const dir = t.turretRot.z
     const at = v3(t.pos.x + TANK.muzzle * dir.x, 0, t.pos.z + TANK.muzzle * dir.z)
-    if (this.shells.filter((s) => s.owner === t).length >= st.maxShells || !this.field.isInside(at) || this.field.pointInBlock(at.x, at.z)) return false
+    if (this.loaded(t) >= st.maxShells || !this.field.isInside(at) || this.field.pointInBlock(at.x, at.z)) return false
     this.shells.push({
       id: this.id(),
       owner: t,
@@ -1097,6 +1104,9 @@ export class ArenaSim {
           t.power = k.kind
           t.powerUntil = this.tick + PICKUP_TICKS[k.kind]
           t.burst = 0
+          // a full load with the new power: shells already out keep flying but stop counting
+          for (const s of this.shells) if (s.owner === t) s.spent = true
+          t.pc.shellTimer = 0
         }
         this.events.push({ t: 'pickup', tank: t.id, kind: k.kind, x: k.x, z: k.z })
         k.id = -1

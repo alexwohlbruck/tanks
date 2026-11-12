@@ -240,7 +240,7 @@ class Arena {
       protect: Math.max(0, t.protectUntil - s.tick),
       power: t.power,
       powerLeft: t.power ? t.powerUntil - s.tick : 0,
-      shells: st.maxShells - s.shells.filter((x) => x.owner === t).length,
+      shells: st.maxShells - s.loaded(t),
       mines: st.maxMines - s.mines.filter((m) => m.owner === t && m.state !== 2).length,
       maxShells: st.maxShells,
       maxMines: st.maxMines,
