@@ -28,6 +28,9 @@ type Snap = Extract<S2C, { t: 's' }>
 type Feed = { at: number; text: string; html: string }
 
 const DELAY = 7
+/** how far the following camera may run past the map's edges, as a share of the view's half
+ * width / depth */
+const CAM_SLACK = { x: 0.4, z: 0.45 }
 /** most floor depth (world units, each way from the tank) the following camera shows */
 const VIEW_DEPTH = 640
 /** RPTnkCursor: the line to the tank shows from this far (layout units; app.ts FAR) */
@@ -324,8 +327,10 @@ export class ArenaSession implements Session {
     const hw = (cam.right - cam.left) / 2 / zoom
     // the tilted view covers about half its height / sin(42) of floor depth each way
     const hd = (cam.top - cam.bottom) / 2 / zoom / Math.sin((42 * Math.PI) / 180)
-    const W = (m.cols * 35) / 2 + 40
-    const D = (m.rows * 35) / 2 + 40
+    // slack past the edges, a share of the view: near a map edge the camera can run on far
+    // enough that the tank stays clear of the HUD cards in the corners
+    const W = (m.cols * 35) / 2 + Math.max(40, hw * CAM_SLACK.x)
+    const D = (m.rows * 35) / 2 + Math.max(40, hd * CAM_SLACK.z)
     const clamp = (v: number, half: number, lim: number) => (half >= lim ? 0 : Math.max(-lim + half, Math.min(lim - half, v)))
     this.view.follow = { x: clamp(f.x, hw, W), z: clamp(f.z, hd, D) }
   }
