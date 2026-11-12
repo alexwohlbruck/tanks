@@ -139,6 +139,10 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 .ar-plaque.teams .t:last-child b { color: #d8383a; }
 .ar-plaque.teams .t.lead b { font-size: 1.6em; }
 
+/* the corner cards fade while a tank is under them, so the play there stays visible */
+.ar-board, .ar-mapframe { transition: opacity 0.25s; }
+.ar-board.see-through, .ar-mapframe.see-through { opacity: 0.22; pointer-events: none; }
+
 /* leaders: a small cream card */
 .ar-board {
   position: absolute; top: 0.6em; right: 0.7em; width: 13em;
