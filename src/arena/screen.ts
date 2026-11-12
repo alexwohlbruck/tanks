@@ -559,6 +559,7 @@ class ArenaScreen implements Screen {
     this.els.net.textContent = `${Math.round(s.rtt)} ms`
     this.drawMinimap(s)
     this.drawLabels(s)
+    this.fadeCorners(s)
     this.syncFx(s)
   }
 
@@ -738,6 +739,31 @@ class ArenaScreen implements Screen {
   }
 
   // ---- in-world extras: names, pickups, team rings ------------------------------------------
+
+  /** the leaders card and the minimap turn see-through while a tank drives under them */
+  private fadeCorners(s: ArenaSession) {
+    const w = s.world
+    const panels = [this.els.board, this.root.querySelector<HTMLElement>('.ar-mapframe')]
+    const hit = new Set<HTMLElement>()
+    if (w && !this.app.view.fpv) {
+      const root = this.root.getBoundingClientRect()
+      const boxes = panels.map((el) => el && el.offsetParent ? el.getBoundingClientRect() : null)
+      const v = this.fadeV
+      for (const t of w.tanks) {
+        if (!t.alive || s.hidden(t)) continue
+        v.set(t.pos.x, 0, t.pos.z).project(this.app.view.camera)
+        const x = root.left + ((v.x + 1) / 2) * root.width
+        const y = root.top + ((1 - v.y) / 2) * root.height
+        // a tank's width of room around each card, so it fades just before the tank goes under
+        const m = 40
+        boxes.forEach((b, i) => {
+          if (b && x > b.left - m && x < b.right + m && y > b.top - m && y < b.bottom + m) hit.add(panels[i]!)
+        })
+      }
+    }
+    for (const el of panels) el?.classList.toggle('see-through', hit.has(el))
+  }
+  private fadeV = new THREE.Vector3()
 
   private drawLabels(s: ArenaSession) {
     const w = s.world
