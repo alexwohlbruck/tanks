@@ -25,7 +25,7 @@
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import { ELIM, isOneLife, isTeamMode, NUKE, zoneNext } from './rules'
+import { ELIM, isOneLife, isTeamMode, NUKE, personaOf, zoneNext, type Persona } from './rules'
 import type { AMine, AShell, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
@@ -62,6 +62,11 @@ type Brain = {
   next: { dir: number; at: number } | null
   /** when each shell in flight was first noticed */
   noticed: Map<AShell, number>
+  /** its personality's traits (TRAITS), and where a Turtle has dug in */
+  tr: Traits
+  post: [number, number] | null
+  /** a Turtle holding its spot until this tick */
+  rest: number
   /** enemy mines this bot has spotted (knowsMine): the rest it drives into like a player would */
   known: WeakSet<AMine>
   /** seconds into a round before this bot thinks about its nuke (on top of NUKE_AI.grace; -1:
@@ -86,6 +91,8 @@ const HUMAN = { turn: 0.07, ease: 0.2, shake: 0.006, react: [14, 26], keys: [5, 
  * lays one (and never while one is on the map). A last stand and the end of the match skip the
  * waits.
  */
+/** frames before a falling nuke's shadow is big enough for a bot to notice (then its reaction time) */
+const NUKE_NOTICE = 20
 const NUKE_AI = { grace: { ffa: 60, teams: 60, royale: 25, elim: 20 }, wait: { ffa: [0, 60], teams: [0, 60], royale: [0, 25], elim: [0, 30] }, gap: { ffa: 25, teams: 25, royale: 20, elim: 12 } }
 /** the tick each arena's last bot nuke went down */
 const lastNuke = new WeakMap<ArenaSim, number>()
@@ -101,6 +108,31 @@ type Style = {
   cautious: boolean
   /** how far it will detour for a pickup, as a share of the fight's distance */
   loot: number
+}
+
+/**
+ * How each personality plays, on top of the mode's style. `hunt`, `loot`: multiply the
+ * style's; `cautious`: overrides it (null: the mode's); `range`: how far off it holds and
+ * strafes once it sees its target, `close`: it backs off nearer than this; `fire`, `bank`: how
+ * often it shoots straight and off a wall; `aim`: how much its aim wanders (tighter aims also
+ * wait for the turret to be dead on); `mines`: how keen it is to lay one; `roam`: cells it
+ * wanders from its post with nothing to fight (0: anywhere); `nooks`: with nothing to fight it
+ * heads for hidden and tight cells to plant mines in, and keeps both its mines for that.
+ */
+type Traits = { hunt: number; loot: number; cautious: boolean | null; range: number; close: number; fire: number; bank: number; aim: number; mines: number; roam: number; nooks?: boolean }
+const TRAITS: Record<Persona, Traits> = {
+  brawler: { hunt: 1.3, loot: 0.6, cautious: false, range: 170, close: 80, fire: 1.6, bank: 0.5, aim: 1.3, mines: 0.6, roam: 0 },
+  sniper: { hunt: 1.2, loot: 0.8, cautious: null, range: 430, close: 300, fire: 0.95, bank: 1.8, aim: 0.4, mines: 0.6, roam: 0 },
+  trapper: { hunt: 0.85, loot: 0.7, cautious: null, range: 280, close: 170, fire: 1, bank: 1, aim: 1, mines: 2.5, roam: 0, nooks: true },
+  scavenger: { hunt: 0.7, loot: 2.5, cautious: null, range: 240, close: 150, fire: 1.1, bank: 1, aim: 1, mines: 1, roam: 0 },
+  turtle: { hunt: 0.6, loot: 0.4, cautious: true, range: 300, close: 160, fire: 1, bank: 1.3, aim: 0.8, mines: 1.3, roam: 6 },
+}
+
+/** the mode's style with the bot's personality on top (a Scavenger with a power hunts twice as far) */
+function styleFor(sim: ArenaSim, p: Player, tr: Traits): Style {
+  const s = styleOf(sim, p)
+  const powered = !!p.tank.power && tr.loot > 1
+  return { hunt: s.hunt * tr.hunt * (powered ? 2 : 1), regroup: s.regroup, cautious: tr.cautious ?? s.cautious, loot: powered ? s.loot * 0.5 : s.loot * tr.loot }
 }
 
 function styleOf(sim: ArenaSim, p: Player): Style {
@@ -148,7 +180,8 @@ function zoneGoal(sim: ArenaSim, t: ATank, b: Brain): [number, number] | null {
 
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map(), nukeWait: -1, known: new WeakSet() }))
+  const tr = TRAITS[personaOf(p.name)]
+  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map(), nukeWait: -1, known: new WeakSet(), tr, post: null, rest: 0 }))
   return b
 }
 
@@ -266,7 +299,7 @@ export function botThink(sim: ArenaSim, p: Player) {
   if (now >= b.thinkAt) {
     b.thinkAt = now + 10
     spotMines(sim, p, b)
-    b.style = styleOf(sim, p)
+    b.style = styleFor(sim, p, b.tr)
     let best: ATank | null = null
     let bd = b.style.hunt
     for (const e of enemies) {
@@ -279,8 +312,10 @@ export function botThink(sim: ArenaSim, p: Player) {
       }
     }
     if (best !== b.target) b.seenSince = -1
+    // a Turtle digs in again wherever its last fight took it
+    if (best) (b.post = null), (b.rest = 0)
     b.target = best
-    b.jitter = (Math.random() - 0.5) * 0.2
+    b.jitter = (Math.random() - 0.5) * 0.2 * b.tr.aim
     b.bank = null
     if (best && !clearLine(sim, t.pos.x, t.pos.z, best.pos.x, best.pos.z) && now % 20 < 10) {
       const base = Math.atan2(best.pos.z - t.pos.z, best.pos.x - t.pos.x)
@@ -314,7 +349,7 @@ export function botThink(sim: ArenaSim, p: Player) {
     if (b.bank) {
       inp.ax = b.bank.x
       inp.az = b.bank.z
-      fire = Math.random() < 0.04
+      fire = Math.random() < 0.04 * b.tr.bank
     } else {
       inp.ax = t.pos.x + Math.cos(a) * d
       inp.az = t.pos.z + Math.sin(a) * d
@@ -331,7 +366,7 @@ export function botThink(sim: ArenaSim, p: Player) {
       })
       // only once the turret is on target
       const tz = t.turretRot.z
-      const on = Math.cos(a) * tz.x + Math.sin(a) * tz.z > 0.995
+      const on = Math.cos(a) * tz.x + Math.sin(a) * tz.z > (b.tr.aim < 1 ? 0.998 : 0.995)
       // no mine close by in the line of fire (our own shell would set it off on top of us)
       const mined = sim.mines.some((m) => {
         if (m.state === 2 || !knowsMine(sim, p, b, m)) return false
@@ -339,7 +374,7 @@ export function botThink(sim: ArenaSim, p: Player) {
         const along = mx * Math.cos(a) + mz * Math.sin(a)
         return along > 0 && along < m.blastMax + 60 && Math.abs(-mx * Math.sin(a) + mz * Math.cos(a)) < 26
       })
-      fire = reacted && !blocked && !mined && on && d < 600 && Math.random() < 0.06
+      fire = reacted && !blocked && !mined && on && d < Math.max(600, b.tr.range + 150) && Math.random() < 0.06 * b.tr.fire
     }
     if (now < e.protectUntil) fire = false
   } else {
@@ -399,8 +434,9 @@ export function botThink(sim: ArenaSim, p: Player) {
     // a fresh own mine is left behind on purpose (it arms once we're clear); after a moment,
     // or once its fuse is lit, it gets a wide berth like everything else
     if (m.state === 2 || (!m.armed && m.owner === t && m.age < 45 && !m.fuseLit)) return false
-    // a falling nuke: its shadow is seen after the reaction time
-    if (m.nuke && m.age < b.react) return false
+    // a falling nuke: noticed like a player would, once its shadow has grown enough to see
+    // and the reaction time on top
+    if (m.nuke && m.age < b.react + NUKE_NOTICE) return false
     // teammates' mines ignore us (nukes don't); an enemy mine only once it's been spotted
     if (!m.nuke && m.owner !== t && !sim.enemies(p, m.owner.player)) return false
     if (!knowsMine(sim, p, b, m)) return false
@@ -432,7 +468,7 @@ export function botThink(sim: ArenaSim, p: Player) {
     const seen = e && clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)
     const from = b.fleeFrom ?? e?.pos
     const zone = zoneGoal(sim, t, b)
-    const style = b.style ?? styleOf(sim, p)
+    const style = b.style ?? styleFor(sim, p, b.tr)
     // outnumbered close by (a cautious mode): back away from the enemies' middle for a moment
     const near = (l: ATank[]) => l.filter((o) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z) < 330)
     const foes = style.cautious ? near(enemies) : []
@@ -455,18 +491,32 @@ export function botThink(sim: ArenaSim, p: Player) {
     else if (now < b.fleeUntil && from) {
       mx = t.pos.x - from.x
       mz = t.pos.z - from.z
-    } else if (e && seen && dist < 260) {
-      // strafe around the target
+    } else if (e && seen && dist < b.tr.range) {
+      // strafe around the target, backing off when it's nearer than this bot likes
       const ux = (e.pos.x - t.pos.x) / dist, uz = (e.pos.z - t.pos.z) / dist
-      mx = -uz * b.strafe - ux * (dist < 150 ? 1 : 0)
-      mz = ux * b.strafe - uz * (dist < 150 ? 1 : 0)
+      mx = -uz * b.strafe - ux * (dist < b.tr.close ? 1 : 0)
+      mz = ux * b.strafe - uz * (dist < b.tr.close ? 1 : 0)
       if (Math.random() < 0.01) b.strafe = -b.strafe
     } else if ((loot = pickupNear(sim, t, e ? dist : 1e9, style.loot))) goal = [loot.c, loot.r]
     else if (mate) goal = cellOf(sim.map, mate.pos.x, mate.pos.z)
     else if (e) goal = cellOf(sim.map, e.pos.x, e.pos.z)
+    else if (now < b.rest) goal = null
     else if (!b.goal || !b.path.length) {
-      const o = sim.map.open[Math.floor(Math.random() * sim.map.open.length)]
-      goal = o
+      // nothing to do: wander (a Turtle only about its post, settling a while in a tight or
+      // hidden cell there each time it gets to one)
+      const here = cellOf(sim.map, t.pos.x, t.pos.z)
+      if (b.tr.roam && b.goal && here[0] === b.goal[0] && here[1] === b.goal[1]) {
+        b.rest = now + 120 + Math.floor(Math.random() * 180)
+        b.goal = null
+      } else {
+        if (b.tr.roam && !b.post) b.post = here
+        const near = b.post ? sim.map.open.filter(([c, r]) => Math.abs(c - b.post![0]) + Math.abs(r - b.post![1]) <= b.tr.roam) : []
+        const nooks = near.filter(([c, r]) => sides(sim, c, r) >= 2 || hiddenCell(sim, c, r))
+        // a Trapper: the map's hidden and tight cells, to plant in
+        const spots = b.tr.nooks ? plantSpots(sim) : []
+        const pool = nooks.length ? nooks : near.length ? near : spots.length ? spots : sim.map.open
+        goal = pool[Math.floor(Math.random() * pool.length)]
+      }
     } else goal = b.goal
     if (goal) {
       const here = cellOf(sim.map, t.pos.x, t.pos.z)
@@ -543,6 +593,17 @@ function spotMines(sim: ArenaSim, p: Player, b: Brain) {
   }
 }
 
+/** hidden or dead-end cells of the map's current layout (a Trapper's planting spots), cached a while */
+const spotCache = new WeakMap<ArenaSim, { at: number; cells: [number, number][] }>()
+function plantSpots(sim: ArenaSim) {
+  let c = spotCache.get(sim)
+  if (!c || sim.tick - c.at > 600) {
+    c = { at: sim.tick, cells: sim.map.open.filter(([x, y]) => open(sim, x, y) && sides(sim, x, y) >= 2 && (hiddenCell(sim, x, y) || sides(sim, x, y) >= 3)) }
+    spotCache.set(sim, c)
+  }
+  return c.cells
+}
+
 /**
  * An enemy boxed in behind us: every way out of the pocket it's in runs through our cell
  * (searched up to `cap` cells with ours walled off). A mine here shuts it in.
@@ -600,6 +661,8 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   }
   const mine = sim.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines
   if (!mine || !safe(MINE.blastMax) || sim.mines.some((m) => m.state !== 2 && dist(m) < 90)) return
+  // how keen this bot is on mines: its trait scales every chance below (at most a sure thing)
+  const keen = (chance: number) => Math.min(0.95, chance * b.tr.mines)
   const lay = (flee: number) => {
     p.wantMine = true
     b.fleeUntil = now + flee
@@ -614,28 +677,30 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   for (const o of enemies) {
     if (dist(o) > 260) continue
     const oc = cellOf(sim.map, o.pos.x, o.pos.z)
-    if ((oc[0] !== c || oc[1] !== r) && trapped(sim, oc, [c, r]) && Math.random() < 0.6) return lay(80)
+    if ((oc[0] !== c || oc[1] !== r) && trapped(sim, oc, [c, r]) && Math.random() < keen(0.6)) return lay(80)
   }
   // ---- planting: with no fight on, a mine left in a hidden or tight spot for whoever comes by
   // (only the first: the rest are kept for fights)
   const mineCount = sim.mines.filter((m) => m.owner === t && m.state !== 2).length
-  const fightNear = enemies.some((o) => dist(o) < 300)
-  if (!fightNear && mineCount === 0 && (hidden || sides(sim, c, r) >= 3) && tight && Math.random() < 0.08) return lay(60)
+  // (a Trapper plants in any corridor too, and lets a fight come closer first)
+  const spot = tight && (hidden || sides(sim, c, r) >= 3 || !!b.tr.nooks)
+  const calm = !enemies.some((o) => dist(o) < (b.tr.nooks ? 200 : 300))
+  if (calm && spot && mineCount < (b.tr.nooks ? st.maxMines : 1) && Math.random() < keen(0.08)) return lay(60)
   if (e) {
     const d = dist(e)
     const ux = (t.pos.x - e.pos.x) / (d || 1), uz = (t.pos.z - e.pos.z) / (d || 1)
     // chased: the enemy closes in while we drive away; it runs into the mine
     const closing = -(e.vel.x * ux + e.vel.z * uz)
     const leaving = t.vel.x * ux + t.vel.z * uz
-    if (d < 240 && closing > 0.3 && leaving > 0.3 && Math.random() < 0.5) return lay(40)
+    if (d < 240 && closing > 0.3 && leaving > 0.3 && Math.random() < keen(0.5)) return lay(40)
     // a corridor the enemy is coming down, out of its sight: an ambush
     const ns = open(sim, c, r - 1) && open(sim, c, r + 1) && !open(sim, c - 1, r) && !open(sim, c + 1, r)
     const ew = open(sim, c - 1, r) && open(sim, c + 1, r) && !open(sim, c, r - 1) && !open(sim, c, r + 1)
-    if ((ns || ew) && d < 380 && d > 140 && closing > 0.3 && !clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z) && Math.random() < 0.3) return lay(70)
+    if ((ns || ew) && d < 380 && d > 140 && closing > 0.3 && !clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z) && Math.random() < keen(0.3)) return lay(70)
     // an ambush in a hidden spot on its way: it won't see it from where it's coming
-    if (hidden && tight && d < 450 && d > 140 && closing > 0.2 && Math.random() < 0.3) return lay(70)
+    if (hidden && tight && d < 450 && d > 140 && closing > 0.2 && Math.random() < keen(0.3)) return lay(70)
     // a close fight: between us and it, then back off
-    if (d < 200 && Math.random() < 0.12) return lay(70)
+    if (d < 200 && Math.random() < keen(0.12)) return lay(70)
   }
   // cork in the way of where we're going: blow it open
   const goal = e ? cellOf(sim.map, e.pos.x, e.pos.z) : b.goal
@@ -643,7 +708,7 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       if (!isCork(sim.field.at(c + dx, r + dy))) continue
       const closer = Math.hypot(goal[0] - (c + dx), goal[1] - (r + dy)) < Math.hypot(goal[0] - c, goal[1] - r)
-      if (closer && Math.random() < (b.path.length ? 0.1 : 0.5)) return lay(90)
+      if (closer && Math.random() < keen(b.path.length ? 0.1 : 0.5)) return lay(90)
     }
   }
 }

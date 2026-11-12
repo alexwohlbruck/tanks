@@ -15,7 +15,7 @@ import { volumeControls } from '../ui/web/volume'
 import { Nav } from '../ui/web/nav'
 import { keyName, settings } from '../ui/web/settings'
 import type { Board } from './protocol'
-import { ARENA_SIZES, EMOTES, FFA_COLORS, FLARE, ITEM_INFO, ITEM_KINDS, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SHIELD, SIZES, STREAK_LEVELS, TEAM_COLORS, TEAM_NAMES, THEME_INFO, ELIM, MODE_NAMES, ROYALE, isItem, isTeamMode, pickupInfo, sizeOf, type AnyPickup, type ArenaMode, type ArenaSize, type ItemKind, type MapTheme } from './rules'
+import { PERSONAS, PERSONA_INFO, personaOf, ARENA_SIZES, EMOTES, FFA_COLORS, FLARE, ITEM_INFO, ITEM_KINDS, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TICKS, PICKUP_TYPE, SHIELD, SIZES, STREAK_LEVELS, TEAM_COLORS, TEAM_NAMES, THEME_INFO, ELIM, MODE_NAMES, ROYALE, isItem, isTeamMode, pickupInfo, sizeOf, type AnyPickup, type ArenaMode, type ArenaSize, type ItemKind, type MapTheme } from './rules'
 import { TANK } from '../sim/consts'
 import type { Tank } from '../sim/world'
 import { ArenaSession } from './session'
@@ -249,6 +249,7 @@ class ArenaScreen implements Screen {
                 h('li', null, `Elimination: Blue against Red with one life a round. Wipe out the other team to win the round (after ${ELIM.roundTicks / 3600} minutes, the team with more tanks left wins it). First to ${ELIM.rounds} rounds wins.`),
                 h('li', null, 'In Battle royale and Elimination, if you join once a round is under way, you watch until the next one starts.'),
                 h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
+                h('li', null, `Bots have personalities, and their names tell you which: ${PERSONAS.map((k) => `${PERSONA_INFO[k].name} (${PERSONA_INFO[k].names.slice(0, 2).join(', ')}…): ${PERSONA_INFO[k].text.charAt(0).toLowerCase() + PERSONA_INFO[k].text.slice(1)}`).join('; ')}. The scores (Tab) show each one's.`),
                 h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. Each level: two more shells, faster shells, another mine with a bigger blast, another ricochet, a bigger nuke and a stronger special tank, until you're hit.`),
                 h('li', null, `One nuke a match, on its own key (N): an airstrike on your crosshair (up to a screen away) that lands ${NUKE.fall / 60} seconds later and clears every block around it. Watch for its shadow and listen for the whistle. None in a round's first ${NUKE.grace / 60} seconds; in Battle royale its blast shrinks with the zone. You keep it when you're hit; a new one comes with the next match.`),
                 h('li', null, `A flare launches ${FLARE.swarm[0]}-${FLARE.swarm[1]} tiny homing missiles that shoot down shells and rockets heading for you, yours too if one bounces back. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
@@ -609,7 +610,7 @@ class ArenaScreen implements Screen {
       `<div class="kills ar-table">${title ? `<div class="ar-table-title" style="color:${color}">${title}</div>` : ''}<div class="kills-head"><span></span><span>Tank</span><span class="pcol">Kills</span><span class="pcol">Lost</span><span class="pcol">Score</span></div><div class="kills-rows">${list
         .map(
           (p, i) =>
-            `<div class="kill-row ${p[0] === s.pid ? 'me' : ''}" style="--i:${i}"><span class="rk">${sorted.indexOf(p) + 1}</span><span class="kname">${icoHtml(this.colorOf(s, p[2], p[3]))}<span>${esc(p[1])}</span>${p[7] ? '<small>bot</small>' : ''}</span><span class="pcol">${p[4]}</span><span class="pcol">${p[5]}</span><b class="pcol">${p[6]}</b></div>`,
+            `<div class="kill-row ${p[0] === s.pid ? 'me' : ''}" style="--i:${i}"><span class="rk">${sorted.indexOf(p) + 1}</span><span class="kname">${icoHtml(this.colorOf(s, p[2], p[3]))}<span>${esc(p[1])}</span>${p[7] ? `<small title="${PERSONA_INFO[personaOf(p[1])].text}">${PERSONA_INFO[personaOf(p[1])].name} bot</small>` : ''}</span><span class="pcol">${p[4]}</span><span class="pcol">${p[5]}</span><b class="pcol">${p[6]}</b></div>`,
         )
         .join('')}</div></div>`
     const over = b.state === 'over'
