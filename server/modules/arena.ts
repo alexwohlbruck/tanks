@@ -12,6 +12,7 @@ import { botThink } from '../../src/arena/bot'
 import { ARENA_PROTO, r1, type Board, type C2S, type NetEv, type S2C, type YouRec } from '../../src/arena/protocol'
 import { ARENA_TPS, EMOTES, FLARE, MAP_THEMES, NUKE, PICKUP_KINDS, SHIELD, SIZES, SNAPSHOT_EVERY, arenaModeOf, isTeamMode, sizeOf, zoneNext, zoneRadius, type ArenaMode, type ArenaSize, type MapTheme } from '../../src/arena/rules'
 import { ArenaSim, IDLE_INPUT, type ArenaEvent, type ArenaInput, type Player } from '../../src/arena/sim'
+import { cellPos } from '../../src/arena/map'
 import { cleanName } from '../../src/net/protocol'
 import { register } from '../index'
 import { json, type WsData } from '../module'
@@ -520,6 +521,17 @@ function onMessage(c: Client, raw: string | Buffer) {
         const s = c.arena!.sim
         s.newMatch(undefined, m.power.slice(4) as MapTheme)
         for (const o of c.arena!.clients) send(o, { t: 'map', seed: s.map.seed, theme: s.map.theme, tick: s.tick })
+        return
+      }
+      // 'corner:<ne|nw|se|sw>': the own tank to the open cell nearest that corner of the map
+      if (m.power.startsWith('corner:')) {
+        const [ns, ew] = m.power.slice(7)
+        const s = c.arena!.sim
+        const by = ([cc, r]: [number, number]) => (ew === 'e' ? cc : -cc) + (ns === 's' ? r : -r)
+        const [cc, r] = s.map.open.reduce((a, b) => (by(b) > by(a) ? b : a))
+        const at = cellPos(s.map, cc, r)
+        t.pos.x = at.x
+        t.pos.z = at.z
         return
       }
       // 'score': five points (to win the match 'end' finishes)
