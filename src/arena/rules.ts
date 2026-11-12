@@ -167,7 +167,7 @@ export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, 
  * can't be shelled at the start), and in Battle royale the blast is at most `zoneShare` of the
  * zone's radius (it can't wipe out the last circle).
  */
-export const NUKE = { fall: 90, range: 480, grace: 15 * 60, zoneShare: 0.5, blast: 150, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+export const NUKE = { fall: 120, range: 480, grace: 15 * 60, zoneShare: 0.5, blast: 150, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
 /** firing kicks the tank back from the shot (`kick` units a frame, fading by `decay` a frame):
  * firing ahead checks your speed, firing behind gives a little boost */
 export const RECOIL = { kick: 2, decay: 0.8 }
@@ -271,11 +271,20 @@ export const FFA_COLORS = [
   '#5f6a78', '#7a4a2a', '#9ad13a', '#e0e0e0', '#33405a', '#ff7a59', '#4f7d2f', '#b03a5b',
 ]
 
-/** bots' names (picked at random among the unused ones; the tag over a bot says BOT) */
-export const BOT_NAMES = [
-  'Sarge', 'Rusty', 'Dozer', 'Bolt', 'Boomer', 'Gunner', 'Rivet', 'Sprocket', 'Cannonball', 'Clank',
-  'Biscuit', 'Pickles', 'Tinker', 'Mortar', 'Howitzer', 'Brick', 'Nutmeg', 'Corky', 'Splinter', 'Sawdust',
-  'Plank', 'Dynamo', 'Rumble', 'Ricochet', 'Kaboom', 'Fuse', 'Shrapnel', 'Bunker', 'Gizmo', 'Tumbleweed',
-  'Major Mayhem', 'Captain Crumble', 'General Chaos', 'Private Pickle', 'Colonel Kettle', 'Sergeant Sprocket',
-  'Lady Lugnut', 'Duchess Dynamite', 'Baron von Boom', 'Admiral Ack',
-]
+/**
+ * Bot personalities: how each one plays on top of the mode's style (see bot.ts). A bot's
+ * name says which it is, so players can learn to read them.
+ */
+export const PERSONAS = ['brawler', 'sniper', 'trapper', 'scavenger', 'turtle'] as const
+export type Persona = (typeof PERSONAS)[number]
+export const PERSONA_INFO: Record<Persona, { name: string; text: string; names: string[] }> = {
+  brawler: { name: 'Brawler', text: 'Charges in close and fires a lot', names: ['Sarge', 'Dozer', 'Boomer', 'Rumble', 'Brick', 'Kaboom', 'Major Mayhem', 'General Chaos'] },
+  sniper: { name: 'Sniper', text: 'Keeps its distance and waits for a clean shot or a bank', names: ['Gunner', 'Howitzer', 'Mortar', 'Ricochet', 'Bolt', 'Cannonball', 'Admiral Ack', 'Colonel Kettle'] },
+  trapper: { name: 'Trapper', text: 'Mines hidden corners, dead ends and your way out', names: ['Fuse', 'Shrapnel', 'Tinker', 'Gizmo', 'Sprocket', 'Sergeant Sprocket', 'Baron von Boom', 'Duchess Dynamite'] },
+  scavenger: { name: 'Scavenger', text: 'Goes for pickups first, then fights hard with them', names: ['Rusty', 'Pickles', 'Biscuit', 'Nutmeg', 'Rivet', 'Clank', 'Private Pickle', 'Lady Lugnut'] },
+  turtle: { name: 'Turtle', text: 'Digs in, holds corridors and fights what comes to it', names: ['Bunker', 'Corky', 'Plank', 'Sawdust', 'Splinter', 'Dynamo', 'Tumbleweed', 'Captain Crumble'] },
+}
+/** names for bots, picked at random (each one a personality's) */
+export const BOT_NAMES = PERSONAS.flatMap((k) => PERSONA_INFO[k].names)
+/** a bot's personality, from its name (a name not on the lists: a brawler) */
+export const personaOf = (name: string): Persona => PERSONAS.find((k) => PERSONA_INFO[k].names.includes(name)) ?? 'brawler'
