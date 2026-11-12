@@ -6,8 +6,7 @@
 //     are coming or one is about to hit, back away from armed mines and nukes
 //   - mines with a reason (see mineSense): behind it when chased, in a corridor an enemy is
 //     coming down, against cork in its way, in a close fight; never near a teammate or on top
-//     of another mine. Shoots mines that have an enemy next to them. Nukes go down where
-//     enemies crowd, then it runs.
+//     of another mine. Shoots mines that have an enemy next to them.
 //   - Battle royale: heads back into the zone (the part it's closing to) before anything else
 //   - plays to the mode (styleOf): Free-for-all hunts; Teams sticks near teammates; Battle
 //     royale is cautious while many are left (fights only what's close, backs off when
@@ -16,14 +15,14 @@
 //   - plays at human speed: the aim swings over like a hand on a mouse (HUMAN.turn), a shell is
 //     only noticed after a reaction time, and it drives with eight keys, changing them takes a
 //     moment
-//   - the nuke is a trap: laid where enemies are or are heading, then it runs out of the blast
-//     and shoots it once enemies are inside; also a last stand in one-life modes (a shell is
-//     about to hit, enemies close), a wall against a push when outnumbered, and spent near the
-//     end of a match rather than wasted
+//   - the nuke is an airstrike: dropped where enemies will be when it lands (a crowd, the
+//     leader, a tank on a streak), never with itself or a teammate under it; also a last stand
+//     in one-life modes (a shell is about to hit), against a push when outnumbered, and spent
+//     near the end of a match rather than wasted. Falling nukes are run from once noticed
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import { ELIM, isOneLife, isTeamMode, nukeBlast, zoneNext } from './rules'
+import { ELIM, isOneLife, isTeamMode, NUKE, zoneNext } from './rules'
 import type { AMine, AShell, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
@@ -394,6 +393,8 @@ export function botThink(sim: ArenaSim, p: Player) {
     // a fresh own mine is left behind on purpose (it arms once we're clear); after a moment,
     // or once its fuse is lit, it gets a wide berth like everything else
     if (m.state === 2 || (!m.armed && m.owner === t && m.age < 45 && !m.fuseLit)) return false
+    // a falling nuke: its shadow is seen after the reaction time
+    if (m.nuke && m.age < b.react) return false
     // teammates' mines ignore us (nukes don't)
     if (!m.nuke && m.owner !== t && !sim.enemies(p, m.owner.player)) return false
     return Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) < m.blastMax + (m.nuke ? 70 : m.owner === t ? 80 : 50)
@@ -526,12 +527,11 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   const st = sim.stats(t)
   if (t.pc.mineTimer > 0) return
   const safe = (r: number) => !friends.some((f) => dist(f) < r + 30)
-  // ---- the match's one nuke (nukeNow); the blast escape and shooting it once enemies are in
-  // take over from there
-  if (t.nukes > 0 && nukeNow(sim, p, b, enemies, friends, e)) {
+  // ---- the match's one nuke: an airstrike (nukeTarget)
+  const strike = t.nukes > 0 && sim.nukeReady() ? nukeTarget(sim, p, b, enemies, friends) : null
+  if (strike) {
     p.wantNuke = true
-    b.fleeUntil = 0
-    b.fleeFrom = null
+    p.nukeAt = strike
     return
   }
   const mine = sim.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines
@@ -572,22 +572,24 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
  * time to leave, so it goes where enemies are or are heading, and the bot shoots it once it's
  * clear and they're inside (the mine to shoot, in mineSense).
  */
-function nukeNow(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: ATank[], e: ATank | null) {
+/**
+ * Where to drop the match's one nuke, if anywhere now: on an enemy, led by where it's heading
+ * (a little short of all the way, and a little off, like a player's aim), worth it when the
+ * blast catches a crowd, the leader or a tank on a kill streak, and never with us or a
+ * teammate in it.
+ */
+function nukeTarget(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: ATank[]): { x: number; z: number } | null {
   const t = p.tank
-  const R = nukeBlast(sim.level(t)) * 0.85
-  const dist = (o: ATank) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z)
-  const inside = enemies.filter((o) => dist(o) < R)
-  if (!inside.length && !enemies.some((o) => dist(o) < R + 260)) return false
-  // a last stand (one-life modes): a shell is about to hit and enemies are close; it goes off
-  // after we're gone and the kills are still ours
-  if (b.doomed && isOneLife(sim.mode) && inside.length) return lay()
-  // one at a time: never while another nuke is on the map, nor right after a bot's last one
-  if (sim.mines.some((m) => m.nuke && !m.dead)) return false
-  if (sim.tick - (lastNuke.get(sim) ?? -1e9) < NUKE_AI.gap[sim.mode] * 60) return false
-  // teammates in reach: an enemy shooting it would catch them
-  if (friends.some((f) => dist(f) < R + 30)) return false
-  // Battle royale: no room left to get out of the blast
-  if (sim.zone && sim.zoneR() < R * 1.7) return false
+  const R = sim.nukeRadius(t)
+  const dist = (o: { pos: { x: number; z: number } }) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z)
+  const reach = enemies.filter((o) => dist(o) < NUKE.range + R * 0.5)
+  if (!reach.length) return null
+  // a last stand (one-life modes): a shell is about to hit; it lands after we're gone and the
+  // kills are still ours
+  const last = b.doomed && isOneLife(sim.mode)
+  // one at a time: never while another nuke is falling, nor right after a bot's last one
+  if (!last && sim.mines.some((m) => m.nuke && !m.dead)) return null
+  if (!last && sim.tick - (lastNuke.get(sim) ?? -1e9) < NUKE_AI.gap[sim.mode] * 60) return null
   // use it or lose it: the match is nearly over
   const ending =
     sim.mode === 'royale'
@@ -597,44 +599,43 @@ function nukeNow(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: 
         : sim.phaseEnd - sim.tick < 45 * 60
   // early on everyone is still spreading out from the bases: it waits for the fight to form
   if (b.nukeWait < 0) b.nukeWait = between(NUKE_AI.wait[sim.mode])
-  if (!ending && sim.tick - sim.roundStart < (NUKE_AI.grace[sim.mode] + b.nukeWait) * 60) return false
-  // enemies closing in on us (they'll drive into it)
-  const coming = enemies.filter((o) => {
-    const d = dist(o)
-    if (d > R + 260 || d < 1) return false
-    return (o.vel.x * (t.pos.x - o.pos.x) + o.vel.z * (t.pos.z - o.pos.z)) / d > 0.4
-  })
-  // what a catch is worth: a tank, more for the leader or one on a kill streak (worth ending
-  // early), more again for one driving into it
+  if (!last && !ending && sim.tick - sim.roundStart < (NUKE_AI.grace[sim.mode] + b.nukeWait) * 60) return null
+  // where everyone will be when it lands (bots lead with about half to all of the fall)
+  const lead = NUKE.fall * (0.5 + Math.random() * 0.5)
+  const ahead = (o: ATank) => ({ x: o.pos.x + o.vel.x * lead, z: o.pos.z + o.vel.z * lead })
+  // what a catch is worth: a tank, more for the leader or one on a kill streak, more for one
+  // sitting still (it won't get out)
   const top = Math.max(...sim.players.filter((q) => q.team !== p.team || !isTeamMode(sim.mode)).map((q) => q.score))
-  const worth = (o: ATank) => 1 + (o.player.score >= top && top > 0 ? 1 : 0) + (sim.level(o) > 0 ? 1 : 0) + (coming.includes(o) ? 0.5 : 0)
-  const value = inside.reduce((v, o) => v + worth(o), 0) + coming.filter((o) => dist(o) >= R).reduce((v, o) => v + worth(o) * 0.5, 0)
-  // a crowd, or a prize (the leader or a streak) closing in
-  if (value >= 3) return lay()
-  if (value >= 2.5 && Math.random() < 0.3) return lay()
-  const left = (team: number) => sim.players.filter((q) => q.tank.alive && q.team === team).length
-  // Elimination, outnumbered: a wall in front of their push
-  if (sim.mode === 'elim' && coming.length >= 2 && left(p.team) < left(1 - p.team) && Math.random() < 0.25) return lay()
-  // chased by someone worth it: they drive over it
-  if (e && dist(e) < R && coming.includes(e) && worth(e) >= 2.5 && t.speed > 1 && Math.random() < 0.12) return lay()
-  return ending && inside.length > 0 && Math.random() < 0.3 && lay()
-
-  // only with a way out of the blast that's short enough to drive before the fuse runs out
-  // (about 18 cells; it's searched only when there's a reason to lay it)
-  function lay() {
-    const blast = { pos: t.pos, blastMax: nukeBlast(sim.level(t)) } as unknown as AMine
-    const path = escapePath(sim, cellOf(sim.map, t.pos.x, t.pos.z), [blast])
-    if (!b.doomed || !isOneLife(sim.mode)) {
-      if (!path.length || path.length >= 18) return false
-      // Battle royale: and one that ends inside the zone
-      if (sim.zone) {
-        const end = cellPos(sim.map, ...path[path.length - 1])
-        if (Math.hypot(end.x - sim.zone.x, end.z - sim.zone.z) >= sim.zoneR() * 0.9) return false
-      }
-    }
-    lastNuke.set(sim, sim.tick)
-    return true
+  const worth = (o: ATank) => 1 + (o.player.score >= top && top > 0 ? 1 : 0) + (sim.level(o) > 0 ? 1 : 0) + (o.speed < 0.5 ? 0.5 : 0)
+  const me = ahead(t)
+  const mates = friends.map(ahead)
+  const foes = enemies.map((o) => ({ o, at: ahead(o) }))
+  let best: { x: number; z: number } | null = null
+  let bestV = 0
+  for (const o of reach) {
+    const at = ahead(o)
+    const off = Math.random() * 30, a = Math.random() * Math.PI * 2
+    const P = { x: at.x + Math.cos(a) * off, z: at.z + Math.sin(a) * off }
+    if (Math.hypot(P.x - t.pos.x, P.z - t.pos.z) > NUKE.range) continue
+    const d = (q: { x: number; z: number }) => Math.hypot(q.x - P.x, q.z - P.z)
+    if (!last && (d(me) < R + 50 || d(t.pos) < R + 50)) continue
+    if (mates.some((q) => d(q) < R + 30)) continue
+    const v = foes.reduce((s, f) => s + (d(f.at) < R * 0.75 ? worth(f.o) : 0), 0)
+    if (v > bestV) (bestV = v), (best = P)
   }
+  if (!best) return null
+  const left = (team: number) => sim.players.filter((q) => q.tank.alive && q.team === team).length
+  const go =
+    // a crowd, or a prize (the leader or a streak) worth the one nuke
+    bestV >= 2.5 ||
+    (bestV >= 2 && Math.random() < 0.3) ||
+    // Elimination, outnumbered: thin out their push
+    (sim.mode === 'elim' && bestV >= 1.5 && left(p.team) < left(1 - p.team) && Math.random() < 0.25) ||
+    (last && bestV >= 1) ||
+    (ending && bestV >= 1 && Math.random() < 0.3)
+  if (!go) return null
+  lastNuke.set(sim, sim.tick)
+  return best
 }
 
 /** a pickup worth the detour: one closer than the fight */

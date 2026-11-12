@@ -245,6 +245,7 @@ class Arena {
       maxShells: st.maxShells,
       maxMines: st.maxMines,
       nukes: t.nukes,
+      nukeIn: Math.max(0, NUKE.grace - (s.tick - s.roundStart)),
       flares: t.flares,
       flareMax: Math.max(FLARE.base, t.flares),
       flareBack: t.flareBack ? Math.max(0, t.flareBack - s.tick) : 0,
@@ -383,6 +384,8 @@ function toNet(e: ArenaEvent, c: Client): NetEv | null {
       return ['clash', r1(e.x), r1(e.z)]
     case 'mineSet':
       return ['mset', r1(e.x), r1(e.z)]
+    case 'nukeDrop':
+      return ['drop', r1(e.x), r1(e.z), Math.round(e.r)]
     case 'mineFuse':
       return ['fuse', e.id, r1(e.x), r1(e.z)]
     case 'boom':

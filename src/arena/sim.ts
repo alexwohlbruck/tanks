@@ -252,6 +252,8 @@ export type Player = {
   wantMine: boolean
   wantFlare: boolean
   wantNuke: boolean
+  /** where a bot drops its nuke (players drop theirs on the aim point) */
+  nukeAt: { x: number; z: number } | null
   joinedAt: number
   /** who destroyed this player last (spectated while waiting to respawn) */
   killedBy: Player | null
@@ -326,6 +328,7 @@ export type ArenaEvent =
   | { t: 'flareHit'; x: number; z: number }
   | { t: 'mineSet'; x: number; z: number }
   | { t: 'mineFuse'; id: number; x: number; z: number }
+  | { t: 'nukeDrop'; x: number; z: number; r: number }
   | { t: 'boom'; x: number; z: number; nuke: boolean; r: number }
   | { t: 'break'; c: number; r: number; h: number }
   | { t: 'pickup'; tank: number; kind: AnyPickup; x: number; z: number }
@@ -483,7 +486,7 @@ export class ArenaSim {
       flareReady: 0,
       outside: 0,
     }) as ATank
-    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, wantNuke: false, joinedAt: this.tick, killedBy: null, wins: 0 }
+    const p: Player = { pid: this.nextPid++, name, bot, team, color, kills: 0, deaths: 0, score: 0, streak: 0, best: 0, tank, input: { ...IDLE_INPUT }, wantFire: false, wantMine: false, wantFlare: false, wantNuke: false, nukeAt: null, joinedAt: this.tick, killedBy: null, wins: 0 }
     tank.player = p
     this.players.push(p)
     this.tanks.push(tank)
@@ -781,12 +784,19 @@ export class ArenaSim {
       }
       this.events.push({ t: 'flare', tank: t.id, x: t.pos.x, z: t.pos.z, n })
     }
-    if (nuke && t.nukes > 0 && pc.mineTimer === 0) {
+    const target = p.nukeAt ?? { x: inp.ax, z: inp.az }
+    p.nukeAt = null
+    if (nuke && t.nukes > 0 && this.nukeReady()) {
+      // the airstrike: on the aim point, pulled in to the nuke's range and onto the map
+      const dx = target.x - t.pos.x, dz = target.z - t.pos.z
+      const k = Math.min(1, NUKE.range / (Math.hypot(dx, dz) || 1))
+      const W = (this.map.cols / 2 - 1) * 35, D = (this.map.rows / 2 - 1) * 35
+      const x = Math.max(-W, Math.min(W, t.pos.x + dx * k))
+      const z = Math.max(-D, Math.min(D, t.pos.z + dz * k))
+      const r = this.nukeRadius(t)
       t.nukes--
-      this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(t.pos.x, 0, t.pos.z), age: 0, state: 1, armed: true, fuseLit: true, timer: NUKE.fuse, blast: MINE.blastIdle, dead: false, by: null, chain: 0, nuke: true, blastMax: nukeBlast(this.level(t)) })
-      this.events.push({ t: 'mineSet', x: t.pos.x, z: t.pos.z })
-      pc.mineTimer = pc.mineCooldown
-      pc.freeze = pc.mineFreeze
+      this.mines.push({ id: this.id(), owner: t, pid: p.pid, team: p.team, pos: v3(x, 0, z), age: 0, state: 1, armed: true, fuseLit: false, timer: NUKE.fall, blast: MINE.blastIdle, dead: false, by: null, chain: 0, nuke: true, blastMax: r })
+      this.events.push({ t: 'nukeDrop', x, z, r })
       t.protectUntil = 0
     } else if (mine) {
       if (pc.mineTimer === 0 && this.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines) {
@@ -809,6 +819,17 @@ export class ArenaSim {
     }
     if (--pc.shellTimer < 0) pc.shellTimer = 0
     if (--pc.mineTimer < 0) pc.mineTimer = 0
+  }
+
+  /** a round's opening is over: nukes can drop (NUKE.grace) */
+  nukeReady() {
+    return this.tick - this.roundStart >= NUKE.grace
+  }
+
+  /** a nuke's blast radius: bigger with a streak, and in Battle royale at most a share of the zone */
+  nukeRadius(t: ATank) {
+    const r = nukeBlast(this.level(t))
+    return this.zone ? Math.min(r, Math.max(60, this.zoneR() * NUKE.zoneShare)) : r
   }
 
   /** the shells a tank has in play that count against its ammo */
@@ -916,9 +937,10 @@ export class ArenaSim {
     }
     // shells vs mines (young shells pass their own tank's mines)
     for (const m of this.mines) {
-      if (m.state === 2) continue
+      // (a nuke is still in the air)
+      if (m.state === 2 || m.nuke) continue
       const dx = s.pos.x - m.pos.x, dz = s.pos.z - (m.pos.z + MINE.shellOffsetZ)
-      const r = (m.nuke ? NUKE.bodyRadius : MINE.bodyRadius) + SHELL.radius
+      const r = MINE.bodyRadius + SHELL.radius
       if (dx * dx + dz * dz <= r * r && (s.age >= SHELL.ownMineAge || m.owner !== s.owner)) {
         s.dead = true
         this.explodeMine(m, s.owner.player)
@@ -980,18 +1002,8 @@ export class ArenaSim {
     for (const m of this.mines) {
       m.age++
       if (m.state === 1 && m.nuke) {
-        // a nuke: its fuse, a shell or another blast; once armed, an enemy of its owner driving
-        // close cuts the fuse short
-        if (m.age >= NUKE.arm && m.timer > NUKE.near && live.some((t) => this.enemies(m.owner.player, t.player) && Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) <= TANK.mineRadius + NUKE.trigger)) {
-          m.timer = NUKE.near
-          this.events.push({ t: 'mineFuse', id: m.id, x: m.pos.x, z: m.pos.z })
-        }
-        for (const o of this.mines)
-          if (o !== m && o.state === 2 && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) <= o.blast + NUKE.bodyRadius) {
-            this.explodeMine(m, this.detonator(o), o.chain + 1)
-            break
-          }
-        if ((m.state as number) !== 2 && --m.timer <= 0) this.explodeMine(m)
+        // a nuke falling: nothing touches it in the air; it goes off where it lands
+        if (--m.timer <= 0) this.explodeMine(m)
         continue
       }
       if (m.state === 1) {

@@ -250,7 +250,7 @@ class ArenaScreen implements Screen {
                 h('li', null, 'In Battle royale and Elimination, if you join once a round is under way, you watch until the next one starts.'),
                 h('li', null, 'Every shell hits every tank, teammates too. Destroying yourself or a teammate costs a point.'),
                 h('li', null, `Kill streaks power you up: ×2 at ${STREAK_LEVELS[0]} kills in a row, ×3 at ${STREAK_LEVELS[1]}. Each level: two more shells, faster shells, another mine with a bigger blast, another ricochet, a bigger nuke and a stronger special tank, until you're hit.`),
-                h('li', null, `One nuke a match: a huge mine on its own key (N) that clears every block around it. Lay it and run: it goes off ${NUKE.fuse / 60} seconds later, or after ${NUKE.arm / 60} seconds as soon as an enemy drives up to it. You keep it when you're hit; a new one comes with the next match.`),
+                h('li', null, `One nuke a match, on its own key (N): an airstrike on your crosshair (up to a screen away) that lands ${NUKE.fall / 60} seconds later and clears every block around it. Watch for its shadow and listen for the whistle. None in a round's first ${NUKE.grace / 60} seconds; in Battle royale its blast shrinks with the zone. You keep it when you're hit; a new one comes with the next match.`),
                 h('li', null, `A flare launches ${FLARE.swarm[0]}-${FLARE.swarm[1]} tiny homing missiles that shoot down shells and rockets heading for you, yours too if one bounces back. You carry ${FLARE.base}; it comes back after ${FLARE.recharge / 60} seconds.`),
                 h('li', null, 'The minimap shows teammates, and enemies right after they fire.'),
               ),
@@ -542,7 +542,7 @@ class ArenaScreen implements Screen {
         `<div class="ar-slot"><div class="pips">${pips(you.shells, you.maxShells, SHELL_SVG)}</div><kbd>Click</kbd></div>` +
           `<div class="ar-slot"><div class="pips${many(you.maxMines)}">${pips(you.mines, you.maxMines, MINE_SVG)}</div><kbd>${key('mine')}</kbd></div>` +
           `<div class="ar-slot"><div class="pips">${pips(you.flares, you.flareMax, FLARE_SVG)}</div><kbd>${key('flare')}</kbd>${you.flareBack ? `<span class="back">${Math.ceil(you.flareBack / 60)}</span>` : ''}</div>` +
-          `<div class="ar-slot nuke ${you.nukes ? '' : 'used'}" title="${you.nukes ? 'Your nuke for this match' : 'Nuke used: you get a new one next match'}"><div class="pips">${NUKE_SVG}</div><kbd>${key('nuke')}</kbd></div>`,
+          `<div class="ar-slot nuke ${you.nukes ? (you.nukeIn ? 'wait' : '') : 'used'}" title="${you.nukes ? (you.nukeIn ? `Your nuke: ready in ${Math.ceil(you.nukeIn / 60)} s` : 'Your nuke for this match: drops on your crosshair') : 'Nuke used: you get a new one next match'}"><div class="pips">${NUKE_SVG}</div><kbd>${you.nukes && you.nukeIn ? `${Math.ceil(you.nukeIn / 60)}s` : key('nuke')}</kbd></div>`,
       )
       const chips: string[] = []
       if (you.power) {
@@ -965,31 +965,33 @@ class ArenaScreen implements Screen {
       })
     }
     for (const [k, m] of this.missiles) if (!flying.has(k)) (this.fx.remove(m.o), this.missiles.delete(k))
-    // a nuke on the ground: its blast radius, blinking red
+    // a nuke falling: its shadow on the floor, growing and darkening as it comes down, and a
+    // faint edge of its blast fading in late (the only warning besides the whistle)
     const nk = new Set<number>()
     for (const n of s.nukes) {
       nk.add(n.id)
       let o = this.nukeRings.get(n.id)
       if (!o) {
-        o = ringObject('#ff2a1a', n.r - 5, n.r, 0.7)
-        const fill = new THREE.Mesh(new THREE.CircleGeometry(n.r, 64), new THREE.MeshBasicNodeMaterial({ color: 0xff3a1a, transparent: true, opacity: 0.08, depthWrite: false }))
-        fill.rotation.x = -Math.PI / 2
-        fill.position.y = 0.6
-        o.add(fill)
-        // the time left: a ring closing in from the edge to the nuke
-        const clock = new THREE.Mesh(new THREE.RingGeometry(0.965, 1, 64), new THREE.MeshBasicNodeMaterial({ color: 0xffd23a, transparent: true, opacity: 0.85, depthWrite: false }))
-        clock.rotation.x = -Math.PI / 2
-        clock.position.y = 0.8
-        o.add(clock)
-        o.userData.clock = clock
+        o = new THREE.Group()
+        const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicNodeMaterial({ color: 0x1a0c02, transparent: true, opacity: 0, depthWrite: false }))
+        shadow.rotation.x = -Math.PI / 2
+        shadow.position.y = 0.6
+        o.add(shadow)
+        const edge = ringObject('#ff2a1a', n.r - 3, n.r, 0)
+        o.add(edge)
+        o.userData = { shadow, edge }
         this.fx.add(o)
         this.nukeRings.set(n.id, o)
       }
       o.position.set(n.x, 0, n.z)
-      const clock = o.userData.clock as THREE.Mesh
-      clock.scale.setScalar(Math.max(1, n.r * n.left))
-      // blinks faster as the fuse burns down
-      o.visible = Math.sin(performance.now() / 1000 * (4 + (1 - n.left) * 26)) > -0.3
+      const f = 1 - n.left
+      const { shadow, edge } = o.userData as { shadow: THREE.Mesh; edge: THREE.Object3D }
+      shadow.scale.setScalar(12 + 50 * f)
+      ;(shadow.material as THREE.MeshBasicNodeMaterial).opacity = 0.1 + 0.4 * f
+      edge.traverse((c) => {
+        const m = (c as THREE.Mesh).material as THREE.Material | undefined
+        if (m) m.opacity = Math.max(0, (f - 0.5) * 0.8)
+      })
     }
     for (const [k, o] of this.nukeRings) if (!nk.has(k)) (this.fx.remove(o), this.nukeRings.delete(k))
     // bursts: a nuke's shockwave and flash, a flare's ring

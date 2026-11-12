@@ -219,6 +219,7 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 .ar-slot .ar-item { width: 1.05em; height: 1.05em; display: block; }
 .ar-slot.nuke .ar-item { width: 1.3em; height: 1.3em; }
 .ar-slot.nuke.used { opacity: 0.3; filter: grayscale(1); }
+.ar-slot.nuke.wait .pips { opacity: 0.45; filter: grayscale(0.8); }
 .ar-slot kbd { font: inherit; font-size: 0.55em; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1; padding: 0.15em 0.4em; border-radius: 0.4em; background: rgba(110, 70, 25, 0.12); color: var(--wood-dark, #5b3a19); }
 .ar-slot .back { position: absolute; top: -0.2em; right: -0.1em; font-size: 0.55em; font-weight: 900; color: #fff; background: #c26a1c; border-radius: 99em; padding: 0 0.35em; }
 body.touch-play .ar-slot kbd { display: none; }

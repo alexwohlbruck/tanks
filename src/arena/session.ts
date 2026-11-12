@@ -94,6 +94,8 @@ export class ArenaSession implements Session {
   /** live nukes (their danger rings) and recent big moments for the screen to draw:
    * nuke blasts and flare launches, by start time (ms); flare missiles in flight */
   nukes: { id: number; x: number; z: number; r: number; left: number }[] = []
+  /** when each falling nuke lands (performance.now ms) */
+  private nukeLands = new Map<number, number>()
   bursts: { kind: 'nuke' | 'flare'; x: number; z: number; r: number; at: number }[] = []
   flareShots: { id: number; x: number; z: number; vx: number; vz: number }[] = []
   /** a short camera shake (a nuke nearby), in world units, decaying */
@@ -618,9 +620,15 @@ export class ArenaSession implements Session {
       const near = n && Math.hypot(n[1] - f[1], n[2] - f[2]) < 40
       return { id: f[0], x: near ? lerp(f[1], n![1]) : f[1], z: near ? lerp(f[2], n![2]) : f[2], vx: near ? n![3] : f[3], vz: near ? n![4] : f[4] }
     })
-    // a nuke is drawn as a big mine
-    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : (m[6] ?? 100) / 100 }) as unknown as Mine)
-    this.nukes = A.M.filter((m) => m[4]).map((m) => ({ id: m[0], x: m[1], z: m[2], r: m[4], left: m[5] / NUKE.fuse }))
+    // a nuke is drawn as a big mine falling from the sky (smoothly between snapshots: when it
+    // lands is fixed the first time it's seen)
+    const now = performance.now()
+    const lands = new Map<number, number>()
+    for (const m of A.M) if (m[4]) lands.set(m[0], this.nukeLands.get(m[0]) ?? now + (m[5] / 60) * 1000)
+    this.nukeLands = lands
+    const left = (id: number) => Math.max(0, Math.min(1, (lands.get(id)! - now) / ((NUKE.fall / 60) * 1000)))
+    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : (m[6] ?? 100) / 100, arenaY: m[4] ? NUKE_DROP_HEIGHT * (1 - (1 - left(m[0])) ** 2) : 0 }) as unknown as Mine)
+    this.nukes = A.M.filter((m) => m[4]).map((m) => ({ id: m[0], x: m[1], z: m[2], r: m[4], left: left(m[0]) }))
     w.explosions = []
     w.checkMarks = this.marks.map((m) => ({ id: m.id, pos: v3(m.x, 0.2, m.z), color: m.color }) as unknown as World['checkMarks'][number])
     this.pickups = A.K.map((k) => ({ id: k[0], x: k[1], z: k[2], kind: k[3] }))
@@ -742,6 +750,13 @@ export class ArenaSession implements Session {
           break
         case 'fuse':
           break
+        case 'drop': {
+          // a nuke on its way down: a falling whistle, as long as the fall
+          const f = this.view.follow ?? { x: 0, z: 0 }
+          const v = Math.max(0, 1 - Math.hypot(e[1] - f.x, e[2] - f.z) / 1300) ** 1.5
+          if (v > 0.03) this.audio.whistle(NUKE.fall / 60, v * 0.5, Math.max(-0.8, Math.min(0.8, (e[1] - f.x) / 800)))
+          break
+        }
         case 'boom':
           sim.push({ t: 'mineExplode', mine: { pos: v3(e[1], 0, e[2]), arenaScale: e[3] ? NUKE_SCALE : (e[4] ?? 100) / 100 } as unknown as Mine })
           this.sound('RP_TNK_SE_JIRAI_EXP', e[1], e[2])
@@ -883,8 +898,9 @@ const MINE_ICON = '<svg class="how" viewBox="0 0 24 24"><circle cx="12" cy="13" 
 const STREAKS: Record<number, string> = { 3: 'Triple!', 5: 'Rampage!', 6: 'On fire!', 8: 'Unstoppable!', 12: 'Tank legend!' }
 /** the streak levels (rules STREAK_LEVELS) */
 const LEVEL_UP: Record<number, string> = { 3: 'Power ×2', 6: 'Power ×3' }
-/** a nuke is drawn as a mine this much bigger */
+/** a nuke is drawn as a mine this much bigger, dropping from this high */
 const NUKE_SCALE = 3
+const NUKE_DROP_HEIGHT = 700
 const NUKE_ICON = '<svg class="how" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" fill="#f2c230" stroke="#5b3a19" stroke-width="1.6"/><path d="M12 12L7 3.5a10 10 0 0 1 10 0zM12 12l9.8 1.5a10 10 0 0 1-5 8.6zM12 12l-4.8 9.1a10 10 0 0 1-5-8.6z" fill="#2a1a0a"/><circle cx="12" cy="12" r="2" fill="#f2c230" stroke="#2a1a0a"/></svg>'
 /** RPTnkTank::PlayFireSe per enemy type (3 / 7 / 9 fire rockets: their flight loop plays) */
 const SHOT_SE: Record<number, string> = { 4: 'RP_TNK_SE_SHOOT_ENEMY4', 5: 'RP_TNK_SE_SHOOT_ENEMY5', 6: 'RP_TNK_SE_SHOOT_ENEMY6', 8: 'RP_TNK_SE_SHOOT_ENEMY8' }

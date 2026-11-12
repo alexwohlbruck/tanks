@@ -4,7 +4,7 @@
 
 import type { AnyPickup, ArenaMode, ArenaSize, MapTheme, PickupKind } from './rules'
 
-export const ARENA_PROTO = 10
+export const ARENA_PROTO = 11
 
 export type C2S =
   /** `id`: the browser's stats id; `arena` / `with`: an invite link (that arena, that player's team);
@@ -25,7 +25,7 @@ export type C2S =
 export type TankRec = [number, number, number, number, number, number, number]
 /** [id, x, z, vx, vz, smoke] */
 export type ShellRec = [number, number, number, number, number, number]
-/** [id, x, z, fuseLit 0/1, nuke blast radius (0: a mine), nuke fuse ticks left, a mine's size in % (100: the disc's; a streak makes it bigger)] */
+/** [id, x, z, fuseLit 0/1, nuke blast radius (0: a mine), ticks until a nuke lands, a mine's size in % (100: the disc's; a streak makes it bigger)] */
 export type MineRec = [number, number, number, number, number, number, number]
 /** a flare missile: [id, x, z, vx, vz] */
 export type FlareRec = [number, number, number, number, number]
@@ -72,6 +72,8 @@ export type YouRec = {
   /** nukes left this match, flares (and the most you can carry), ticks until a flare comes back (0:
    * none coming), shield ticks left; the kill-streak level and streak */
   nukes: number
+  /** ticks until nukes can drop this round (0: they can) */
+  nukeIn: number
   flares: number
   flareMax: number
   flareBack: number
@@ -103,6 +105,7 @@ export type NetEv =
   | ['fhit', number, number]
   | ['mset', number, number]
   | ['fuse', number, number, number]
+  | ['drop', number, number, number] // a nuke falling: x, z, blast radius
   | ['boom', number, number, number, number] // x, z, nuke blast radius (0: a mine), a mine's size in %
   | ['brk', number, number, number]
   | ['pick', number, string, number, number]
