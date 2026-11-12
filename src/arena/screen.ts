@@ -501,9 +501,14 @@ class ArenaScreen implements Screen {
       this.els.sheet.hidden = !sheet
       if (sheet) {
         this.set('sheet', this.sheetHtml(b, s))
-        // the countdown ticks without rebuilding the sheet (its vote buttons stay put)
+        // the countdown and the votes change without rebuilding the sheet (its buttons stay put)
         const secs = this.els.sheet.querySelector('.ar-secs')
         if (secs) secs.textContent = String(b.secs)
+        if (b.vote)
+          this.els.sheet.querySelectorAll<HTMLElement>('.ar-vote-btn').forEach((el, i) => {
+            el.classList.toggle('on', b.vote!.mine === b.vote!.options[i])
+            el.querySelector('b')!.textContent = String(b.vote!.counts[i])
+          })
       }
     }
     // kill feed
@@ -616,7 +621,7 @@ class ArenaScreen implements Screen {
         : table(sorted)
     const vote = over && b.vote
       ? `<div class="ar-vote"><div class="records-head">Vote for the next map</div><div class="ar-vote-row">${b.vote.options
-          .map((o, i) => `<button type="button" class="btn ar-vote-btn ${b.vote!.mine === o ? 'on' : ''}" data-theme="${o}"><span class="label"><span class="t">${THEME_INFO[o].name}${o === b.theme ? ' <small>again</small>' : ''}</span><span class="hint">${THEME_INFO[o].text}</span></span><b>${b.vote!.counts[i]}</b></button>`)
+          .map((o) => `<button type="button" class="btn ar-vote-btn" data-theme="${o}"><span class="label"><span class="t">${THEME_INFO[o].name}${o === b.theme ? ' <small>again</small>' : ''}</span><span class="hint">${THEME_INFO[o].text}</span></span><b></b></button>`)
           .join('')}</div></div>`
       : ''
     return `<div class="panel results ar-results">${head}<div class="ar-sheet-body">${body}</div>${vote}<div class="results-sub">${over ? 'A new map in <span class="ar-secs"></span>…' : 'Release Tab to play on'}</div></div>`
