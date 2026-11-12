@@ -603,8 +603,9 @@ export class SceneView {
       o.rotation.y = Math.atan2(b.vel.x, b.vel.z)
     })
     syncSet(this.mineObjs, w.mines, this.stage, () => this.models.mine(), (o, m) => {
-      o.position.set(m.pos.x, 0, m.pos.z)
-      o.scale.setScalar((m as unknown as { arenaScale?: number }).arenaScale ?? 1)
+      const a = m as unknown as { arenaScale?: number; arenaY?: number }
+      o.position.set(m.pos.x, a.arenaY ?? 0, m.pos.z)
+      o.scale.setScalar(a.arenaScale ?? 1)
       this.models.setMineFrame(o, m.fuseLit ? (o.userData.blink = (o.userData.blink ?? 0) + 1) : 0)
     })
     this.tiles.sync(this.tankObjs)

@@ -12,7 +12,7 @@ A faithful remake of the classic tank minigame, rebuilt for the web: little tank
 
 - **Campaign.** The original 100 missions, played exactly the way they always were, solo or with a second player.
 - **Online with friends.** Co-op or head to head, with a room code or an invite link.
-- **Arena.** One huge map with up to 40 players and bots. Four modes: free-for-all, teams, battle royale and elimination. Power-ups turn you into special tanks, and you get flares, shields and one nuke per match.
+- **Arena.** One huge map with up to 40 players and bots. Four modes: free-for-all, teams, battle royale and elimination. Power-ups turn you into special tanks, and you get flares, shields and one airstrike nuke per match.
 - **Big maps.** Procedurally built arenas, from cork forests and sinkholes to spirals, bullseyes and labyrinths.
 - **Level editor.** Build your own missions and share them in the community levels.
 - **Achievements**, kill streaks, leaderboards and a map vote at the end of every match.

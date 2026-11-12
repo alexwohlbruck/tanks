@@ -158,13 +158,16 @@ export const pickupInfo = (k: AnyPickup) => (isItem(k) ? ITEM_INFO[k] : PICKUP_I
 /** how often each pickup appears, against 1 for each special tank */
 export const PICKUP_WEIGHT: Partial<Record<AnyPickup, number>> = { shield: 1.6, flares: 0.9 }
 
-/** Nuke: a mine with a long fuse that no tank sets off (a shell or a blast can), and a blast
- * almost four times a mine's that breaks every block in reach (wood too) and scorches the
- * floor. Every player gets `perMatch` a match, kept through respawns. The fuse (7 s) gives a
- * tank time to drive clear of even a streak-boosted blast through a maze. */
-/** the nuke: a `fuse`-tick fuse; after `arm` ticks (time for its owner to clear out) an enemy of
- * its owner coming within `trigger` of it cuts the fuse to `near` ticks, like a mine's */
-export const NUKE = { fuse: 420, arm: 150, trigger: 80, near: 50, blast: 290, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
+/**
+ * Nuke: an airstrike. It falls on the aim point (at most `range` from the tank) and goes off
+ * where it lands `fall` ticks later, a blast over twice a mine's that breaks every block in
+ * reach (wood too) and scorches the floor. Its shadow and a whistle are the only warning: a
+ * tank that reacts at once can just drive out from near the edge. Every player gets `perMatch`
+ * a match, kept through respawns. Kept fair: none in a round's first `grace` ticks (bases
+ * can't be shelled at the start), and in Battle royale the blast is at most `zoneShare` of the
+ * zone's radius (it can't wipe out the last circle).
+ */
+export const NUKE = { fall: 90, range: 480, grace: 15 * 60, zoneShare: 0.5, blast: 150, growFrames: 14, killFrames: 34, frames: 70, bodyRadius: 20, perMatch: 1 }
 /** firing kicks the tank back from the shot (`kick` units a frame, fading by `decay` a frame):
  * firing ahead checks your speed, firing behind gives a little boost */
 export const RECOIL = { kick: 2, decay: 0.8 }

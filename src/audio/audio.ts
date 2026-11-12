@@ -78,6 +78,24 @@ export class Audio {
     return Promise.all(names.map((n) => this.manifest.sounds[n] && this.buffer(this.manifest.sounds[n].file)))
   }
 
+  /** a falling bomb's whistle, `secs` long: a tone sliding down, louder as it comes */
+  whistle(secs: number, volume: number, pan = 0) {
+    const t = this.ctx.currentTime
+    const osc = this.ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(1500, t)
+    osc.frequency.exponentialRampToValueAtTime(420, t + secs)
+    const gain = this.ctx.createGain()
+    gain.gain.setValueAtTime(0.0001, t)
+    gain.gain.exponentialRampToValueAtTime(volume * 0.25, t + secs * 0.85)
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + secs)
+    const p = this.ctx.createStereoPanner()
+    p.pan.value = pan
+    osc.connect(gain).connect(p).connect(this.sfxBus)
+    osc.start(t)
+    osc.stop(t + secs + 0.05)
+  }
+
   /** fire-and-forget sound effect; `pan` in -1..1 */
   async play(name: string, opts: { volume?: number; pan?: number; rate?: number } = {}) {
     const info = this.info(name)
