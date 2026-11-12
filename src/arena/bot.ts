@@ -6,7 +6,10 @@
 //     are coming or one is about to hit, back away from armed mines and nukes
 //   - mines with a reason (see mineSense): behind it when chased, in a corridor an enemy is
 //     coming down, against cork in its way, in a close fight; never near a teammate or on top
-//     of another mine. Shoots mines that have an enemy next to them.
+//     of another mine. Shoots mines that have an enemy next to them. Mines go where they hurt:
+//     behind a block where the camera can't see them (hiddenCell), in corridors, corners and
+//     dead ends, across the only way out of a pocket an enemy is in (trapped), and one planted
+//     in such a spot with no fight on. Enemy mines it only knows once spotted (knowsMine)
 //   - Battle royale: heads back into the zone (the part it's closing to) before anything else
 //   - plays to the mode (styleOf): Free-for-all hunts; Teams sticks near teammates; Battle
 //     royale is cautious while many are left (fights only what's close, backs off when
@@ -15,8 +18,8 @@
 //   - plays at human speed: the aim swings over like a hand on a mouse (HUMAN.turn), a shell is
 //     only noticed after a reaction time, and it drives with eight keys, changing them takes a
 //     moment
-//   - the nuke is an airstrike: dropped where enemies will be when it lands (a crowd, the
-//     leader, a tank on a streak), never with itself or a teammate under it; also a last stand
+//   - the nuke is an airstrike: dropped on a cluster, where enemies will be when it lands
+//     (two or more bunched up), never with itself or a teammate under it; also a last stand
 //     in one-life modes (a shell is about to hit), against a push when outnumbered, and spent
 //     near the end of a match rather than wasted. Falling nukes are run from once noticed
 
@@ -59,6 +62,8 @@ type Brain = {
   next: { dir: number; at: number } | null
   /** when each shell in flight was first noticed */
   noticed: Map<AShell, number>
+  /** enemy mines this bot has spotted (knowsMine): the rest it drives into like a player would */
+  known: WeakSet<AMine>
   /** seconds into a round before this bot thinks about its nuke (on top of NUKE_AI.grace; -1:
    * not picked yet) */
   nukeWait: number
@@ -143,7 +148,7 @@ function zoneGoal(sim: ArenaSim, t: ATank, b: Brain): [number, number] | null {
 
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map(), nukeWait: -1 }))
+  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map(), nukeWait: -1, known: new WeakSet() }))
   return b
 }
 
@@ -208,7 +213,7 @@ function escapePath(sim: ArenaSim, from: [number, number], mines: AMine[]): [num
   return []
 }
 
-function bfs(sim: ArenaSim, from: [number, number], to: [number, number]): [number, number][] {
+function bfs(sim: ArenaSim, from: [number, number], to: [number, number], knows: (m: AMine) => boolean = () => true): [number, number][] {
   const { cols, rows } = sim.map
   const prev = new Int32Array(cols * rows).fill(-1)
   const start = from[1] * cols + from[0]
@@ -216,7 +221,7 @@ function bfs(sim: ArenaSim, from: [number, number], to: [number, number]): [numb
   prev[start] = start
   // cells near a mine are off the path (bots used to drive back over their own)
   for (const m of sim.mines) {
-    if (m.state === 2) continue
+    if (m.state === 2 || !knows(m)) continue
     const [mc, mr] = cellOf(sim.map, m.pos.x, m.pos.z)
     const R = m.nuke ? Math.ceil(m.blastMax / 35) : 2
     for (let dy = -R; dy <= R; dy++)
@@ -260,6 +265,7 @@ export function botThink(sim: ArenaSim, p: Player) {
   // ---- pick a target (every 10 frames) and bank shots (every 20)
   if (now >= b.thinkAt) {
     b.thinkAt = now + 10
+    spotMines(sim, p, b)
     b.style = styleOf(sim, p)
     let best: ATank | null = null
     let bd = b.style.hunt
@@ -328,7 +334,7 @@ export function botThink(sim: ArenaSim, p: Player) {
       const on = Math.cos(a) * tz.x + Math.sin(a) * tz.z > 0.995
       // no mine close by in the line of fire (our own shell would set it off on top of us)
       const mined = sim.mines.some((m) => {
-        if (m.state === 2) return false
+        if (m.state === 2 || !knowsMine(sim, p, b, m)) return false
         const mx = m.pos.x - t.pos.x, mz = m.pos.z - t.pos.z
         const along = mx * Math.cos(a) + mz * Math.sin(a)
         return along > 0 && along < m.blastMax + 60 && Math.abs(-mx * Math.sin(a) + mz * Math.cos(a)) < 26
@@ -395,8 +401,9 @@ export function botThink(sim: ArenaSim, p: Player) {
     if (m.state === 2 || (!m.armed && m.owner === t && m.age < 45 && !m.fuseLit)) return false
     // a falling nuke: its shadow is seen after the reaction time
     if (m.nuke && m.age < b.react) return false
-    // teammates' mines ignore us (nukes don't)
+    // teammates' mines ignore us (nukes don't); an enemy mine only once it's been spotted
     if (!m.nuke && m.owner !== t && !sim.enemies(p, m.owner.player)) return false
+    if (!knowsMine(sim, p, b, m)) return false
     return Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) < m.blastMax + (m.nuke ? 70 : m.owner === t ? 80 : 50)
   })
   if (danger.length) {
@@ -465,7 +472,7 @@ export function botThink(sim: ArenaSim, p: Player) {
       const here = cellOf(sim.map, t.pos.x, t.pos.z)
       // a full-grid search is the expensive part: at most every 45-75 frames per bot
       if (now >= b.repathAt) {
-        b.path = bfs(sim, here, goal)
+        b.path = bfs(sim, here, goal, (m) => knowsMine(sim, p, b, m))
         b.goal = b.path.length ? goal : null
         b.repathAt = now + 45 + Math.floor(Math.random() * 30)
       }
@@ -501,6 +508,63 @@ export function botThink(sim: ArenaSim, p: Player) {
 
 /** open (no block, no hole) */
 const open = (sim: ArenaSim, c: number, r: number) => sim.field.at(c, r) === 0
+
+/**
+ * A cell the camera can't see into: a block (not a hole) right in front of it, between it and
+ * the camera (the view looks north from the south, so the block is on the row below). Its
+ * height hides a mine laid there from every player on screen.
+ */
+const hiddenCell = (sim: ArenaSim, c: number, r: number) => open(sim, c, r) && sim.field.height(c, r + 1) > 1
+/** walls (or holes) around a cell, of its four sides: 3 is a dead end, 2 a corridor or a corner */
+const sides = (sim: ArenaSim, c: number, r: number) => [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => !open(sim, c + dx, r + dy)).length
+
+/**
+ * Whether a bot knows a mine is there. Its own and its team's it always does, and a falling
+ * nuke (shadow and whistle); an enemy's only once spotted (spotMines), like a player: one in
+ * plain sight on the screen, a beeping one (its fuse lit), or one it's right on top of. Mines
+ * behind blocks (hiddenCell) and out of sight it drives into.
+ */
+function knowsMine(sim: ArenaSim, p: Player, b: Brain, m: AMine) {
+  return m.nuke || m.owner === p.tank || !sim.enemies(p, m.owner.player) || b.known.has(m)
+}
+
+/** look for enemy mines (with the target, every 10 frames) */
+function spotMines(sim: ArenaSim, p: Player, b: Brain) {
+  const t = p.tank
+  for (const m of sim.mines) {
+    if (m.state === 2 || knowsMine(sim, p, b, m)) continue
+    const d = Math.hypot(m.pos.x - t.pos.x, m.pos.z - t.pos.z)
+    const [c, r] = cellOf(sim.map, m.pos.x, m.pos.z)
+    const seen =
+      d < 70 ||
+      (m.fuseLit && d < 500) ||
+      (d < 560 && !hiddenCell(sim, c, r) && clearLine(sim, t.pos.x, t.pos.z, m.pos.x, m.pos.z))
+    if (seen) b.known.add(m)
+  }
+}
+
+/**
+ * An enemy boxed in behind us: every way out of the pocket it's in runs through our cell
+ * (searched up to `cap` cells with ours walled off). A mine here shuts it in.
+ */
+function trapped(sim: ArenaSim, from: [number, number], us: [number, number], cap = 30) {
+  const { cols } = sim.map
+  const key = (c: number, r: number) => r * cols + c
+  const seen = new Set<number>([key(...us), key(...from)])
+  const q: [number, number][] = [from]
+  for (let h = 0; h < q.length; h++) {
+    if (q.length > cap) return false
+    const [c, r] = q[h]
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dx, nr = r + dy
+      if (!open(sim, nc, nr) || seen.has(key(nc, nr))) continue
+      seen.add(key(nc, nr))
+      q.push([nc, nr])
+    }
+  }
+  // a pocket, and one that opens onto our cell (else it's just a closed room with no way to us)
+  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => seen.has(key(us[0] + dx, us[1] + dy)) && q.some(([c, r]) => c === us[0] + dx && r === us[1] + dy))
+}
 const isCork = (code: number) => code >= 101 && code <= 107
 
 /**
@@ -514,7 +578,7 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   // ---- a mine worth shooting: an enemy right next to it, us (and teammates) well clear
   b.shootMine = null
   for (const m of sim.mines) {
-    if (m.state === 2 || (!m.armed && !m.nuke)) continue
+    if (m.state === 2 || (!m.armed && !m.nuke) || !knowsMine(sim, p, b, m)) continue
     const reach = m.blastMax + TANK.mineRadius
     const d = dist(m)
     if (d < reach + 40 || d > 520) continue
@@ -542,6 +606,21 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
     b.fleeFrom = { x: t.pos.x, z: t.pos.z }
   }
   const [c, r] = cellOf(sim.map, t.pos.x, t.pos.z)
+  // where a mine does the most: a cell nobody on screen can see into, or a tight spot (a
+  // corridor, a corner, a dead end) that a tank can't swerve around
+  const hidden = hiddenCell(sim, c, r)
+  const tight = sides(sim, c, r) >= 2
+  // ---- a trap: an enemy in a pocket whose only way out is through us; shut it in and leave
+  for (const o of enemies) {
+    if (dist(o) > 260) continue
+    const oc = cellOf(sim.map, o.pos.x, o.pos.z)
+    if ((oc[0] !== c || oc[1] !== r) && trapped(sim, oc, [c, r]) && Math.random() < 0.6) return lay(80)
+  }
+  // ---- planting: with no fight on, a mine left in a hidden or tight spot for whoever comes by
+  // (only the first: the rest are kept for fights)
+  const mineCount = sim.mines.filter((m) => m.owner === t && m.state !== 2).length
+  const fightNear = enemies.some((o) => dist(o) < 300)
+  if (!fightNear && mineCount === 0 && (hidden || sides(sim, c, r) >= 3) && tight && Math.random() < 0.08) return lay(60)
   if (e) {
     const d = dist(e)
     const ux = (t.pos.x - e.pos.x) / (d || 1), uz = (t.pos.z - e.pos.z) / (d || 1)
@@ -553,6 +632,8 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
     const ns = open(sim, c, r - 1) && open(sim, c, r + 1) && !open(sim, c - 1, r) && !open(sim, c + 1, r)
     const ew = open(sim, c - 1, r) && open(sim, c + 1, r) && !open(sim, c, r - 1) && !open(sim, c, r + 1)
     if ((ns || ew) && d < 380 && d > 140 && closing > 0.3 && !clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z) && Math.random() < 0.3) return lay(70)
+    // an ambush in a hidden spot on its way: it won't see it from where it's coming
+    if (hidden && tight && d < 450 && d > 140 && closing > 0.2 && Math.random() < 0.3) return lay(70)
     // a close fight: between us and it, then back off
     if (d < 200 && Math.random() < 0.12) return lay(70)
   }
@@ -568,15 +649,10 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
 }
 
 /**
- * Whether to lay the nuke here and now. It's a trap more than a bomb: the fuse gives everyone
- * time to leave, so it goes where enemies are or are heading, and the bot shoots it once it's
- * clear and they're inside (the mine to shoot, in mineSense).
- */
-/**
- * Where to drop the match's one nuke, if anywhere now: on an enemy, led by where it's heading
- * (a little short of all the way, and a little off, like a player's aim), worth it when the
- * blast catches a crowd, the leader or a tank on a kill streak, and never with us or a
- * teammate in it.
+ * Where to drop the match's one nuke, if anywhere now: on a cluster of enemies, led by where
+ * they're heading (a little short of all the way, and a little off, like a player's aim). It
+ * waits for two or more bunched up (the leader or a tank on a streak tips a pair), never with
+ * us or a teammate in it; a lone tank only as a last stand or at the very end.
  */
 function nukeTarget(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends: ATank[]): { x: number; z: number } | null {
   const t = p.tank
@@ -610,29 +686,47 @@ function nukeTarget(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friend
   const me = ahead(t)
   const mates = friends.map(ahead)
   const foes = enemies.map((o) => ({ o, at: ahead(o) }))
+  // aim points: each enemy, and the middle of every two or three close together (a cluster's
+  // centre catches them all where aiming at one would catch only it)
+  const near = foes.filter((f) => reach.includes(f.o))
+  const aims: { x: number; z: number }[] = near.map((f) => f.at)
+  for (let i = 0; i < near.length; i++)
+    for (let j = i + 1; j < near.length; j++) {
+      const A = near[i].at, B = near[j].at
+      if (Math.hypot(A.x - B.x, A.z - B.z) > R * 1.5) continue
+      aims.push({ x: (A.x + B.x) / 2, z: (A.z + B.z) / 2 })
+      for (let k = j + 1; k < near.length; k++) {
+        const C = near[k].at
+        if (Math.hypot(C.x - A.x, C.z - A.z) < R * 1.5 && Math.hypot(C.x - B.x, C.z - B.z) < R * 1.5) aims.push({ x: (A.x + B.x + C.x) / 3, z: (A.z + B.z + C.z) / 3 })
+      }
+    }
   let best: { x: number; z: number } | null = null
+  let bestN = 0
   let bestV = 0
-  for (const o of reach) {
-    const at = ahead(o)
+  for (const at of aims) {
     const off = Math.random() * 30, a = Math.random() * Math.PI * 2
     const P = { x: at.x + Math.cos(a) * off, z: at.z + Math.sin(a) * off }
     if (Math.hypot(P.x - t.pos.x, P.z - t.pos.z) > NUKE.range) continue
     const d = (q: { x: number; z: number }) => Math.hypot(q.x - P.x, q.z - P.z)
     if (!last && (d(me) < R + 50 || d(t.pos) < R + 50)) continue
     if (mates.some((q) => d(q) < R + 30)) continue
-    const v = foes.reduce((s, f) => s + (d(f.at) < R * 0.75 ? worth(f.o) : 0), 0)
-    if (v > bestV) (bestV = v), (best = P)
+    // how many it catches (well inside the blast: they get a moment to drive), and what
+    // they're worth
+    const caught = foes.filter((f) => d(f.at) < R * 0.75)
+    const v = caught.reduce((s, f) => s + worth(f.o), 0)
+    if (caught.length > bestN || (caught.length === bestN && v > bestV)) (bestN = caught.length), (bestV = v), (best = P)
   }
   if (!best) return null
   const left = (team: number) => sim.players.filter((q) => q.tank.alive && q.team === team).length
   const go =
-    // a crowd, or a prize (the leader or a streak) worth the one nuke
-    bestV >= 2.5 ||
-    (bestV >= 2 && Math.random() < 0.3) ||
+    // what it's for: several tanks bunched up in one place
+    bestN >= 3 ||
+    (bestN >= 2 && (bestV >= 3 || Math.random() < 0.5)) ||
     // Elimination, outnumbered: thin out their push
-    (sim.mode === 'elim' && bestV >= 1.5 && left(p.team) < left(1 - p.team) && Math.random() < 0.25) ||
-    (last && bestV >= 1) ||
-    (ending && bestV >= 1 && Math.random() < 0.3)
+    (sim.mode === 'elim' && bestN >= 2 && left(p.team) < left(1 - p.team)) ||
+    // a last stand, or the match nearly over: a single tank is better than nothing
+    (last && bestN >= 1) ||
+    (ending && bestN >= 1 && (bestV >= 2 || Math.random() < 0.1))
   if (!go) return null
   lastNuke.set(sim, sim.tick)
   return best

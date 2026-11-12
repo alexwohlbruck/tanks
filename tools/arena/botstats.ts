@@ -6,6 +6,7 @@ import { setTankRecords } from '../../src/sim/stats'
 import { ArenaSim } from '../../src/arena/sim'
 import { botThink } from '../../src/arena/bot'
 import { ARENA_MODES } from '../../src/arena/rules'
+import { cellOf } from '../../src/arena/map'
 const params = JSON.parse(readFileSync('public/assets/data/params.json', 'utf8'))
 const maps = JSON.parse(readFileSync('public/assets/data/maps.json', 'utf8'))
 setTankRecords(normalizeData({ params, maps }).params.tanks)
@@ -14,7 +15,7 @@ const seeds = Number(process.argv[3] ?? 4)
 for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof ARENA_MODES) {
   let spread = 0
   let spreadN = 0
-  const n = { early: 0, at: 0, nukes: 0, nukeKills: 0, nukeVictims: 0, selfNuke: 0, teamNuke: 0, kills: 0, matches: 0, rounds: 0 }
+  const n = { mines: 0, hiddenMines: 0, mineKills: 0, early: 0, at: 0, nukes: 0, nukeKills: 0, nukeVictims: 0, selfNuke: 0, teamNuke: 0, kills: 0, matches: 0, rounds: 0 }
   for (let seed = 1; seed <= seeds; seed++) {
     const sim = new ArenaSim(mode, seed * 101, 'medium')
     for (let i = 0; i < 14; i++) sim.addPlayer(sim.botName(), true)
@@ -25,6 +26,7 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
       for (const e of sim.events) {
         if (e.t === 'kill') {
           n.kills++
+          if (e.cause === 'mine' && e.killer !== e.victim && !e.tk) n.mineKills++
           if (e.cause === 'nuke') {
             n.nukeVictims++
             if (e.killer === e.victim) n.selfNuke++
@@ -36,6 +38,14 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
         if (e.t === 'round' && !e.start) n.rounds++
       }
       sim.events = []
+      for (const m of sim.mines)
+        if (!m.nuke && !booms.has(m.id)) {
+          booms.set(m.id, 1)
+          n.mines++
+          // laid where the camera can't see it (a block on the row in front)
+          const [c, r] = cellOf(sim.map, m.pos.x, m.pos.z)
+          if (sim.field.height(c, r + 1) > 1) n.hiddenMines++
+        }
       for (const m of sim.mines)
         if (m.nuke && !booms.has(m.id)) {
           booms.set(m.id, 1)
@@ -57,5 +67,5 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
     }
   }
   const per = (k: number) => (k / seeds).toFixed(1)
-  console.log(`${mode.padEnd(6)} per ${secs}s match-time: nukes laid ${per(n.nukes)} (${per(n.early)} in a round's first 30s, on average ${n.nukes ? Math.round(n.at / n.nukes) : '-'}s in), enemies killed by nukes ${per(n.nukeKills)}, self-nuked ${per(n.selfNuke)}, team-nuked ${per(n.teamNuke)}, kills ${per(n.kills)}, matches over ${per(n.matches)}${mode === 'elim' ? `, rounds ${per(n.rounds)}` : ''}${spreadN ? `, nearest teammate ${Math.round(spread / spreadN)} units` : ''}`)
+  console.log(`${mode.padEnd(6)} per ${secs}s match-time: mines ${per(n.mines)} (${n.mines ? Math.round((n.hiddenMines / n.mines) * 100) : 0}% hidden), enemies killed by mines ${per(n.mineKills)}, nukes laid ${per(n.nukes)} (${per(n.early)} in a round's first 30s, on average ${n.nukes ? Math.round(n.at / n.nukes) : '-'}s in), enemies killed by nukes ${per(n.nukeKills)}, self-nuked ${per(n.selfNuke)}, team-nuked ${per(n.teamNuke)}, kills ${per(n.kills)}, matches over ${per(n.matches)}${mode === 'elim' ? `, rounds ${per(n.rounds)}` : ''}${spreadN ? `, nearest teammate ${Math.round(spread / spreadN)} units` : ''}`)
 }
