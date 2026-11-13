@@ -9,8 +9,9 @@
 
 import * as THREE from 'three/webgpu'
 
-/** the casing's colours (raw: the renderer does no colour management) */
-const PAINT = { body: [0.78, 0.66, 0.26], band: [0.18, 0.16, 0.12], tail: [0.66, 0.56, 0.22], nose: [0.24, 0.22, 0.18], bolt: [0.55, 0.52, 0.45], fuze: [0.75, 0.22, 0.16] } as const
+/** the casing's colours: olive drab with black seams and a red stripe toward the tail (raw:
+ * the renderer does no colour management) */
+const PAINT = { body: [0.36, 0.4, 0.24], band: [0.1, 0.1, 0.09], tail: [0.27, 0.3, 0.19], nose: [0.2, 0.2, 0.19], bolt: [0.62, 0.6, 0.55], fuze: [0.82, 0.18, 0.12], stripe: [0.8, 0.16, 0.12] } as const
 /** where the light comes from (world space: up, a little left and toward the camera) */
 const LIGHT = new THREE.Vector3(-0.45, 0.8, 0.4).normalize()
 
@@ -58,11 +59,12 @@ function build() {
   }
   egg.computeVertexNormals()
   parts.push(part(egg, PAINT.body, M(0, mid, 0, 0, 0, 0, 1, bodyH / (2 * R), 1)))
-  // the bolted seam round its middle, and a thinner one each side
+  // the bolted seam round its middle, a thinner one toward the nose and a red stripe toward
+  // the tail
   parts.push(part(new THREE.TorusGeometry(R * 1.02, 0.7, 6, 36), PAINT.band, M(0, mid, 0, Math.PI / 2)))
   for (const dy of [-5.5, 5.5]) {
     const r = R * Math.sqrt(1 - (dy / mid) ** 2) * 1.03
-    parts.push(part(new THREE.TorusGeometry(r, 0.35, 4, 32), PAINT.band, M(0, mid + dy, 0, Math.PI / 2)))
+    parts.push(part(new THREE.TorusGeometry(r, dy > 0 ? 0.75 : 0.35, 6, 32), dy > 0 ? PAINT.stripe : PAINT.band, M(0, mid + dy, 0, Math.PI / 2), dy > 0 ? 0.4 : 0.25))
   }
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2
