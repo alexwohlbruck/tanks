@@ -15,7 +15,9 @@
 //     corridor; a fence on every way into a tight spot, then it sits behind it. It shoots the
 //     near end of a chain when an enemy is at the far end (see Lay)
 //   - each bot its own: reaction time, aim speed, nerve and a spread on its personality's
-//     numbers, fixed by its name (temperOf)
+//     numbers, fixed by its name (temperOf); and how it plays: mines or none, offensive or
+//     defensive, a team player (teams up with another bot in Free-for-all and Battle royale:
+//     pacts) or a lone wolf
 //   - Battle royale: heads back into the zone (the part it's closing to) before anything else
 //   - plays to the mode (styleOf): Free-for-all hunts; Teams sticks near teammates; Battle
 //     royale is cautious while many are left (fights only what's close, backs off when
@@ -31,7 +33,7 @@
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import { ELIM, isOneLife, isTeamMode, NUKE, mineScale, personaOf, temperOf, zoneNext, type Persona } from './rules'
+import { ELIM, EMOTES, isOneLife, isTeamMode, NUKE, mineScale, personaOf, temperOf, zoneNext, type Persona } from './rules'
 import type { AMine, AShell, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
@@ -82,6 +84,12 @@ type Brain = {
   /** a run of mines it's laying (layPlan), or null; a fence it's sitting behind until `until` */
   lay: Lay | null
   fort: { home: [number, number]; until: number } | null
+  /** how it plays (temperOf): defensive (-1) to offensive (1); lone wolf (0) to team player
+   * (1); and the bot it has teamed up with (pacts) until `allyUntil` */
+  stance: number
+  social: number
+  ally: Player | null
+  allyUntil: number
   /** seconds into a round before this bot thinks about its nuke (on top of NUKE_AI.grace; -1:
    * not picked yet) */
   nukeWait: number
@@ -153,11 +161,54 @@ const TRAITS: Record<Persona, Traits> = {
   turtle: { hunt: 0.6, loot: 0.4, cautious: true, range: 300, close: 160, fire: 1, bank: 1.3, aim: 0.8, mines: 1.3, roam: 6 },
 }
 
-/** the mode's style with the bot's personality on top (a Scavenger with a power hunts twice as far) */
-function styleFor(sim: ArenaSim, p: Player, tr: Traits): Style {
+/**
+ * The mode's style with the bot's personality and its own ways on top: a Scavenger with a power
+ * hunts twice as far; a team player keeps closer to its team (and to the bot it has teamed up
+ * with: pacts), a lone wolf goes its own way and never regroups.
+ */
+function styleFor(sim: ArenaSim, p: Player, b: Brain): Style {
+  const tr = b.tr
   const s = styleOf(sim, p)
   const powered = !!p.tank.power && tr.loot > 1
-  return { hunt: s.hunt * tr.hunt * (powered ? 2 : 1), regroup: s.regroup, cautious: tr.cautious ?? s.cautious, loot: powered ? s.loot * 0.5 : s.loot * tr.loot }
+  const lone = b.social < 0.33
+  const regroup = b.ally ? 240 : lone ? 0 : b.social > 0.67 ? s.regroup * 0.75 : s.regroup
+  return { hunt: s.hunt * tr.hunt * (powered ? 2 : 1) * (lone && isTeamMode(sim.mode) ? 1.25 : 1), regroup, cautious: tr.cautious ?? s.cautious, loot: powered ? s.loot * 0.5 : s.loot * tr.loot }
+}
+
+/** how long two bots stay teamed up (seconds), and how close they have to be to team up */
+const PACT = { secs: [40, 90], near: 450 }
+
+/**
+ * Pacts: in Free-for-all and Battle royale a team player teams up with another team-player bot
+ * nearby for a while (and says "Follow me!"). They don't target each other, keep together,
+ * watch their fire and mines around each other, and know each other's mines; shells and blasts
+ * still hit them, the rules don't know. Over when the time's up, one is destroyed, or the end is
+ * near (the last four in Battle royale, the last 30 s of Free-for-all).
+ */
+function pacts(sim: ArenaSim, p: Player, b: Brain) {
+  const end = sim.mode === 'royale' ? sim.players.filter((q) => q.tank.alive).length <= 4 : sim.phaseEnd - sim.tick < 30 * 60
+  if (b.ally) {
+    if (sim.tick > b.allyUntil || !p.tank.alive || !b.ally.tank.alive || !sim.players.includes(b.ally) || end) {
+      const ab = brains.get(b.ally)
+      if (ab?.ally === p) ab.ally = null
+      b.ally = null
+    }
+    return
+  }
+  if ((sim.mode !== 'ffa' && sim.mode !== 'royale') || end || b.social < 0.67 || !p.tank.alive || Math.random() > 0.05) return
+  const t = p.tank
+  for (const q of sim.players) {
+    if (q === p || !q.bot || !q.tank.alive || Math.hypot(q.tank.pos.x - t.pos.x, q.tank.pos.z - t.pos.z) > PACT.near) continue
+    const qb = brain(q)
+    if (qb.ally || qb.social < 0.67) continue
+    b.ally = q
+    qb.ally = p
+    b.allyUntil = qb.allyUntil = sim.tick + between(PACT.secs) * 60
+    if (b.target === q.tank) b.target = null
+    if (qb.target === t) qb.target = null
+    p.say = EMOTES.indexOf('Follow me!')
+    return
+  }
 }
 
 function styleOf(sim: ArenaSim, p: Player): Style {
@@ -214,8 +265,18 @@ function brain(p: Player): Brain {
     const tm = temperOf(p.name)
     const tr = { ...TRAITS[personaOf(p.name)] }
     SPREAD.forEach((k, i) => (tr[k] *= tm.spread[i]))
+    // how it plays: some never lay mines; an offensive one hunts further, closes in and never
+    // backs off, a defensive one picks closer fights from further off, gives ground, and with
+    // nothing to fight holds an area rather than roaming the map
+    tr.mines *= tm.mines
+    const s = tm.stance
+    tr.hunt *= 1 + (s > 0 ? 0.4 : 0.25) * s
+    tr.range *= 1 - 0.12 * s
+    tr.close *= 1 - 0.25 * s
+    if (s > 0.35) tr.cautious = false
+    if (s < -0.35) (tr.cautious = true), (tr.roam ||= 8)
     tr.close = Math.min(tr.close, tr.range - 40)
-    brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: tm.react, keyDelay: tm.keys, turn: HUMAN.turn * tm.turn, nerve: tm.nerve, held: -1, next: null, noticed: new Map(), nukeWait: -1, known: new WeakSet(), tr, post: null, rest: 0, lay: null, fort: null }))
+    brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: tm.react, keyDelay: tm.keys, turn: HUMAN.turn * tm.turn, nerve: tm.nerve, held: -1, next: null, noticed: new Map(), nukeWait: -1, known: new WeakSet(), tr, post: null, rest: 0, lay: null, fort: null, stance: tm.stance, social: tm.social, ally: null, allyUntil: 0 }))
   }
   return b
 }
@@ -332,14 +393,17 @@ export function botThink(sim: ArenaSim, p: Player) {
   }
   const b = brain(p)
   const now = sim.tick
-  // a White enemy is as invisible to a bot as to a player
-  const enemies = sim.tanks.filter((o) => o.alive && sim.enemies(p, o.player) && !sim.hiddenFrom(p, o))
-  const friends = sim.tanks.filter((o) => o.alive && o !== t && !sim.enemies(p, o.player))
+  if (now % 30 === p.pid % 30) pacts(sim, p, b)
+  // a White enemy is as invisible to a bot as to a player; a bot it has teamed up with counts
+  // as a friend
+  const ally = b.ally?.tank
+  const enemies = sim.tanks.filter((o) => o.alive && o !== ally && sim.enemies(p, o.player) && !sim.hiddenFrom(p, o))
+  const friends = sim.tanks.filter((o) => o.alive && o !== t && (o === ally || !sim.enemies(p, o.player)))
   // ---- pick a target (every 10 frames) and bank shots (every 20)
   if (now >= b.thinkAt) {
     b.thinkAt = now + 10
     spotMines(sim, p, b)
-    b.style = styleFor(sim, p, b.tr)
+    b.style = styleFor(sim, p, b)
     let best: ATank | null = null
     let bd = b.style.hunt
     for (const e of enemies) {
@@ -512,7 +576,7 @@ export function botThink(sim: ArenaSim, p: Player) {
     const seen = e && clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z)
     const from = b.fleeFrom ?? e?.pos
     const zone = zoneGoal(sim, t, b)
-    const style = b.style ?? styleFor(sim, p, b.tr)
+    const style = b.style ?? styleFor(sim, p, b)
     // outnumbered close by (a cautious mode): back away from the enemies' middle for a moment
     const near = (l: ATank[]) => l.filter((o) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z) < 330)
     const foes = style.cautious ? near(enemies) : []
@@ -627,7 +691,7 @@ const sides = (sim: ArenaSim, c: number, r: number) => [[1, 0], [-1, 0], [0, 1],
  * behind blocks (hiddenCell) and out of sight it drives into.
  */
 function knowsMine(sim: ArenaSim, p: Player, b: Brain, m: AMine) {
-  return m.nuke || m.owner === p.tank || !sim.enemies(p, m.owner.player) || b.known.has(m)
+  return m.nuke || m.owner === p.tank || !sim.enemies(p, m.owner.player) || m.owner.player === b.ally || b.known.has(m)
 }
 
 /** look for enemy mines (with the target, every 10 frames) */
@@ -845,7 +909,8 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   // how keen this bot is on mines: its trait scales every chance below (at most a sure thing),
   // and the mine layer's ten make anyone keen
   const yellow = t.power === 'yellow'
-  const keen = (chance: number) => Math.min(0.95, chance * b.tr.mines * (yellow ? 2.2 : 1))
+  // (even a bot that never lays mines uses the mine layer's, if less keenly)
+  const keen = (chance: number) => Math.min(0.95, chance * (yellow ? Math.max(b.tr.mines, 0.5) * 2.2 : b.tr.mines))
   const lay = (flee: number) => {
     p.wantMine = true
     b.fleeUntil = now + flee
@@ -887,7 +952,7 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
     }
     // the mine layer doesn't wait for a reason: ten mines are for laying. Chains away from the
     // nearest enemy (the way it would come after us), keeping a few back for fights
-    if (yellow && spare >= 5 && Math.random() < 0.12 * b.tr.mines) {
+    if (yellow && spare >= 5 && Math.random() < 0.12 * Math.max(b.tr.mines, 0.5)) {
       const o = enemies.reduce<ATank | null>((a, x) => (!a || dist(x) < dist(a) ? x : a), null)
       if (o && dist(o) < 1100 && chain(o.pos)) return
     }

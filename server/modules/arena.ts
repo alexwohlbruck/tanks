@@ -171,6 +171,12 @@ class Arena {
     const s = this.sim
     for (const c of this.clients) if (c.player) nextInput(c)
     for (const p of s.players) if (p.bot) botThink(s, p)
+    // (a bot's quick chat: teaming up)
+    for (const p of s.players)
+      if (p.bot && p.say != null) {
+        this.shout(p, p.say)
+        p.say = null
+      }
     const seed = s.map.seed
     s.step()
     const ev = s.events
@@ -371,9 +377,14 @@ class Arena {
     const now = Date.now()
     if (now - c.emoteAt < EMOTE_MS) return
     c.emoteAt = now
+    this.shout(p, i)
+  }
+
+  /** a quick chat to everyone who can see the tank (and its team, and the sender) */
+  private shout(p: Player, i: number) {
     const t = p.tank
     for (const o of this.clients)
-      if (o === c || (Math.abs(t.pos.x - o.focus.x) < VIEW.x && Math.abs(t.pos.z - o.focus.z) < VIEW.z) || (isTeamMode(this.mode) && o.player?.team === p.team)) o.pending.push(['emo', p.pid, i])
+      if (o.player === p || (Math.abs(t.pos.x - o.focus.x) < VIEW.x && Math.abs(t.pos.z - o.focus.z) < VIEW.z) || (isTeamMode(this.mode) && o.player?.team === p.team)) o.pending.push(['emo', p.pid, i])
   }
 }
 
