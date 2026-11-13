@@ -302,9 +302,17 @@ export const personaOf = (name: string): Persona => PERSONAS.find((k) => PERSONA
  * its aim swings over (x the human pace), `keys` frames to change the keys it holds, `nerve`
  * how jumpy it is under fire (flares sooner, gives ground sooner: 0.6-1.4), and `spread` a
  * 0.8-1.2 factor on each of its personality's numbers (bot.ts TRAITS, in their order).
- * `label` is the one word that sets it apart, for the spectate card and the scores.
+ * And how it plays, whatever its personality: `mines` how much it uses them (0: never, unless
+ * it holds Yellow; about a third of non-Trappers), `stance` from defensive (-1: holds ground,
+ * picks its fights, backs off) to offensive (1: hunts far, pushes in, never backs off), `social`
+ * from a lone wolf (0: goes its own way, even in team modes) to a team player (1: sticks with
+ * its team, and in Free-for-all and Battle royale teams up with another bot for a while).
+ * `label`: the one or two words that set it apart most, for the spectate card and the scores.
  */
-export type Temper = { react: number; turn: number; keys: number; nerve: number; spread: number[]; label: string }
+export type Temper = { react: number; turn: number; keys: number; nerve: number; spread: number[]; mines: number; stance: number; social: number; label: string }
+/** chances a bot of each personality never lays mines, and its lean toward offense (+) or defense (-) */
+const PERSONA_NO_MINES: Record<Persona, number> = { brawler: 0.4, sniper: 0.45, trapper: 0, scavenger: 0.3, turtle: 0.15 }
+const PERSONA_STANCE: Record<Persona, number> = { brawler: 0.5, sniper: 0.1, trapper: -0.1, scavenger: 0.2, turtle: -0.4 }
 const PERSONA_REACT: Record<Persona, [number, number]> = { brawler: [10, 18], sniper: [17, 28], trapper: [13, 24], scavenger: [11, 22], turtle: [19, 30] }
 const PERSONA_TURN: Record<Persona, number> = { brawler: 1.15, sniper: 0.85, trapper: 1, scavenger: 1.05, turtle: 0.9 }
 const tempers = new Map<string, Temper>()
@@ -330,8 +338,19 @@ export function temperOf(name: string): Temper {
     [q.turn, 'snappy aim'], [1 - q.turn, 'deliberate'],
     [q.nerve, 'jumpy'], [1 - q.nerve, 'cool-headed'],
   ]
-  const label = words.reduce((a, b) => (b[0] > a[0] ? b : a))[1]
-  t = { react: Math.round(r0 + (r1 - r0) * q.react), turn: PERSONA_TURN[k] * (0.85 + 0.3 * q.turn), keys: Math.round(4 + 7 * q.keys), nerve: 0.6 + 0.8 * q.nerve, spread, label }
+  const temper = words.reduce((a, b) => (b[0] > a[0] ? b : a))
+  const mines = rnd() < PERSONA_NO_MINES[k] ? 0 : 0.6 + rnd()
+  const stance = Math.max(-1, Math.min(1, PERSONA_STANCE[k] + (rnd() - 0.5) * 1.6))
+  const social = rnd()
+  // its two strongest quirks (how it plays first: that's what a player can read and use)
+  const tags: [number, string][] = [
+    [mines === 0 ? 1 : mines > 1.35 ? 0.8 : 0, mines === 0 ? 'no mines' : 'mine lover'],
+    [Math.abs(stance) > 0.35 ? Math.abs(stance) : 0, stance > 0 ? 'aggressive' : 'defensive'],
+    [Math.abs(social - 0.5) > 0.17 ? Math.abs(social - 0.5) * 2 : 0, social > 0.5 ? 'team player' : 'lone wolf'],
+    [(temper[0] - 0.5) * 1.4, temper[1]],
+  ]
+  const label = tags.filter(([v]) => v > 0.3).sort((a, b) => b[0] - a[0]).slice(0, 2).map(([, w]) => w).join(' · ') || temper[1]
+  t = { react: Math.round(r0 + (r1 - r0) * q.react), turn: PERSONA_TURN[k] * (0.85 + 0.3 * q.turn), keys: Math.round(4 + 7 * q.keys), nerve: 0.6 + 0.8 * q.nerve, spread, mines, stance, social, label }
   tempers.set(name, t)
   return t
 }

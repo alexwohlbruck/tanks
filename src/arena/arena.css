@@ -198,7 +198,7 @@ body.arena-playing:not(.arena-menu) #gl { cursor: none !important; }
 .ar-spec-who small { display: block; font-size: 0.62em; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.55; }
 .ar-spec-who .nm { display: flex; align-items: center; justify-content: center; gap: 0.35em; font-size: 1.05em; }
 .ar-spec-who .nm b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ar-spec-who .nm em { font-style: normal; font-size: 0.6em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.1em 0.45em; border-radius: 0.4em; background: rgba(60, 35, 10, 0.12); color: rgba(60, 35, 10, 0.7); }
+.ar-spec-who .nm em { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; font-size: 0.6em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.1em 0.45em; border-radius: 0.4em; background: rgba(60, 35, 10, 0.12); color: rgba(60, 35, 10, 0.7); }
 .ar-spec-who .st { font-size: 0.75em; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .ar-spec-who .lv { color: #c45a10; }
 .ar-spec-hint { grid-column: 1 / -1; text-align: center; font-size: 0.68em; opacity: 0.75; }

@@ -257,6 +257,8 @@ export type Player = {
   ghostAt: number
   /** where a bot drops its nuke (players drop theirs on the aim point) */
   nukeAt: { x: number; z: number } | null
+  /** a bot's quick chat this tick (EMOTES index; the server sends it on and clears it) */
+  say?: number | null
   joinedAt: number
   /** who destroyed this player last (spectated while waiting to respawn) */
   killedBy: Player | null

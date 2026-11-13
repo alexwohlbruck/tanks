@@ -5,7 +5,7 @@ import { normalizeData } from '../../src/data'
 import { setTankRecords } from '../../src/sim/stats'
 import { ArenaSim } from '../../src/arena/sim'
 import { botThink } from '../../src/arena/bot'
-import { ARENA_MODES, PERSONAS, personaOf } from '../../src/arena/rules'
+import { ARENA_MODES, PERSONAS, personaOf, temperOf } from '../../src/arena/rules'
 import { cellOf } from '../../src/arena/map'
 const params = JSON.parse(readFileSync('public/assets/data/params.json', 'utf8'))
 const maps = JSON.parse(readFileSync('public/assets/data/maps.json', 'utf8'))
@@ -14,6 +14,14 @@ const secs = Number(process.argv[2] ?? 240)
 const seeds = Number(process.argv[3] ?? 4)
 // by personality, all modes together: kills, deaths, mines laid, pickups taken, shots
 const by = Object.fromEntries(PERSONAS.map((k) => [k, { n: 0, kills: 0, mineKills: 0, deaths: 0, mines: 0, picks: 0, shots: 0 }]))
+// by play style (temperOf): kills, deaths, mines, distance to the nearest enemy and teammate
+const STYLES = ['no mines', 'lays mines', 'aggressive', 'defensive', 'team player', 'lone wolf'] as const
+const stylesOf = (name: string) => {
+  const t = temperOf(name)
+  return [t.mines ? 'lays mines' : 'no mines', ...(t.stance > 0.35 ? ['aggressive'] : t.stance < -0.35 ? ['defensive'] : []), ...(t.social > 0.67 ? ['team player'] : t.social < 0.33 ? ['lone wolf'] : [])]
+}
+const sty = Object.fromEntries(STYLES.map((k) => [k, { n: 0, kills: 0, deaths: 0, mines: 0, foe: 0, foeN: 0, mate: 0, mateN: 0 }]))
+let pacts = 0
 for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof ARENA_MODES) {
   let spread = 0
   let spreadN = 0
@@ -22,17 +30,32 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
     const sim = new ArenaSim(mode, seed * 101, 'medium')
     for (let i = 0; i < 14; i++) sim.addPlayer(sim.botName(), true)
     for (const p of sim.players) by[personaOf(p.name)].n++
+    for (const p of sim.players) for (const k of stylesOf(p.name)) sty[k].n++
     const who = (pid: number) => sim.players.find((p) => p.pid === pid)
     const tankWho = (id: number) => sim.tanks.find((t) => t.id === id)?.player
     const booms = new Map<number, number>()
     for (let i = 0; i < secs * 60; i++) {
       for (const p of sim.players) botThink(sim, p)
+      for (const p of sim.players) if (p.say != null) (pacts++, (p.say = null))
+      if (i % 30 === 0)
+        for (const t of sim.tanks) {
+          if (!t.alive) continue
+          const d = (l: typeof sim.tanks) => Math.min(...l.filter((o) => o !== t && o.alive).map((o) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z)))
+          const foe = d(sim.tanks.filter((o) => sim.enemies(t.player, o.player)))
+          const mate = mode === 'teams' || mode === 'elim' ? d(sim.tanks.filter((o) => !sim.enemies(t.player, o.player))) : Infinity
+          for (const k of stylesOf(t.player.name)) {
+            if (foe < 5000) (sty[k].foe += foe), sty[k].foeN++
+            if (mate < 5000) (sty[k].mate += mate), sty[k].mateN++
+          }
+        }
       sim.step()
       for (const e of sim.events) {
         if (e.t === 'kill') {
           n.kills++
           const k = who(e.killer), v = who(e.victim)
           if (k && k !== v && !e.tk) by[personaOf(k.name)].kills++
+          if (k && k !== v && !e.tk) for (const s of stylesOf(k.name)) sty[s].kills++
+          if (v) for (const s of stylesOf(v.name)) sty[s].deaths++
           if (k && k !== v && !e.tk && e.cause === 'mine') by[personaOf(k.name)].mineKills++
           if (v) by[personaOf(v.name)].deaths++
           if (e.cause === 'mine' && e.killer !== e.victim && !e.tk) n.mineKills++
@@ -57,6 +80,7 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
           n.mines++
           if (m.owner.power === 'yellow') n.yellowMines++
           by[personaOf(m.owner.player.name)].mines++
+          for (const s of stylesOf(m.owner.player.name)) sty[s].mines++
           // laid where the camera can't see it (a block on the row in front)
           const [c, r] = cellOf(sim.map, m.pos.x, m.pos.z)
           if (sim.field.height(c, r + 1) > 1) n.hiddenMines++
@@ -90,3 +114,9 @@ for (const k of PERSONAS) {
   const per = (x: number) => (x / Math.max(1, v.n)).toFixed(1)
   console.log(`${k.padEnd(9)} (${v.n} bots) per bot: kills ${per(v.kills)}, deaths ${per(v.deaths)}, K/D ${(v.kills / Math.max(1, v.deaths)).toFixed(2)}, mines ${per(v.mines)} (kills ${per(v.mineKills)}), pickups ${per(v.picks)}, shots ${per(v.shots)}`)
 }
+for (const k of STYLES) {
+  const v = sty[k]
+  const per = (x: number) => (x / Math.max(1, v.n)).toFixed(1)
+  console.log(`${k.padEnd(11)} (${v.n} bots) per bot: kills ${per(v.kills)}, deaths ${per(v.deaths)}, mines ${per(v.mines)}, nearest enemy ${Math.round(v.foe / Math.max(1, v.foeN))}, nearest teammate (team modes) ${Math.round(v.mate / Math.max(1, v.mateN))}`)
+}
+console.log(`pacts made (Free-for-all, Battle royale): ${pacts}`)
