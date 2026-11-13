@@ -15,6 +15,7 @@ import { TilesView } from './tiles'
 import { TreadCapture } from './tread'
 import { BigField } from './bigfield'
 import { BlockShade } from './blockshade'
+import { nukeModel, swayNuke } from './nuke'
 
 // RPTnkScene::CreateCamerasAndScreens: orthographic view of the 832x456 (16:9) or 608x456 (4:3)
 // screen at scale 1.125, in world units. The console output is anamorphic, so the 16:9 view is
@@ -602,10 +603,12 @@ export class SceneView {
       o.position.set(b.pos.x, b.pos.y, b.pos.z)
       o.rotation.y = Math.atan2(b.vel.x, b.vel.z)
     })
-    syncSet(this.mineObjs, w.mines, this.stage, () => this.models.mine(), (o, m) => {
+    // (the arena's nukes: a bomb falling, swaying a little)
+    syncSet(this.mineObjs, w.mines, this.stage, (m) => ((m as unknown as { arenaNuke?: boolean }).arenaNuke ? nukeModel() : this.models.mine()), (o, m) => {
       const a = m as unknown as { arenaScale?: number; arenaY?: number }
       o.position.set(m.pos.x, a.arenaY ?? 0, m.pos.z)
       o.scale.setScalar(a.arenaScale ?? 1)
+      if (o.userData.nuke) return swayNuke(o, performance.now() / 1000 + m.id)
       this.models.setMineFrame(o, m.fuseLit ? (o.userData.blink = (o.userData.blink ?? 0) + 1) : 0)
     })
     this.tiles.sync(this.tankObjs)

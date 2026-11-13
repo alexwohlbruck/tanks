@@ -17,7 +17,7 @@ const by = Object.fromEntries(PERSONAS.map((k) => [k, { n: 0, kills: 0, mineKill
 for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof ARENA_MODES) {
   let spread = 0
   let spreadN = 0
-  const n = { mines: 0, hiddenMines: 0, mineKills: 0, early: 0, at: 0, nukes: 0, nukeKills: 0, nukeVictims: 0, selfNuke: 0, teamNuke: 0, kills: 0, matches: 0, rounds: 0 }
+  const n = { yellowMines: 0, yellowSecs: 0, chainKills: 0, selfMined: 0, mines: 0, hiddenMines: 0, mineKills: 0, early: 0, at: 0, nukes: 0, nukeKills: 0, nukeVictims: 0, selfNuke: 0, teamNuke: 0, kills: 0, matches: 0, rounds: 0 }
   for (let seed = 1; seed <= seeds; seed++) {
     const sim = new ArenaSim(mode, seed * 101, 'medium')
     for (let i = 0; i < 14; i++) sim.addPlayer(sim.botName(), true)
@@ -36,6 +36,8 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
           if (k && k !== v && !e.tk && e.cause === 'mine') by[personaOf(k.name)].mineKills++
           if (v) by[personaOf(v.name)].deaths++
           if (e.cause === 'mine' && e.killer !== e.victim && !e.tk) n.mineKills++
+          if (e.cause === 'mine' && e.killer !== e.victim && !e.tk && e.chain > 0) n.chainKills++
+          if (e.cause === 'mine' && e.killer === e.victim) n.selfMined++
           if (e.cause === 'nuke') {
             n.nukeVictims++
             if (e.killer === e.victim) n.selfNuke++
@@ -53,6 +55,7 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
         if (!m.nuke && !booms.has(m.id)) {
           booms.set(m.id, 1)
           n.mines++
+          if (m.owner.power === 'yellow') n.yellowMines++
           by[personaOf(m.owner.player.name)].mines++
           // laid where the camera can't see it (a block on the row in front)
           const [c, r] = cellOf(sim.map, m.pos.x, m.pos.z)
@@ -67,6 +70,7 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
           n.at += since
           if (since < 30) n.early++
         }
+      if (i % 60 === 0) n.yellowSecs += sim.tanks.filter((t) => t.alive && t.power === 'yellow').length
       // team modes: how far a tank is from its nearest teammate (every second)
       if (i % 60 === 0 && (mode === 'teams' || mode === 'elim'))
         for (const t of sim.tanks) {
@@ -79,7 +83,7 @@ for (const mode of (process.env.MODES?.split(",") ?? ARENA_MODES) as typeof AREN
     }
   }
   const per = (k: number) => (k / seeds).toFixed(1)
-  console.log(`${mode.padEnd(6)} per ${secs}s match-time: mines ${per(n.mines)} (${n.mines ? Math.round((n.hiddenMines / n.mines) * 100) : 0}% hidden), enemies killed by mines ${per(n.mineKills)}, nukes laid ${per(n.nukes)} (${per(n.early)} in a round's first 30s, on average ${n.nukes ? Math.round(n.at / n.nukes) : '-'}s in), enemies killed by nukes ${per(n.nukeKills)}, self-nuked ${per(n.selfNuke)}, team-nuked ${per(n.teamNuke)}, kills ${per(n.kills)}, matches over ${per(n.matches)}${mode === 'elim' ? `, rounds ${per(n.rounds)}` : ''}${spreadN ? `, nearest teammate ${Math.round(spread / spreadN)} units` : ''}`)
+  console.log(`${mode.padEnd(6)} per ${secs}s match-time: mines ${per(n.mines)} (${n.mines ? Math.round((n.hiddenMines / n.mines) * 100) : 0}% hidden), enemies killed by mines ${per(n.mineKills)}, nukes laid ${per(n.nukes)} (${per(n.early)} in a round's first 30s, on average ${n.nukes ? Math.round(n.at / n.nukes) : '-'}s in), enemies killed by nukes ${per(n.nukeKills)}, self-nuked ${per(n.selfNuke)}, team-nuked ${per(n.teamNuke)}, kills ${per(n.kills)}, Yellow: ${n.yellowSecs ? ((n.yellowMines / n.yellowSecs) * 10).toFixed(1) : '-'} mines per 10 s held, enemies killed down a chain ${per(n.chainKills)}, own-mine deaths ${per(n.selfMined)}, matches over ${per(n.matches)}${mode === 'elim' ? `, rounds ${per(n.rounds)}` : ''}${spreadN ? `, nearest teammate ${Math.round(spread / spreadN)} units` : ''}`)
 }
 for (const k of PERSONAS) {
   const v = by[k]
