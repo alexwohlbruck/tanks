@@ -10,6 +10,12 @@
 //     behind a block where the camera can't see them (hiddenCell), in corridors, corners and
 //     dead ends, across the only way out of a pocket an enemy is in (trapped), and one planted
 //     in such a spot with no fight on. Enemy mines it only knows once spotted (knowsMine)
+//   - with three or more mines to spare (Yellow, the mine layer, keeps at it): daisy chains,
+//     mines spaced so each blast sets off the next, laid behind it as it pulls back or down a
+//     corridor; a fence on every way into a tight spot, then it sits behind it. It shoots the
+//     near end of a chain when an enemy is at the far end (see Lay)
+//   - each bot its own: reaction time, aim speed, nerve and a spread on its personality's
+//     numbers, fixed by its name (temperOf)
 //   - Battle royale: heads back into the zone (the part it's closing to) before anything else
 //   - plays to the mode (styleOf): Free-for-all hunts; Teams sticks near teammates; Battle
 //     royale is cautious while many are left (fights only what's close, backs off when
@@ -25,7 +31,7 @@
 
 import { MINE, TANK } from '../sim/consts'
 import { cellOf, cellPos } from './map'
-import { ELIM, isOneLife, isTeamMode, NUKE, personaOf, zoneNext, type Persona } from './rules'
+import { ELIM, isOneLife, isTeamMode, NUKE, mineScale, personaOf, temperOf, zoneNext, type Persona } from './rules'
 import type { AMine, AShell, ArenaSim, ATank, Player } from './sim'
 
 type Brain = {
@@ -54,21 +60,28 @@ type Brain = {
   /** a shell is about to hit this tick (too close to dodge) */
   doomed: boolean
   /** HUMAN: where the aim points now (radians, null until the first frame), this bot's reaction
-   * time and key-change time, the direction held (0-7, -1: none) and the one it's changing to */
+   * time, key-change time and aim speed (its temperOf), the direction held (0-7, -1: none) and
+   * the one it's changing to */
   aim: number | null
   react: number
   keyDelay: number
+  turn: number
+  /** how jumpy it is under fire (temperOf) */
+  nerve: number
   held: number
   next: { dir: number; at: number } | null
   /** when each shell in flight was first noticed */
   noticed: Map<AShell, number>
-  /** its personality's traits (TRAITS), and where a Turtle has dug in */
+  /** its personality's traits (TRAITS, spread by its temperOf), and where a Turtle has dug in */
   tr: Traits
   post: [number, number] | null
   /** a Turtle holding its spot until this tick */
   rest: number
   /** enemy mines this bot has spotted (knowsMine): the rest it drives into like a player would */
   known: WeakSet<AMine>
+  /** a run of mines it's laying (layPlan), or null; a fence it's sitting behind until `until` */
+  lay: Lay | null
+  fort: { home: [number, number]; until: number } | null
   /** seconds into a round before this bot thinks about its nuke (on top of NUKE_AI.grace; -1:
    * not picked yet) */
   nukeWait: number
@@ -77,13 +90,25 @@ type Brain = {
 const brains = new WeakMap<Player, Brain>()
 
 /**
- * Human limits. `turn`: the most the aim swings in a frame (radians, about 240° a second), and
- * `ease` the share of the remaining turn it covers (fast at first, slowing as it closes in);
- * `react`: frames before a shell is noticed (each bot gets its own in that range); `keys`:
- * frames it takes to change the keys held (the same); `shoot`: frames a target has to be in
- * sight before the first shot (plus the reaction time).
+ * A run of mines being laid, by a tank with three or more to spare (Yellow, the mine layer, most
+ * of all). `chain`: drives `route` laying one every CHAIN.min-max units, close enough that one
+ * going off sets off the next: a daisy chain behind it as it runs, or down a corridor, that an
+ * enemy sets off end to end (or that it fires into from afar: mineSense). `fence`: from a tight
+ * spot, drives out along every way in to `drops` (just out of blast reach of `home`) and back,
+ * a mine at each, then sits at `home` behind them. `left`: mines still to lay; `until`: gives up.
  */
-const HUMAN = { turn: 0.07, ease: 0.2, shake: 0.006, react: [14, 26], keys: [5, 11], shoot: 14 }
+type Lay = { kind: 'chain' | 'fence'; route: [number, number][]; drops: [number, number][]; last: { x: number; z: number } | null; left: number; until: number; home: [number, number] }
+/** chain spacing: at least `min` apart, at most `max` (a blast and a mine's body reach 92, so
+ * each sets off the next); `len`: the most in one chain */
+const CHAIN = { min: 66, max: 86, len: 6 }
+
+/**
+ * Human limits. `turn`: the most the aim swings in a frame (radians, about 240° a second; each
+ * bot x its temperOf turn), and `ease` the share of the remaining turn it covers (fast at
+ * first, slowing as it closes in); `shoot`: frames a target has to be in sight before the first
+ * shot (plus the reaction time). Reaction and key-change times are each bot's own (temperOf).
+ */
+const HUMAN = { turn: 0.07, ease: 0.2, shake: 0.006, shoot: 14 }
 /**
  * When bots go for their nuke. `grace`: seconds into a round (the match start, outside
  * Elimination) before any bot lays one, by mode; `wait`: a further spread of seconds, each bot
@@ -178,10 +203,20 @@ function zoneGoal(sim: ArenaSim, t: ATank, b: Brain): [number, number] | null {
   return (b.zone = cellOf(sim.map, z.x, z.z))
 }
 
+/** the numbers of a personality's traits a bot's temper spreads (temperOf `spread`, in order) */
+const SPREAD = ['hunt', 'loot', 'range', 'close', 'fire', 'bank', 'aim', 'mines'] as const
+
 function brain(p: Player): Brain {
   let b = brains.get(p)
-  const tr = TRAITS[personaOf(p.name)]
-  if (!b) brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: between(HUMAN.react), keyDelay: between(HUMAN.keys), held: -1, next: null, noticed: new Map(), nukeWait: -1, known: new WeakSet(), tr, post: null, rest: 0 }))
+  if (!b) {
+    // its personality, made its own: every number a little up or down, and its own reaction
+    // time, aim speed and nerve (the same every match: they come from its name)
+    const tm = temperOf(p.name)
+    const tr = { ...TRAITS[personaOf(p.name)] }
+    SPREAD.forEach((k, i) => (tr[k] *= tm.spread[i]))
+    tr.close = Math.min(tr.close, tr.range - 40)
+    brains.set(p, (b = { path: [], goal: null, repathAt: 0, thinkAt: 0, target: null, bank: null, fleeUntil: 0, fleeFrom: null, jitter: 0, strafe: Math.random() < 0.5 ? 1 : -1, seenSince: -1, mineAt: 0, shootMine: null, escape: [], escapeAt: 0, zone: null, style: null, doomed: false, aim: null, react: tm.react, keyDelay: tm.keys, turn: HUMAN.turn * tm.turn, nerve: tm.nerve, held: -1, next: null, noticed: new Map(), nukeWait: -1, known: new WeakSet(), tr, post: null, rest: 0, lay: null, fort: null }))
+  }
   return b
 }
 
@@ -216,9 +251,14 @@ function bankShot(sim: ArenaSim, x: number, z: number, dx: number, dz: number, t
   return false
 }
 
-/** the shortest way to a cell out of reach of every one of `mines` (at most ~600 cells) */
-function escapePath(sim: ArenaSim, from: [number, number], mines: AMine[]): [number, number][] {
+/** the shortest way to a cell out of reach of every one of `mines` (at most ~600 cells), never
+ * over a cell where it would set off one of `armed` (its own daisy chain behind it) */
+function escapePath(sim: ArenaSim, from: [number, number], mines: AMine[], armed: AMine[] = []): [number, number][] {
   const { cols } = sim.map
+  const trips = (c: number, r: number) => {
+    const p = cellPos(sim.map, c, r)
+    return armed.some((m) => Math.hypot(p.x - m.pos.x, p.z - m.pos.z) < TANK.mineRadius + MINE.triggerRadius)
+  }
   const safe = (c: number, r: number) => {
     const p = cellPos(sim.map, c, r)
     return mines.every((m) => Math.hypot(p.x - m.pos.x, p.z - m.pos.z) > m.blastMax + TANK.mineRadius + 30)
@@ -238,7 +278,7 @@ function escapePath(sim: ArenaSim, from: [number, number], mines: AMine[]): [num
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy
       const j = ny * cols + nx
-      if (prev.has(j) || sim.field.at(nx, ny) !== 0) continue
+      if (prev.has(j) || sim.field.at(nx, ny) !== 0 || trips(nx, ny)) continue
       prev.set(j, i)
       q.push(j)
     }
@@ -390,7 +430,7 @@ export function botThink(sim: ArenaSim, p: Player) {
     let d = want - b.aim
     while (d > Math.PI) d -= 2 * Math.PI
     while (d < -Math.PI) d += 2 * Math.PI
-    b.aim += Math.max(-HUMAN.turn, Math.min(HUMAN.turn, d * HUMAN.ease)) + (Math.random() - 0.5) * HUMAN.shake
+    b.aim += Math.max(-b.turn, Math.min(b.turn, d * HUMAN.ease)) + (Math.random() - 0.5) * HUMAN.shake
     inp.ax = t.pos.x + Math.cos(b.aim) * far
     inp.az = t.pos.z + Math.sin(b.aim) * far
   }
@@ -422,7 +462,7 @@ export function botThink(sim: ArenaSim, p: Player) {
     incoming++
     // too close to dodge: the last moment to do anything (a last-stand nuke)
     if (along / sp < 8 && Math.abs(side) < 16) b.doomed = true
-    if ((along / sp < 40 || incoming >= 2) && t.flares > 0 && now >= t.flareReady && Math.random() < 0.3) p.wantFlare = true
+    if ((along / sp < 40 || incoming >= 2) && t.flares > 0 && now >= t.flareReady && Math.random() < 0.3 * b.nerve) p.wantFlare = true
     // step out of the line, away from the side it would pass
     const k = side >= 0 ? 1 : -1
     mx += -vz * k * 2
@@ -439,12 +479,16 @@ export function botThink(sim: ArenaSim, p: Player) {
     if (m.nuke && m.age < b.react + NUKE_NOTICE) return false
     // teammates' mines ignore us (nukes don't); an enemy mine only once it's been spotted
     if (!m.nuke && m.owner !== t && !sim.enemies(p, m.owner.player)) return false
+    // a run of mines it's laying (layPlan), or a fence it sits behind: left there on purpose
+    // (well out of their blast), until one is lit or it comes close enough to set one off
+    if ((b.lay || b.fort) && m.owner === t && !m.fuseLit && (!m.armed || Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) > TANK.mineRadius + MINE.triggerRadius + 14)) return false
     if (!knowsMine(sim, p, b, m)) return false
     return Math.hypot(t.pos.x - m.pos.x, t.pos.z - m.pos.z) < m.blastMax + (m.nuke ? 70 : m.owner === t ? 80 : 50)
   })
   if (danger.length) {
     if (now >= b.escapeAt || !b.escape.length) {
-      b.escape = escapePath(sim, cellOf(sim.map, t.pos.x, t.pos.z), danger)
+      const armed = sim.mines.filter((m) => !m.nuke && m.armed && m.state === 1 && !m.fuseLit && knowsMine(sim, p, b, m) && (m.owner === t || sim.enemies(p, m.owner.player)))
+      b.escape = escapePath(sim, cellOf(sim.map, t.pos.x, t.pos.z), danger, armed)
       b.escapeAt = now + 20
     }
     const here = cellOf(sim.map, t.pos.x, t.pos.z)
@@ -472,7 +516,8 @@ export function botThink(sim: ArenaSim, p: Player) {
     // outnumbered close by (a cautious mode): back away from the enemies' middle for a moment
     const near = (l: ATank[]) => l.filter((o) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z) < 330)
     const foes = style.cautious ? near(enemies) : []
-    if (foes.length && foes.length > near(friends).length + 1 && now >= b.fleeUntil) {
+    // (a jumpy bot gives ground as soon as it's outnumbered at all)
+    if (foes.length && foes.length > near(friends).length + (b.nerve > 1.2 ? 0 : 1) && now >= b.fleeUntil) {
       b.fleeFrom = { x: foes.reduce((a, o) => a + o.pos.x, 0) / foes.length, z: foes.reduce((a, o) => a + o.pos.z, 0) / foes.length }
       b.fleeUntil = now + 45
     }
@@ -488,6 +533,9 @@ export function botThink(sim: ArenaSim, p: Player) {
         }
       }
     if (zone) goal = zone
+    // laying a run of mines: its route (set by layPlan); then behind a fence, holding still
+    else if (b.lay) goal = b.lay.home
+    else if (b.fort) goal = b.fort.home
     else if (now < b.fleeUntil && from) {
       mx = t.pos.x - from.x
       mz = t.pos.z - from.z
@@ -528,7 +576,9 @@ export function botThink(sim: ArenaSim, p: Player) {
       }
       while (b.path.length && b.path[0][0] === here[0] && b.path[0][1] === here[1]) b.path.shift()
       // look a cell further when the line there is open (smoother corners)
-      const next = b.path.length > 1 && clearLine(sim, t.pos.x, t.pos.z, cellPos(sim.map, ...b.path[1]).x, cellPos(sim.map, ...b.path[1]).z) ? b.path[1] : b.path[0]
+      // (not when the path doubles back here: a fence's spokes go out and back)
+      const back = b.path.length > 1 && b.path[1][0] === here[0] && b.path[1][1] === here[1]
+      const next = b.path.length > 1 && !back && clearLine(sim, t.pos.x, t.pos.z, cellPos(sim.map, ...b.path[1]).x, cellPos(sim.map, ...b.path[1]).z) ? b.path[1] : b.path[0]
       if (next) {
         const c = cellPos(sim.map, next[0], next[1])
         mx = c.x - t.pos.x
@@ -537,6 +587,8 @@ export function botThink(sim: ArenaSim, p: Player) {
     }
     if (now >= b.fleeUntil) b.fleeFrom = null
   }
+  if (b.lay) layStep(sim, p, b, friends)
+  if (b.fort && (now > b.fort.until || !sim.mines.some((m) => m.owner === t && m.state !== 2 && !m.fuseLit))) b.fort = null
   if (now >= b.mineAt) {
     b.mineAt = now + 12
     mineSense(sim, p, b, enemies, friends, e)
@@ -628,6 +680,123 @@ function trapped(sim: ArenaSim, from: [number, number], us: [number, number], ca
 }
 const isCork = (code: number) => code >= 101 && code <= 107
 
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
+
+/**
+ * A route for a daisy chain from `from`, 6-14 cells long over open cells clear of mines it
+ * knows: away from `away` (the cell that ends furthest from it), else the longest run (down a
+ * corridor). Empty when there's no room.
+ */
+function chainRoute(sim: ArenaSim, p: Player, b: Brain, from: [number, number], away: { x: number; z: number } | null): [number, number][] {
+  const { cols } = sim.map
+  const key = (c: number, r: number) => r * cols + c
+  const mined = sim.mines.filter((m) => m.state !== 2 && knowsMine(sim, p, b, m)).map((m) => cellOf(sim.map, m.pos.x, m.pos.z))
+  const prev = new Map<number, number>([[key(...from), -1]])
+  const steps = new Map<number, number>([[key(...from), 0]])
+  const q: [number, number][] = [from]
+  let best: [number, number] | null = null
+  let bestV = -Infinity
+  for (let h = 0; h < q.length && h < 600; h++) {
+    const [c, r] = q[h]
+    const n = steps.get(key(c, r))!
+    if (n >= 6) {
+      const at = cellPos(sim.map, c, r)
+      const v = away ? Math.hypot(at.x - away.x, at.z - away.z) : n
+      if (v > bestV) (bestV = v), (best = [c, r])
+    }
+    if (n >= 14) continue
+    for (const [dx, dy] of DIRS) {
+      const nc = c + dx, nr = r + dy
+      if (!open(sim, nc, nr) || prev.has(key(nc, nr)) || mined.some(([mc, mr]) => Math.abs(mc - nc) <= 1 && Math.abs(mr - nr) <= 1)) continue
+      prev.set(key(nc, nr), key(c, r))
+      steps.set(key(nc, nr), n + 1)
+      q.push([nc, nr])
+    }
+  }
+  if (!best) return []
+  const out: [number, number][] = []
+  for (let k = key(...best); k !== key(...from); k = prev.get(k)!) out.push([k % cols, (k / cols) | 0])
+  return out.reverse()
+}
+
+/**
+ * A fence round a tight spot: along each way out of `home` (following the corridor), the first
+ * cell out of reach of a blast there; the route out to each and back. Null unless every way
+ * out gets one (an unfenced way in is no fence).
+ */
+function fenceRoute(sim: ArenaSim, home: [number, number], reach: number): { route: [number, number][]; drops: [number, number][] } | null {
+  const hp = cellPos(sim.map, ...home)
+  const route: [number, number][] = []
+  const drops: [number, number][] = []
+  for (const [dx, dy] of DIRS) {
+    if (!open(sim, home[0] + dx, home[1] + dy)) continue
+    const spoke: [number, number][] = []
+    let cur: [number, number] = home
+    let dir: readonly [number, number] = [dx, dy]
+    for (let i = 0; i < 6; i++) {
+      // straight on where it can, else round the corridor's turn (never back)
+      const turns = [dir, ...DIRS.filter(([x, y]) => (x !== dir[0] || y !== dir[1]) && (x !== -dir[0] || y !== -dir[1]))]
+      const d = turns.find(([x, y]) => open(sim, cur[0] + x, cur[1] + y) && !spoke.some(([c, r]) => c === cur[0] + x && r === cur[1] + y) && (cur[0] + x !== home[0] || cur[1] + y !== home[1]))
+      if (!d) break
+      dir = d
+      cur = [cur[0] + d[0], cur[1] + d[1]]
+      spoke.push(cur)
+      const at = cellPos(sim.map, ...cur)
+      if (Math.hypot(at.x - hp.x, at.z - hp.z) > reach) break
+    }
+    const end = spoke[spoke.length - 1]
+    if (!end) return null
+    const at = cellPos(sim.map, ...end)
+    if (Math.hypot(at.x - hp.x, at.z - hp.z) <= reach) return null
+    drops.push(end)
+    route.push(...spoke, ...spoke.slice(0, -1).reverse(), home)
+  }
+  return drops.length ? { route, drops } : null
+}
+
+/** start a run of mines (see Lay) on `route`; false when it's too short to be worth it */
+function layPlan(sim: ArenaSim, b: Brain, kind: Lay['kind'], route: [number, number][], drops: [number, number][], left: number) {
+  if (route.length < (kind === 'chain' ? 5 : 2)) return false
+  const home = route[route.length - 1]
+  // (about 22 frames a cell, and some slack for dodging)
+  b.lay = { kind, route, drops, last: null, left, until: sim.tick + route.length * 30 + 90, home }
+  b.path = route.slice()
+  b.goal = home
+  b.repathAt = b.lay.until
+  return true
+}
+
+/** laying a run of mines: a mine whenever it's time (every frame: the spacing has to hold) */
+function layStep(sim: ArenaSim, p: Player, b: Brain, friends: ATank[]) {
+  const t = p.tank
+  const L = b.lay!
+  const st = sim.stats(t)
+  const own = sim.mines.filter((m) => m.owner === t && m.state !== 2).length
+  // (it drives on to the route's end after the last mine, clear of the chain behind it)
+  if (sim.tick > L.until || !b.path.length) {
+    // a fence done: sit behind it while it's there (the mines go off by themselves in ~10 s)
+    if (L.kind === 'fence' && !L.drops.length) b.fort = { home: L.home, until: sim.tick + 360 }
+    b.lay = null
+    b.repathAt = 0
+    return
+  }
+  if (L.left <= 0 || own >= st.maxMines || t.pc.mineTimer > 0 || friends.some((f) => Math.hypot(f.pos.x - t.pos.x, f.pos.z - t.pos.z) < MINE.blastMax + 30)) return
+  const near = (gap: number) => sim.mines.some((m) => m.state !== 2 && Math.hypot(m.pos.x - t.pos.x, m.pos.z - t.pos.z) < gap)
+  if (L.kind === 'chain') {
+    if (L.last && Math.hypot(t.pos.x - L.last.x, t.pos.z - L.last.z) < CHAIN.min) return
+    if (near(CHAIN.min - 6)) return
+  } else {
+    const d = L.drops[0]
+    if (!d) return
+    const at = cellPos(sim.map, ...d)
+    if (Math.hypot(t.pos.x - at.x, t.pos.z - at.z) > 14 || near(60)) return
+    L.drops.shift()
+  }
+  p.wantMine = true
+  L.last = { x: t.pos.x, z: t.pos.z }
+  L.left--
+}
+
 /**
  * When to lay a mine or a nuke, and which mine to shoot (every 12 frames). A mine goes down
  * only with a reason, never with a teammate in reach of the blast or another mine close by.
@@ -636,17 +805,26 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   const t = p.tank
   const now = sim.tick
   const dist = (o: { pos: { x: number; z: number } }) => Math.hypot(o.pos.x - t.pos.x, o.pos.z - t.pos.z)
-  // ---- a mine worth shooting: an enemy right next to it, us (and teammates) well clear
+  // ---- a mine worth shooting: an enemy next to it, or next to any mine its blast sets off
+  // down a chain (a daisy chain goes off end to end: fire into the near end and the far one
+  // gets the enemy), with us and teammates well clear of every one of them
   b.shootMine = null
-  for (const m of sim.mines) {
-    if (m.state === 2 || (!m.armed && !m.nuke) || !knowsMine(sim, p, b, m)) continue
-    const reach = m.blastMax + TANK.mineRadius
-    const d = dist(m)
-    if (d < reach + 40 || d > 520) continue
-    if (friends.some((f) => Math.hypot(f.pos.x - m.pos.x, f.pos.z - m.pos.z) < reach + 20)) continue
-    if (!enemies.some((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) < reach - 6)) continue
-    if (!clearLine(sim, t.pos.x, t.pos.z, m.pos.x, m.pos.z)) continue
-    b.shootMine = m
+  const live = sim.mines.filter((m) => m.state !== 2 && !m.nuke && knowsMine(sim, p, b, m))
+  const group = live.map((_, i) => i)
+  const root = (i: number): number => (group[i] === i ? i : (group[i] = root(group[i])))
+  for (let i = 0; i < live.length; i++)
+    for (let j = i + 1; j < live.length; j++)
+      if (Math.hypot(live[i].pos.x - live[j].pos.x, live[i].pos.z - live[j].pos.z) <= Math.min(live[i].blastMax, live[j].blastMax) + MINE.bodyRadius - 4) group[root(i)] = root(j)
+  const chains = new Map<number, AMine[]>()
+  live.forEach((m, i) => chains.set(root(i), [...(chains.get(root(i)) ?? []), m]))
+  for (const ms of chains.values()) {
+    const reach = (m: AMine) => m.blastMax + TANK.mineRadius
+    if (ms.some((m) => dist(m) < reach(m) + 40)) continue
+    if (ms.some((m) => friends.some((f) => Math.hypot(f.pos.x - m.pos.x, f.pos.z - m.pos.z) < reach(m) + 20))) continue
+    if (!ms.some((m) => enemies.some((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) < reach(m) - 6))) continue
+    const shot = ms.filter((m) => m.armed && dist(m) <= 520 && clearLine(sim, t.pos.x, t.pos.z, m.pos.x, m.pos.z)).sort((a, c) => dist(a) - dist(c))[0]
+    if (!shot) continue
+    b.shootMine = shot
     break
   }
   const st = sim.stats(t)
@@ -659,10 +837,15 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
     p.nukeAt = strike
     return
   }
-  const mine = sim.mines.filter((m) => m.owner === t && m.state !== 2).length < st.maxMines
+  // (busy laying a run of mines)
+  if (b.lay) return
+  const mineCount = sim.mines.filter((m) => m.owner === t && m.state !== 2).length
+  const mine = mineCount < st.maxMines
   if (!mine || !safe(MINE.blastMax) || sim.mines.some((m) => m.state !== 2 && dist(m) < 90)) return
-  // how keen this bot is on mines: its trait scales every chance below (at most a sure thing)
-  const keen = (chance: number) => Math.min(0.95, chance * b.tr.mines)
+  // how keen this bot is on mines: its trait scales every chance below (at most a sure thing),
+  // and the mine layer's ten make anyone keen
+  const yellow = t.power === 'yellow'
+  const keen = (chance: number) => Math.min(0.95, chance * b.tr.mines * (yellow ? 2.2 : 1))
   const lay = (flee: number) => {
     p.wantMine = true
     b.fleeUntil = now + flee
@@ -673,6 +856,42 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
   // corridor, a corner, a dead end) that a tank can't swerve around
   const hidden = hiddenCell(sim, c, r)
   const tight = sides(sim, c, r) >= 2
+  // ---- three or more to spare (the mine layer most of all): runs of mines (see Lay)
+  const spare = st.maxMines - mineCount
+  if (spare >= 3) {
+    const n = Math.min(spare, CHAIN.len)
+    // a Turtle resting in its nook fences it in
+    if (b.tr.roam && sim.tick < b.rest && tight && Math.random() < keen(0.3)) {
+      const f = fenceRoute(sim, [c, r], MINE.blastMax * mineScale(sim.level(t)) + TANK.mineRadius + 12)
+      if (f && f.drops.length <= spare && layPlan(sim, b, 'fence', f.route, f.drops, f.drops.length)) return
+    }
+    const chain = (away: { x: number; z: number } | null) => layPlan(sim, b, 'chain', chainRoute(sim, p, b, [c, r], away), [], n)
+    if (e) {
+      const d = dist(e)
+      const ux = (t.pos.x - e.pos.x) / (d || 1), uz = (t.pos.z - e.pos.z) / (d || 1)
+      const closing = -(e.vel.x * ux + e.vel.z * uz)
+      // chased, or coming at us out of sight: a chain behind us as we pull back (it follows
+      // us into it, and one going off takes the lot)
+      if (d < 280 && closing > 0.2 && Math.random() < keen(0.5) && chain(e.pos)) return
+      if (d < 460 && d > 140 && closing > 0.2 && tight && !clearLine(sim, t.pos.x, t.pos.z, e.pos.x, e.pos.z) && Math.random() < keen(0.35) && chain(e.pos)) return
+    }
+    // outnumbered and backing off: the same, away from them
+    if (b.fleeFrom && sim.tick < b.fleeUntil && Math.random() < keen(0.4) && chain(b.fleeFrom)) return
+    // nothing close yet, but a fight about: dig in. In a tight spot, a fence on every way in
+    // (then it sits behind it); in a corridor, a chain down it
+    const about = enemies.some((o) => dist(o) < 900) && !enemies.some((o) => dist(o) < 220)
+    if (about && tight && Math.random() < keen(0.07)) {
+      const f = fenceRoute(sim, [c, r], MINE.blastMax * mineScale(sim.level(t)) + TANK.mineRadius + 12)
+      if (f && f.drops.length <= spare && layPlan(sim, b, 'fence', f.route, f.drops, f.drops.length)) return
+      if (sides(sim, c, r) === 2 && chain(null)) return
+    }
+    // the mine layer doesn't wait for a reason: ten mines are for laying. Chains away from the
+    // nearest enemy (the way it would come after us), keeping a few back for fights
+    if (yellow && spare >= 5 && Math.random() < 0.12 * b.tr.mines) {
+      const o = enemies.reduce<ATank | null>((a, x) => (!a || dist(x) < dist(a) ? x : a), null)
+      if (o && dist(o) < 1100 && chain(o.pos)) return
+    }
+  }
   // ---- a trap: an enemy in a pocket whose only way out is through us; shut it in and leave
   for (const o of enemies) {
     if (dist(o) > 260) continue
@@ -680,12 +899,11 @@ function mineSense(sim: ArenaSim, p: Player, b: Brain, enemies: ATank[], friends
     if ((oc[0] !== c || oc[1] !== r) && trapped(sim, oc, [c, r]) && Math.random() < keen(0.6)) return lay(80)
   }
   // ---- planting: with no fight on, a mine left in a hidden or tight spot for whoever comes by
-  // (only the first: the rest are kept for fights)
-  const mineCount = sim.mines.filter((m) => m.owner === t && m.state !== 2).length
+  // (only the first: the rest are kept for fights; the mine layer keeps three)
   // (a Trapper plants in any corridor too, and lets a fight come closer first)
   const spot = tight && (hidden || sides(sim, c, r) >= 3 || !!b.tr.nooks)
   const calm = !enemies.some((o) => dist(o) < (b.tr.nooks ? 200 : 300))
-  if (calm && spot && mineCount < (b.tr.nooks ? st.maxMines : 1) && Math.random() < keen(0.08)) return lay(60)
+  if (calm && spot && mineCount < (yellow ? st.maxMines - 3 : b.tr.nooks ? st.maxMines : 1) && Math.random() < keen(0.08)) return lay(60)
   if (e) {
     const d = dist(e)
     const ux = (t.pos.x - e.pos.x) / (d || 1), uz = (t.pos.z - e.pos.z) / (d || 1)

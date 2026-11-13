@@ -637,14 +637,14 @@ export class ArenaSession implements Session {
       const near = n && Math.hypot(n[1] - f[1], n[2] - f[2]) < 40
       return { id: f[0], x: near ? lerp(f[1], n![1]) : f[1], z: near ? lerp(f[2], n![2]) : f[2], vx: near ? n![3] : f[3], vz: near ? n![4] : f[4] }
     })
-    // a nuke is drawn as a big mine falling from the sky (smoothly between snapshots: when it
+    // a nuke is drawn as a bomb falling from the sky (smoothly between snapshots: when it
     // lands is fixed the first time it's seen)
     const now = performance.now()
     const lands = new Map<number, number>()
     for (const m of A.M) if (m[4]) lands.set(m[0], this.nukeLands.get(m[0]) ?? now + (m[5] / 60) * 1000)
     this.nukeLands = lands
     const left = (id: number) => Math.max(0, Math.min(1, (lands.get(id)! - now) / ((NUKE.fall / 60) * 1000)))
-    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaScale: m[4] ? NUKE_SCALE : (m[6] ?? 100) / 100, arenaY: m[4] ? NUKE_DROP_HEIGHT * (1 - (1 - left(m[0])) ** 2) : 0 }) as unknown as Mine)
+    w.mines = A.M.map((m) => ({ id: m[0], pos: v3(m[1], 0, m[2]), fuseLit: !!m[3], arenaNuke: !!m[4], arenaScale: m[4] ? NUKE_SCALE : (m[6] ?? 100) / 100, arenaY: m[4] ? NUKE_DROP_HEIGHT * (1 - (1 - left(m[0])) ** 2) : 0 }) as unknown as Mine)
     this.nukes = A.M.filter((m) => m[4]).map((m) => ({ id: m[0], x: m[1], z: m[2], r: m[4], left: left(m[0]) }))
     w.explosions = []
     w.checkMarks = this.marks.map((m) => ({ id: m.id, pos: v3(m.x, 0.2, m.z), color: m.color }) as unknown as World['checkMarks'][number])

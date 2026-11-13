@@ -294,3 +294,44 @@ export const PERSONA_INFO: Record<Persona, { name: string; text: string; names: 
 export const BOT_NAMES = PERSONAS.flatMap((k) => PERSONA_INFO[k].names)
 /** a bot's personality, from its name (a name not on the lists: a brawler) */
 export const personaOf = (name: string): Persona => PERSONAS.find((k) => PERSONA_INFO[k].names.includes(name)) ?? 'brawler'
+
+/**
+ * Each bot is its own character on top of its personality, fixed by its name (so Sarge always
+ * plays like Sarge): `react` frames before it notices a shell or a target in sight (the
+ * personality sets the range: Brawlers are quick, Turtles and Snipers slower), `turn` how fast
+ * its aim swings over (x the human pace), `keys` frames to change the keys it holds, `nerve`
+ * how jumpy it is under fire (flares sooner, gives ground sooner: 0.6-1.4), and `spread` a
+ * 0.8-1.2 factor on each of its personality's numbers (bot.ts TRAITS, in their order).
+ * `label` is the one word that sets it apart, for the spectate card and the scores.
+ */
+export type Temper = { react: number; turn: number; keys: number; nerve: number; spread: number[]; label: string }
+const PERSONA_REACT: Record<Persona, [number, number]> = { brawler: [10, 18], sniper: [17, 28], trapper: [13, 24], scavenger: [11, 22], turtle: [19, 30] }
+const PERSONA_TURN: Record<Persona, number> = { brawler: 1.15, sniper: 0.85, trapper: 1, scavenger: 1.05, turtle: 0.9 }
+const tempers = new Map<string, Temper>()
+export function temperOf(name: string): Temper {
+  let t = tempers.get(name)
+  if (t) return t
+  // a small seeded generator from the name (FNV-1a, then mulberry32)
+  let h = 2166136261
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619)
+  const rnd = () => {
+    h = (h + 0x6d2b79f5) | 0
+    let x = Math.imul(h ^ (h >>> 15), 1 | h)
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296
+  }
+  const k = personaOf(name)
+  const [r0, r1] = PERSONA_REACT[k]
+  const q = { react: rnd(), turn: rnd(), keys: rnd(), nerve: rnd() }
+  const spread = Array.from({ length: 10 }, () => 0.8 + 0.4 * rnd())
+  // the word for whichever of its quirks stands out most
+  const words: [number, string][] = [
+    [q.react, 'slow to react'], [1 - q.react, 'quick'],
+    [q.turn, 'snappy aim'], [1 - q.turn, 'deliberate'],
+    [q.nerve, 'jumpy'], [1 - q.nerve, 'cool-headed'],
+  ]
+  const label = words.reduce((a, b) => (b[0] > a[0] ? b : a))[1]
+  t = { react: Math.round(r0 + (r1 - r0) * q.react), turn: PERSONA_TURN[k] * (0.85 + 0.3 * q.turn), keys: Math.round(4 + 7 * q.keys), nerve: 0.6 + 0.8 * q.nerve, spread, label }
+  tempers.set(name, t)
+  return t
+}
