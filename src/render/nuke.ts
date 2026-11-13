@@ -1,13 +1,15 @@
 // The arena's airstrike nuke: a Fat Man style bomb (a fat egg-shaped casing with a bolted
 // band round its middle, a nose plate with impact fuzes, and a box tail of fins and braces),
-// built from three.js primitives. The scene is unlit (GX colours: see models.ts), so the
-// shading is baked into vertex colours with a fixed light from the upper left, the way the
-// disc's models carry theirs. It falls tilted, nose first, so the camera above sees it side on.
+// built from three.js primitives. The scene is unlit (GX colours: see models.ts), so it shades
+// itself: its material lights the paint (vertex colours) from a fixed light at the upper left,
+// in world space, so the light stays put as it turns. It falls tilted, nose first, so the
+// camera above sees it side on, spinning about its own axis and tumbling a little.
 //
 // Units: the mine model's (a mine is about 17 across); the nose tip sits on the group's origin,
 // so the group's y is the height of the tip above the floor.
 
 import * as THREE from 'three/webgpu'
+import { attribute, dot, float, max, min, normalWorld, pow, uniform, vec3, vec4 } from 'three/tsl'
 
 /** the casing's colours: olive drab with black seams and a red stripe toward the tail (raw:
  * the renderer does no colour management) */
@@ -18,33 +20,43 @@ const LIGHT = new THREE.Vector3(-0.45, 0.8, 0.4).normalize()
 let geometry: THREE.BufferGeometry | null = null
 let material: THREE.MeshBasicNodeMaterial | null = null
 
-/** the tilt it falls at: the tail leans away from the camera (which looks down from the south)
- * and a little to the left, so the view sees it side on, nose toward the bottom of the screen */
-const TILTED = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(-0.8, 0, 0.35, 'ZXY'))
+/**
+ * How it falls: tilted (`tilt`, radians: the tail leans away from the camera, which looks down
+ * from the south, and a little to the left, so the view sees it side on, nose toward the bottom
+ * of the screen), spinning about its own axis (`spin`, radians a second) and tumbling a little
+ * either way (`tumble` radians, at `rate` and a bit more, radians a second).
+ */
+const FALL = { tilt: new THREE.Euler(-0.8, 0, 0.35, 'ZXY'), spin: 2.6, tumble: 0.14, rate: 3.1 }
+/** the half-way vector for the sheen (the camera above and to the south) */
+const HALF = new THREE.Vector3(0, 0.55, 1).normalize().add(LIGHT).normalize()
 
-/** one part: placed (`at`, then tilted), coloured and lit (Lambert, a little ambient, a sheen) */
+/** one part: placed (`at`), painted, and how much it shines */
 function part(geo: THREE.BufferGeometry, rgb: readonly number[], at: THREE.Matrix4, shine = 0.25) {
-  const g = (geo.index ? geo.toNonIndexed() : geo).applyMatrix4(TILTED.clone().multiply(at))
+  const g = (geo.index ? geo.toNonIndexed() : geo).applyMatrix4(at)
   g.deleteAttribute('uv')
-  const n = g.getAttribute('normal')
-  const cols = new Float32Array(n.count * 3)
-  const v = new THREE.Vector3()
-  const half = new THREE.Vector3(0, 0.55, 1).normalize().add(LIGHT).normalize()
-  for (let i = 0; i < n.count; i++) {
-    v.fromBufferAttribute(n, i)
-    const lam = Math.max(0, v.dot(LIGHT))
-    const spec = Math.max(0, v.dot(half)) ** 24 * shine
-    const k = 0.42 + 0.7 * lam
-    for (let c = 0; c < 3; c++) cols[i * 3 + c] = Math.min(1, rgb[c] * k + spec)
-  }
+  const n = g.getAttribute('position').count
+  const cols = new Float32Array(n * 3)
+  for (let i = 0; i < n; i++) cols.set(rgb, i * 3)
   g.setAttribute('color', new THREE.BufferAttribute(cols, 3))
+  g.setAttribute('shine', new THREE.BufferAttribute(new Float32Array(n).fill(shine), 1))
   return g
+}
+
+/** the paint lit in world space: Lambert from LIGHT, a little ambient, a sheen */
+function shaded() {
+  // (the paint is read here: vertexColors would multiply it in a second time)
+  const m = new THREE.MeshBasicNodeMaterial()
+  const n = normalWorld.normalize()
+  const lam = max(dot(n, uniform(LIGHT)), float(0))
+  const spec = pow(max(dot(n, uniform(HALF)), float(0)), float(24)).mul(attribute('shine', 'float'))
+  m.colorNode = vec4(min(attribute('color', 'vec3').mul(lam.mul(0.7).add(0.42)).add(spec), vec3(1)), 1)
+  return m
 }
 
 function build() {
   const M = (x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
     new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz))
-  // built along +y with the nose at the origin (part() tilts each piece)
+  // built along +y with the nose at the origin
   const R = 9
   const bodyH = 23
   const mid = bodyH / 2
@@ -100,37 +112,40 @@ function build() {
 function merge(parts: THREE.BufferGeometry[]) {
   let n = 0
   for (const g of parts) n += g.getAttribute('position').count
-  const pos = new Float32Array(n * 3)
-  const col = new Float32Array(n * 3)
-  let o = 0
-  for (const g of parts) {
-    pos.set(g.getAttribute('position').array as Float32Array, o * 3)
-    col.set(g.getAttribute('color').array as Float32Array, o * 3)
-    o += g.getAttribute('position').count
-    g.dispose()
-  }
   const out = new THREE.BufferGeometry()
-  out.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-  out.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  for (const [name, size] of [['position', 3], ['normal', 3], ['color', 3], ['shine', 1]] as const) {
+    const a = new Float32Array(n * size)
+    let o = 0
+    for (const g of parts) {
+      a.set(g.getAttribute(name).array as Float32Array, o * size)
+      o += g.getAttribute('position').count
+    }
+    out.setAttribute(name, new THREE.BufferAttribute(a, size))
+  }
+  for (const g of parts) g.dispose()
   out.computeBoundingSphere()
   return out
 }
 
-/** a falling nuke (the geometry and material are shared by every one) */
+/** a falling nuke (the geometry and material are shared by every one): the group, a tilt
+ * about its nose, and the bomb spinning in it */
 export function nukeModel(): THREE.Object3D {
   geometry ??= build()
-  material ??= new THREE.MeshBasicNodeMaterial({ vertexColors: true })
+  material ??= shaded()
   const g = new THREE.Group()
+  const tilt = new THREE.Group()
   const mesh = new THREE.Mesh(geometry, material)
-  g.add(mesh)
-  g.userData.nuke = mesh
+  tilt.add(mesh)
+  g.add(tilt)
+  g.userData.nuke = { tilt, mesh }
   return g
 }
 
-/** sway it a little as it falls (`t` seconds) */
+/** spin and tumble it as it falls (`t` seconds) */
 export function swayNuke(o: THREE.Object3D, t: number) {
-  const m = o.userData.nuke as THREE.Mesh | undefined
-  if (!m) return
-  m.rotation.z = Math.sin(t * 5.3) * 0.05
-  m.rotation.x = Math.sin(t * 3.7) * 0.04
+  const n = o.userData.nuke as { tilt: THREE.Object3D; mesh: THREE.Mesh } | undefined
+  if (!n) return
+  const { tilt, spin, tumble, rate } = FALL
+  n.tilt.rotation.set(tilt.x + Math.sin(t * rate) * tumble, 0, tilt.z + Math.sin(t * rate * 1.37 + 1) * tumble, 'ZXY')
+  n.mesh.rotation.y = t * spin
 }
