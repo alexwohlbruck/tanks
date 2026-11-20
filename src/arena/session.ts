@@ -19,6 +19,7 @@ import { generateMap, type ArenaMap } from './map'
 import { ARENA_PROTO, TF_ALIVE, TF_LEVEL_SHIFT, TF_POWER_SHIFT, TF_PROTECT, TF_SHIELD, TF_STEALTH, type Board, type C2S, type NetEv, type S2C, type YouRec } from './protocol'
 import { EMOTE_TICKS, RECOIL, ITEM_INFO, NUKE, PICKUP_INFO, PICKUP_KINDS, PICKUP_TYPE, powerStats, TEAM_COLORS, TEAM_NAMES, isItem, isTeamMode, type AnyPickup, type ArenaMode, type ArenaSize, type MapTheme, type PickupKind } from './rules'
 import { paramsFor } from '../sim/stats'
+import { TankSound } from '../sim/tank'
 import type { BaseModel } from '../render/registry'
 import { tankIcon } from '../ui/web/art'
 import { collect, progress, reach, unlock } from '../ui/shared/achievements'
@@ -91,6 +92,8 @@ export class ArenaSession implements Session {
   private free: Tank[] = []
   private names = new Map<number, { name: string; team: number; color: string }>()
   private treadOdo = new Map<Tank, { x: number; z: number; d: number }>()
+  /** each tank's tread clatter (RPTnkTankSound), driven by how far it moved this frame */
+  private treadSnd = new Map<Tank, TankSound>()
   private marks: { id: number; x: number; z: number; color: number }[] = []
   private markId = 1
   private pickups: { id: number; x: number; z: number; kind: AnyPickup }[] = []
@@ -681,10 +684,14 @@ export class ArenaSession implements Session {
   /** tread marks every 10 units of travel (RPTnkTank::DrawTreadMark) */
   private tread(t: Tank) {
     const o = this.treadOdo.get(t)
-    if (!o) return void this.treadOdo.set(t, { x: t.pos.x, z: t.pos.z, d: 0 })
+    if (!o) {
+      this.treadSnd.get(t)?.clear()
+      return void this.treadOdo.set(t, { x: t.pos.x, z: t.pos.z, d: 0 })
+    }
     const dx = t.pos.x - o.x, dz = t.pos.z - o.z
     const d = Math.hypot(dx, dz)
     if (d > 60) return void this.treadOdo.set(t, { x: t.pos.x, z: t.pos.z, d: 0 })
+    this.treadSound(t, d)
     o.d += d
     o.x = t.pos.x
     o.z = t.pos.z
@@ -692,6 +699,17 @@ export class ArenaSession implements Session {
       o.d -= 10
       this.view.onEvents([{ t: 'tread', tank: t, pos: v3(t.pos.x - (dx / d) * 4, 0, t.pos.z - (dz / d) * 4), dir: v3(-dx / d, 0, -dz / d) }])
     }
+  }
+
+  /** the tread clatter: the own tank's 1P sound, everyone else's 2P one, quieter the
+   * farther away they are (see sound) */
+  private treadSound(t: Tank, d: number) {
+    let ts = this.treadSnd.get(t)
+    if (!ts) this.treadSnd.set(t, (ts = new TankSound()))
+    const own = t === this.world?.playerTanks[0]
+    ts.treadIndex = own ? 0 : 1
+    const name = ts.update(Math.min(1, d / paramsFor(0).speed))
+    if (name) this.sound(name, t.pos.x, t.pos.z, own ? 0.8 : 1)
   }
 
   get pickupList() {
