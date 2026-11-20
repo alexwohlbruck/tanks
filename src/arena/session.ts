@@ -876,6 +876,10 @@ export class ArenaSession implements Session {
         case 'match':
           // (the end-of-match music starts with the board that names the winner)
           if (e[1] === 'over') this.audio.stopMusic(0.3)
+          if (e[1] === 'sudden') {
+            this.banner = { text: 'Sudden death! The next point wins', until: performance.now() + 3000 }
+            this.audio.play('RP_TNK_SE_MISSION_BONUS')
+          }
           break
       }
     }

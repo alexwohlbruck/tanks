@@ -503,8 +503,8 @@ class ArenaScreen implements Screen {
     const b = s.board
     const you = s.you
     if (b) {
-      this.set('timer', `<span>${b.state === 'over' ? 'Match over' : b.roundOver ? `Next round ${b.secs}` : fmt(b.secs)}</span>`)
-      this.els.timer.classList.toggle('hurry', b.state === 'play' && !b.roundOver && b.secs <= 30)
+      this.set('timer', `<span>${b.state === 'over' ? 'Match over' : b.roundOver ? `Next round ${b.secs}` : b.sudden ? `Sudden death ${fmt(b.secs)}` : fmt(b.secs)}</span>`)
+      this.els.timer.classList.toggle('hurry', b.state === 'play' && !b.roundOver && (b.sudden || b.secs <= 30))
       this.set('score', this.scoreHtml(b, s))
       this.set('board', this.boardHtml(b, s))
       const sheet = b.state === 'over' || this.sheetHeld

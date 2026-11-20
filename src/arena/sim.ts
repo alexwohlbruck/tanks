@@ -18,6 +18,7 @@ import {
   GHOST,
   INTERMISSION_TICKS,
   MATCH_TICKS,
+  SUDDEN_TICKS,
   PICKUP_KINDS,
   PICKUP_RADIUS,
   PICKUP_RESPAWN,
@@ -338,7 +339,7 @@ export type ArenaEvent =
   | { t: 'break'; c: number; r: number; h: number }
   | { t: 'pickup'; tank: number; kind: AnyPickup; x: number; z: number }
   | { t: 'spawn'; tank: number; x: number; z: number }
-  | { t: 'match'; state: 'play' | 'over' }
+  | { t: 'match'; state: 'play' | 'over' | 'sudden' }
   /** Elimination: round `n` starts (team -1), or was won by `team` (-1: nobody) */
   | { t: 'round'; n: number; team: number; start: boolean }
 
@@ -360,6 +361,8 @@ export class ArenaSim {
   phaseEnd = 0
   teamScore = [0, 0]
   winner: { name: string; color: string } | null = null
+  /** in sudden death: the time ran out with the lead tied, the next point decides it */
+  sudden = false
   /** the players who won the last match (the winning team, or the top scorer) */
   winners: Player[] = []
   /** next map: the themes on the ballot during the intermission, and the votes by pid */
@@ -404,6 +407,7 @@ export class ArenaSim {
     this.broken = []
     this.teamScore = [0, 0]
     this.winner = null
+    this.sudden = false
     this.state = 'play'
     this.phaseEnd = this.tick + MATCH_TICKS
     this.pickupAt = this.tick + 60
@@ -1201,10 +1205,13 @@ export class ArenaSim {
   private checkEnd() {
     if (this.mode === 'royale') return this.checkRoyale()
     if (this.mode === 'elim') return this.checkElim()
-    let done = this.tick >= this.phaseEnd
-    if (this.mode === 'teams') done ||= this.teamScore.some((s) => s >= SIZES[this.size].teamLimit)
+    const tied = this.mode === 'teams' ? this.teamScore[0] === this.teamScore[1] : this.tiedLead(this.players)
+    const out = this.tick >= this.phaseEnd
+    let done = out
+    if (this.sudden) done ||= !tied
+    else if (this.mode === 'teams') done ||= this.teamScore.some((s) => s >= SIZES[this.size].teamLimit)
     else done ||= this.players.some((p) => p.score >= SIZES[this.size].ffaLimit)
-    if (!done) return
+    if (!done || (out && tied && this.goSudden())) return
     if (this.mode === 'teams') this.finishTeams()
     else this.finishPlayer([...this.players].sort((a, b) => b.score - a.score || a.deaths - b.deaths)[0])
   }
@@ -1213,7 +1220,11 @@ export class ArenaSim {
   private checkRoyale() {
     const alive = this.players.filter((p) => p.tank.alive)
     const out = this.tick >= this.phaseEnd
-    if (!out && (alive.length > 1 || this.players.length < 2)) return
+    const tied = this.tiedLead(alive)
+    const lastOne = alive.length <= 1 && this.players.length >= 2
+    if (!out && !lastOne && !(this.sudden && !tied)) return
+    // the time ran out with the tanks left level on score: sudden death
+    if (out && tied && this.goSudden()) return
     const best = (l: Player[]) => [...l].sort((a, b) => b.score - a.score || a.deaths - b.deaths)[0]
     // nobody left (the last two went at once): nobody wins
     this.finishPlayer(alive.length ? best(alive) : undefined)
@@ -1232,6 +1243,22 @@ export class ArenaSim {
     if (team >= 0) this.teamScore[team]++
     this.events.push({ t: 'round', n: this.round, team, start: false })
     this.roundOverAt = this.phaseEnd = this.tick + ELIM.between
+  }
+
+  /** the top two scores are level */
+  private tiedLead(l: Player[]) {
+    if (l.length < 2) return false
+    const [a, b] = l.map((p) => p.score).sort((x, y) => y - x)
+    return a === b
+  }
+
+  /** the time ran out on a tie: play on (once; false when sudden death is already over) */
+  private goSudden() {
+    if (this.sudden) return false
+    this.sudden = true
+    this.phaseEnd = this.tick + SUDDEN_TICKS
+    this.events.push({ t: 'match', state: 'sudden' })
+    return true
   }
 
   private finishTeams() {
