@@ -9,6 +9,10 @@
 //   - Teams (Blue vs Red): no friendly fire (shells pass teammates, their mines ignore you);
 //     every kill scores for the team; first team to its limit wins
 //   - otherwise the match ends after MATCH_TICKS; the best score wins
+//   - a tie for the lead at the time limit goes to sudden death: play on, and the match ends
+//     the moment the tie is broken (after SUDDEN_TICKS more it ends anyway: the fewest deaths
+//     among the leaders wins, or between teams it's a draw). Battle royale does the same when
+//     the tanks left are tied on score at its time limit
 //   - INTERMISSION_TICKS of results, then a new map
 //   - pickups around the map turn you into one of the disc's special tanks for a while, or
 //     give an item: a shield (takes one hit) or flares
@@ -58,6 +62,8 @@ export const sizeOf = (v: unknown): ArenaSize => ((ARENA_SIZES as unknown[]).inc
 
 export const MATCH_TICKS = 6 * 60 * 60
 export const INTERMISSION_TICKS = 12 * 60
+/** sudden death's own time limit */
+export const SUDDEN_TICKS = 2 * 60 * 60
 
 export const RESPAWN_TICKS = 3 * 60
 

@@ -128,6 +128,8 @@ export type Board = {
   state: 'play' | 'over'
   secs: number
   winner: { name: string; color: string } | null
+  /** the time ran out on a tie: the next point wins (secs counts down sudden death's own limit) */
+  sudden?: boolean
   /** minimap dots: [pid, x, z] (teammates always, enemies while they are firing) */
   mm: [number, number, number][]
   /** the current map's theme, and the ballot for the next one (intermission) */

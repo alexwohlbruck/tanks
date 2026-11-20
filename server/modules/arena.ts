@@ -322,6 +322,7 @@ class Arena {
       state: s.state,
       secs: s.secondsLeft,
       winner: s.winner,
+      sudden: s.sudden,
       mm,
       theme: s.map.theme,
       vote: s.state === 'over' && s.voteOptions.length ? { options: s.voteOptions, counts: s.voteOptions.map((o) => [...s.votes.values()].filter((v) => v === o).length), mine: (me && s.votes.get(me.pid)) || null } : null,
